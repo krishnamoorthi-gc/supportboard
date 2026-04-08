@@ -73,7 +73,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const [panes,setPanes]=useState([]); // secondary pane channel/dm IDs (max 2)
   const [paneInputs,setPaneInputs]=useState({});
   const openPane=(chId)=>{if(chId===activeCh||panes.includes(chId))return;setPanes(p=>p.length>=2?[p[1],chId]:[...p,chId]);
-    if(api.isConnected()&&!tcMsgs[chId]?.length)api.get(`/chat/messages/${chId}`).then(r=>{if(r?.data?.length)setTcMsgs(p=>({...p,[chId]:r.data.map(m=>({id:m.id,uid:m.author_id,text:m.text,t:m.timestamp||"",date:m.date_label||"Today",reactions:(m.reactions||[]).map(rx=>({emoji:rx.emoji,users:rx.user_ids||[]})),thread:m.thread||[],pinned:!!m.pinned,file:m.file_name?{name:m.file_name,size:m.file_size}:null}))}));}).catch(()=>{});};
+    if(api.isConnected()&&!tcMsgs[chId]?.length)api.get(`/chat/messages/${chId}`).then(r=>{if(r?.messages?.length)setTcMsgs(p=>({...p,[chId]:r.messages.map(m=>({id:m.id,uid:m.author_id,text:m.text,t:m.timestamp||"",date:m.date_label||"Today",reactions:(m.reactions||[]).map(rx=>({emoji:rx.emoji,users:rx.user_ids||[]})),thread:m.thread||[],pinned:!!m.pinned,file:m.file_name?{name:m.file_name,size:m.file_size}:null}))}));}).catch(()=>{});};
   const closePane=(chId)=>setPanes(p=>p.filter(x=>x!==chId));
   const paneSend=(chId)=>{const txt=(paneInputs[chId]||"").trim();if(!txt)return;setTcMsgs(p=>({...p,[chId]:[...(p[chId]||[]),{id:"tm"+uid(),uid:"a1",text:txt,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null}]}));setPaneInputs(p=>({...p,[chId]:""}));if(api.isConnected()){const isDm=chId.startsWith("dm");api.post("/chat/messages",{[isDm?"dm_id":"channel_id"]:chId,text:txt}).catch(()=>{});}};
   // Public channels auto-include all agents/members
@@ -147,8 +147,8 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // ═══ TEAM CHAT API LOADING ═══
   useEffect(()=>{
     if(!api.isConnected())return;
-    api.get("/chat/channels").then(r=>{if(r?.data?.length)setChannels(r.data.map(c=>({...c,unread:c.message_count||0,starred:c.members?.some(m=>m.agent_id==="a1"&&m.starred)||false,muted:c.members?.some(m=>m.agent_id==="a1"&&m.muted)||false})));}).catch(()=>{});
-    api.get("/chat/dms").then(r=>{if(r?.data?.length)setTcDms(r.data.map(d=>({id:d.id,agentId:d.agent1_id==="a1"?d.agent2_id:d.agent1_id,unread:0,starred:false})));}).catch(()=>{});
+    api.get("/chat/channels").then(r=>{if(r?.channels?.length)setChannels(r.channels.map(c=>({...c,unread:c.message_count||0,starred:c.members?.some(m=>m.agent_id==="a1"&&m.starred)||false,muted:c.members?.some(m=>m.agent_id==="a1"&&m.muted)||false})));}).catch(()=>{});
+    api.get("/chat/dms").then(r=>{if(r?.dms?.length)setTcDms(r.dms.map(d=>({id:d.id,agentId:d.agent1_id==="a1"?d.agent2_id:d.agent1_id,unread:0,starred:false})));}).catch(()=>{});
   },[]);
   // Load messages when switching channel
   const [tcMsgsLoading,setTcMsgsLoading]=useState(false);
@@ -157,7 +157,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     if(tcMsgs[activeCh]?.length>0)return; // Already loaded
     setTcMsgsLoading(true);
     api.get(`/chat/messages/${activeCh}`).then(r=>{
-      if(r?.data?.length)setTcMsgs(p=>({...p,[activeCh]:r.data.map(m=>({id:m.id,uid:m.author_id,text:m.text,t:m.timestamp||"",date:m.date_label||"Today",reactions:(m.reactions||[]).map(rx=>({emoji:rx.emoji,users:rx.user_ids||[]})),thread:m.thread||[],pinned:!!m.pinned,file:m.file_name?{name:m.file_name,size:m.file_size}:null}))}));
+      if(r?.messages?.length)setTcMsgs(p=>({...p,[activeCh]:r.messages.map(m=>({id:m.id,uid:m.author_id,text:m.text,t:m.timestamp||"",date:m.date_label||"Today",reactions:(m.reactions||[]).map(rx=>({emoji:rx.emoji,users:rx.user_ids||[]})),thread:m.thread||[],pinned:!!m.pinned,file:m.file_name?{name:m.file_name,size:m.file_size}:null}))}));
     }).catch(()=>{}).finally(()=>setTcMsgsLoading(false));
   },[activeCh]);
   // Keyboard shortcuts

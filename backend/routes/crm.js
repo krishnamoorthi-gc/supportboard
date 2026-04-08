@@ -70,6 +70,12 @@ router.get('/leads', auth, async (req, res) => {
   res.json({ leads });
 });
 
+router.get('/leads/:id', auth, async (req, res) => {
+  const l = await db.prepare('SELECT * FROM leads WHERE id=?').get(req.params.id);
+  if (!l) return res.status(404).json({ error: 'Not found' });
+  res.json({ lead: l });
+});
+
 router.post('/leads', auth, async (req, res) => {
   const { name, email, phone, company, source, status='New', score=50, value=0, owner_id, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
@@ -115,6 +121,12 @@ router.get('/tasks', auth, async (req, res) => {
   res.json({ tasks });
 });
 
+router.get('/tasks/:id', auth, async (req, res) => {
+  const t = await db.prepare('SELECT * FROM tasks WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  res.json({ task: t });
+});
+
 router.post('/tasks', auth, async (req, res) => {
   const { title, description, due_date, priority='medium', status='todo', assignee_id, related_type, related_id } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
@@ -150,6 +162,13 @@ router.get('/meetings', auth, async (req, res) => {
   const meetings = await db.prepare('SELECT * FROM meetings ORDER BY start_time DESC').all();
   for (const m of meetings) { try { m.attendees = JSON.parse(m.attendees||'[]'); } catch { m.attendees=[]; } }
   res.json({ meetings });
+});
+
+router.get('/meetings/:id', auth, async (req, res) => {
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Not found' });
+  try { m.attendees = JSON.parse(m.attendees||'[]'); } catch { m.attendees=[]; }
+  res.json({ meeting: m });
 });
 
 router.post('/meetings', auth, async (req, res) => {

@@ -13,13 +13,33 @@ export default function ReportsScr({convs,agents,labels,contacts,inboxes}){
   const genRptAi=async()=>{setRptAiLoad(true);try{const ctx=`Period: ${period}. Convs: ${convs.length}. Open: ${convs.filter(c=>c.status==="open").length}. Agents: ${agents.length}. Tab: ${rtab}. Channels: ${inboxes.map(i=>i.type).join(",")}.`;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:250,system:"You are a support analytics AI. Analyze the "+rtab+" report for period "+period+". Give 3-4 specific insights: trends, anomalies, recommendations. Use numbers. No markdown.",messages:[{role:"user",content:ctx}]})});const d=await r.json();setRptAi(d.content?.[0]?.text);}catch{setRptAi("• Conversation volume up 23% vs last period — WhatsApp driving 40% of growth\n• Average first reply time improved to 3.2 min (from 4.8 min) — AI auto-reply contributing\n• CSAT dipped to 4.3★ on email channel — investigate slow resolution times\n• Top performer: Dev Kumar (42 resolved, 4.8★ CSAT) — consider as team lead candidate");}setRptAiLoad(false);};
   const mult={"7D":1,"30D":4.3,"90D":12.9,"1Y":52}[period]||1;
 
-  // ── DATA GENERATION ──
+  // ── API STATE ──
+  const [apiOverview,setApiOverview]=useState(null);
+  const [apiAgentStats,setApiAgentStats]=useState(null);
+  const [apiChStats,setApiChStats]=useState(null);
+  const [apiSlaStats,setApiSlaStats]=useState(null);
+  const [apiLabelStats,setApiLabelStats]=useState(null);
+  useEffect(()=>{
+    if(!api.isConnected())return;
+    const p2=period.toLowerCase();
+    Promise.allSettled([
+      api.get(`/reports/overview?period=${p2}`).then(r=>{if(r?.overview)setApiOverview(r);}).catch(()=>{}),
+      api.get("/reports/agents").then(r=>{if(r?.agents)setApiAgentStats(r.agents);}).catch(()=>{}),
+      api.get("/reports/channels").then(r=>{if(r?.channels)setApiChStats(r.channels);}).catch(()=>{}),
+      api.get("/reports/sla").then(r=>{if(r?.sla)setApiSlaStats(r.sla);}).catch(()=>{}),
+      api.get("/reports/labels").then(r=>{if(r?.labels)setApiLabelStats(r.labels);}).catch(()=>{}),
+    ]);
+  },[period]);
+
+  // ── DATA (API when available, synthetic fallback) ──
   const days={"7D":["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],"30D":["W1","W2","W3","W4"],"90D":["Jan","Feb","Mar"],"1Y":["Q1","Q2","Q3","Q4"]}[period]||[];
   const seed=(i,base,range)=>Math.round((base+((i*37+13)%range))*mult/Math.max(days.length,1));
-  const trendData=days.map((d,i)=>({day:d,opened:seed(i,14,30),resolved:seed(i,11,28),pending:seed(i,3,8)}));
+  const trendData=apiOverview?.daily?.length
+    ?apiOverview.daily.map((d,i)=>({day:new Date(d.date+"T00:00:00").toLocaleDateString("en-GB",{weekday:"short"}).slice(0,3),opened:d.conversations,resolved:d.resolved,pending:Math.max(d.conversations-d.resolved,0)}))
+    :days.map((d,i)=>({day:d,opened:seed(i,14,30),resolved:seed(i,11,28),pending:seed(i,3,8)}));
   const maxTrend=Math.max(...trendData.map(d=>Math.max(d.opened,d.resolved)),1);
-  const total=Math.round(convs.length*mult);
-  const resolved=Math.round(total*0.68);
+  const total=apiOverview?.overview?.total??Math.round(convs.length*mult);
+  const resolved=apiOverview?.overview?.resolved??Math.round(total*0.68);
   const pending=Math.round(total*0.18);
   const unresolved=total-resolved-pending;
 
@@ -32,11 +52,21 @@ export default function ReportsScr({convs,agents,labels,contacts,inboxes}){
   }));
   const dayLabels=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   // SLA data
-  const slaTargets=[{name:"First Response",target:"< 5 min",met:87,c:C.a},{name:"Resolution Time",target:"< 4 hours",met:74,c:C.g},{name:"CSAT Score",target:"> 4.5★",met:92,c:C.p},{name:"Escalation Rate",target:"< 10%",met:95,c:C.cy}];
+  const slaTot=apiSlaStats?.total||1;
+  const slaTargets=[
+    {name:"First Response",target:"< 5 min",met:apiSlaStats?Math.round((apiSlaStats.compliant||0)/slaTot*100):87,c:C.a},
+    {name:"Resolution Time",target:"< 4 hours",met:apiSlaStats?Math.round((1-(apiSlaStats.atRisk||0)/slaTot)*100):74,c:C.g},
+    {name:"CSAT Score",target:"> 4.5★",met:92,c:C.p},
+    {name:"Escalation Rate",target:"< 10%",met:apiSlaStats?Math.round((1-(apiSlaStats.breached||0)/slaTot)*100):95,c:C.cy},
+  ];
   // Channel data
-  const chData=(inboxes||[]).slice(0,8).map((ib,i)=>({name:ib.name,type:ib.type,convs:Math.round(ib.convs*mult*0.7),resolved:Math.round(ib.convs*mult*0.48),avgReply:`${(1.5+i*0.8).toFixed(1)}m`,csat:(4.9-i*0.12).toFixed(1),color:chC(ib.type)}));
+  const chData=apiChStats?.length
+    ?apiChStats.map(s=>({name:s.inbox.name,type:s.inbox.type,convs:s.conversations,resolved:s.resolved,avgReply:s.avgResponseTime,csat:"—",color:chC(s.inbox.type)}))
+    :(inboxes||[]).slice(0,8).map((ib,i)=>({name:ib.name,type:ib.type,convs:Math.round((ib.convs||0)*mult*0.7),resolved:Math.round((ib.convs||0)*mult*0.48),avgReply:`${(1.5+i*0.8).toFixed(1)}m`,csat:(4.9-i*0.12).toFixed(1),color:chC(ib.type)}));
   // Agent leaderboard
-  const agentData=agents.map((a,i)=>({...a,resolved:Math.round((95-i*18)*mult/7),avgReply:`${(1.8+i*1.2).toFixed(1)}m`,csat:(4.9-i*0.1).toFixed(1),load:Math.round(78-i*12),conversations:Math.round((30-i*6)*mult/7),score:Math.round(96-i*5)}));
+  const agentData=apiAgentStats?.length
+    ?apiAgentStats.map(s=>({...s.agent,av:s.agent.avatar||s.agent.name?.slice(0,2)?.toUpperCase()||"?",resolved:s.resolved,avgReply:s.avgResponseTime,csat:s.csat,load:0,conversations:s.assigned,score:Math.min(100,Math.round((s.resolved||0)/Math.max(s.assigned||1,1)*100))}))
+    :agents.map((a,i)=>({...a,resolved:Math.round((95-i*18)*mult/7),avgReply:`${(1.8+i*1.2).toFixed(1)}m`,csat:(4.9-i*0.1).toFixed(1),load:Math.round(78-i*12),conversations:Math.round((30-i*6)*mult/7),score:Math.round(96-i*5)}));
   // CSAT breakdown
   const csatDist=[{r:5,pct:62,c:C.g},{r:4,pct:24,c:C.g},{r:3,pct:9,c:C.y},{r:2,pct:3,c:C.r},{r:1,pct:2,c:C.r}];
   const avgCsat=4.7;
@@ -222,7 +252,7 @@ export default function ReportsScr({convs,agents,labels,contacts,inboxes}){
           {/* Top Labels */}
           <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,padding:"18px"}}>
             <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:14}}>Top Labels</div>
-            {labels.map((l,i)=>{const count=Math.round((42-i*6)*mult/7);return(
+            {labels.map((l,i)=>{const apiL=apiLabelStats?.find(s=>s.label?.id===l.id||s.label?.title===l.title);const count=apiL?.count??Math.round((42-i*6)*mult/7);return(
               <div key={l.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
                 <Tag text={l.title} color={l.color}/>
                 <div style={{flex:1,height:6,background:C.bg,borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min((count/50)*100,100)}%`,height:"100%",background:l.color+"80",borderRadius:3}}/></div>

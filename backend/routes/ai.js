@@ -198,6 +198,13 @@ router.get('/agents', auth, (req, res) => {
   res.json({ agents: db.prepare('SELECT * FROM ai_agents ORDER BY name ASC').all() });
 });
 
+// GET /api/ai/agents/:id
+router.get('/agents/:id', auth, (req, res) => {
+  const agent = db.prepare('SELECT * FROM ai_agents WHERE id=?').get(req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Not found' });
+  res.json({ agent });
+});
+
 // POST /api/ai/agents
 router.post('/agents', auth, (req, res) => {
   const { name, description, system_prompt, tone, type='support' } = req.body;
@@ -207,6 +214,25 @@ router.post('/agents', auth, (req, res) => {
     id, name, description||null, system_prompt||null, tone||'professional', type
   );
   res.status(201).json({ agent: db.prepare('SELECT * FROM ai_agents WHERE id=?').get(id) });
+});
+
+// PATCH /api/ai/agents/:id
+router.patch('/agents/:id', auth, (req, res) => {
+  const agent = db.prepare('SELECT * FROM ai_agents WHERE id=?').get(req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Not found' });
+  const fields = ['name','description','system_prompt','tone','type'];
+  const updates = {};
+  for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
+  if (!Object.keys(updates).length) return res.json({ agent });
+  const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
+  db.prepare(`UPDATE ai_agents SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  res.json({ agent: db.prepare('SELECT * FROM ai_agents WHERE id=?').get(req.params.id) });
+});
+
+// DELETE /api/ai/agents/:id
+router.delete('/agents/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM ai_agents WHERE id=?').run(req.params.id);
+  res.json({ success: true });
 });
 
 // POST /api/ai/agents/:id/chat — multi-turn sales agent conversation

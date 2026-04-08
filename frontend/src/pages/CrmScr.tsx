@@ -6,23 +6,13 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   // ═══ DEALS ═══
   const STAGES=["Lead","Qualified","Proposal","Negotiation","Won","Lost"];
   const SC={Lead:C.t3,Qualified:C.a,Proposal:C.p,Negotiation:C.y,Won:C.g,Lost:C.r};
-  const [deals,setDeals]=useState([
-    {id:"d1",name:"TechCorp Enterprise Plan",company:"TechCorp",value:48000,stage:"Negotiation",probability:75,owner:"Priya",closeDate:"15/04/26",created:"01/03/26",notes:"Annual contract, needs security review. Budget approved by VP.",contact:"Arjun Mehta",product:"Enterprise",activities:[{type:"call",date:"Today",note:"Pricing discussion, sending final proposal"},{type:"email",date:"Yesterday",note:"Sent security compliance docs"},{type:"meeting",date:"20/03/26",note:"45min demo with IT team"}]},
-    {id:"d2",name:"StartupXYZ Pro Upgrade",company:"StartupXYZ",value:12000,stage:"Proposal",probability:50,owner:"Dev",closeDate:"20/04/26",created:"10/03/26",notes:"Currently on Starter, wants Pro for AI features.",contact:"Meera Krishnan",product:"Pro",activities:[{type:"email",date:"Yesterday",note:"Sent Pro vs Enterprise comparison"},{type:"call",date:"18/03/26",note:"Requirements gathering call"}]},
-    {id:"d3",name:"GlobalRetail Multi-Brand",company:"GlobalRetail",value:96000,stage:"Lead",probability:15,owner:"Meena",closeDate:"30/05/26",created:"15/03/26",notes:"Large retail chain, 500+ stores. Needs multi-brand + multi-language.",contact:"David Chen",product:"Enterprise",activities:[{type:"note",date:"15/03/26",note:"Inbound inquiry from website contact form"}]},
-    {id:"d4",name:"FinanceHub Compliance Add-on",company:"FinanceHub",value:24000,stage:"Qualified",probability:40,owner:"Priya",closeDate:"25/04/26",created:"05/03/26",notes:"Needs HIPAA compliance, audit logs, data residency. Legal review pending.",contact:"Fatima Al-Rashid",product:"Enterprise",activities:[{type:"email",date:"24/03/26",note:"Sent compliance datasheet"},{type:"call",date:"20/03/26",note:"Compliance requirements deep-dive"}]},
-    {id:"d5",name:"EduConnect Starter",company:"EduConnect",value:6000,stage:"Won",probability:100,owner:"Dev",closeDate:"10/03/26",created:"20/02/26",notes:"Signed! 14-day trial converted. Very happy with onboarding.",contact:"Priya Nair",product:"Starter",activities:[{type:"call",date:"10/03/26",note:"Contract signed, onboarding kickoff"},{type:"meeting",date:"05/03/26",note:"Final demo + pricing approval"}]},
-    {id:"d6",name:"OldCo Renewal",company:"OldCo",value:18000,stage:"Lost",probability:0,owner:"Meena",closeDate:"01/03/26",created:"15/01/26",notes:"Switched to competitor. Price wasn't the issue — needed Salesforce integration.",contact:"",product:"Pro",activities:[{type:"email",date:"01/03/26",note:"Final retention offer rejected"},{type:"call",date:"25/02/26",note:"Churn risk flagged, offered discount"}]},
-    {id:"d7",name:"CloudNine Enterprise",company:"CloudNine",value:72000,stage:"Qualified",probability:45,owner:"Priya",closeDate:"10/05/26",created:"22/03/26",notes:"VP Engineering interested. Needs SSO + API access. Budget cycle Q2.",contact:"Vikram Sinha",product:"Enterprise",activities:[{type:"meeting",date:"25/03/26",note:"Discovery call with engineering team"},{type:"note",date:"22/03/26",note:"Referred from lead pipeline"}]},
-    {id:"d8",name:"FreshMart Pro",company:"FreshMart",value:24000,stage:"Proposal",probability:55,owner:"Dev",closeDate:"18/04/26",created:"20/03/26",notes:"200+ agents. Comparing us with Freshdesk and Intercom.",contact:"Ananya Reddy",product:"Pro",activities:[{type:"email",date:"26/03/26",note:"Sent competitive comparison + ROI calculator"},{type:"call",date:"22/03/26",note:"Pricing discussion, need volume discount"}]},
-    {id:"d9",name:"Globex Corp API Package",company:"Globex Corp",value:60000,stage:"Lead",probability:10,owner:"Meena",closeDate:"30/06/26",created:"26/03/26",notes:"US enterprise, needs custom API + dedicated support.",contact:"James Wilson",product:"Enterprise",activities:[{type:"note",date:"26/03/26",note:"New lead from LinkedIn outreach"}]},
-    {id:"d10",name:"PayEase Upgrade to Enterprise",company:"PayEase",value:36000,stage:"Negotiation",probability:80,owner:"Dev",closeDate:"05/04/26",created:"15/03/26",notes:"Current Pro customer upgrading. Needs compliance + SSO. Almost closed.",contact:"Rahul Kapoor",product:"Enterprise",activities:[{type:"call",date:"Today",note:"Final terms discussion, contract review"},{type:"email",date:"25/03/26",note:"Sent Enterprise proposal with SSO pricing"}]}
-  ]);
+  const [deals,setDeals]=useState([]);
   const [showDF,setShowDF]=useState(false);const [editD,setEditD]=useState(null);const [selDeal,setSelDeal]=useState(null);const [dealSideTab,setDealSideTab]=useState("details");
   const [dN,setDN]=useState("");const [dV,setDV]=useState("");const [dS,setDS]=useState("Lead");const [dO,setDO]=useState("Priya");const [dC,setDC]=useState("");const [dNo,setDNo]=useState("");const [dCo,setDCo]=useState("");const [dCt,setDCt]=useState("");const [dProd,setDProd]=useState("Pro");
   const [drag,setDrag]=useState(null);const [dealFilter,setDealFilter]=useState("all");const [dealView,setDealView]=useState("kanban");const [dealSearch,setDealSearch]=useState("");const [dealOwnerFilter,setDealOwnerFilter]=useState("all");const [dealSort,setDealSort]=useState("value_desc");
   const PRODUCTS=["Starter","Pro","Enterprise"];
-  const saveD=()=>{if(!dN.trim())return showT("Name required","error");const p={name:dN,value:Number(dV)||0,stage:dS,owner:dO,closeDate:dC,notes:dNo,company:dCo,contact:dCt,product:dProd,probability:dS==="Won"?100:dS==="Lost"?0:dS==="Negotiation"?75:dS==="Proposal"?50:dS==="Qualified"?40:15,created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),activities:editD?.activities||[]};if(editD){setDeals(pr=>pr.map(d=>d.id===editD.id?{...d,...p}:d));if(api.isConnected())api.patch(`/crm/deals/${editD.id}`,{name:p.name,company:p.company,value:p.value,stage:p.stage,probability:p.probability,owner:p.owner,close_date:p.closeDate,notes:p.notes,contact_name:p.contact,product:p.product}).catch(()=>{});}else{const nid="d"+uid();setDeals(pr=>[{id:nid,...p},...pr]);if(api.isConnected())api.post("/crm/deals",{name:p.name,company:p.company,value:p.value,stage:p.stage,probability:p.probability,owner:p.owner,close_date:p.closeDate,notes:p.notes,contact_name:p.contact,product:p.product}).catch(()=>{});}showT(editD?"Updated":"Created!","success");setShowDF(false);setEditD(null);};
+  const saveD=()=>{if(!dN.trim())return showT("Name required","error");const p={name:dN,value:Number(dV)||0,stage:dS,owner:dO,closeDate:dC,notes:dNo,company:dCo,contact:dCt,product:dProd,probability:dS==="Won"?100:dS==="Lost"?0:dS==="Negotiation"?75:dS==="Proposal"?50:dS==="Qualified"?40:15,created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),activities:editD?.activities||[]};const nid="d"+uid();if(editD)setDeals(pr=>pr.map(d=>d.id===editD.id?{...d,...p}:d));else setDeals(pr=>[{id:nid,...p},...pr]);showT(editD?"Updated":"Created!","success");setShowDF(false);if(api.isConnected()){if(editD)api.patch(`/crm/deals/${editD.id}`,{title:p.name,value:p.value,stage:p.stage,probability:p.probability,expected_close:p.closeDate,notes:p.notes}).catch(()=>{});else api.post("/crm/deals",{title:p.name,value:p.value,stage:p.stage,probability:p.probability,expected_close:p.closeDate,notes:p.notes}).then(r=>{if(r?.deal?.id)setDeals(pr=>pr.map(d=>d.id===nid?{...d,id:r.deal.id,name:r.deal.title||d.name,stage:r.deal.stage||d.stage,value:r.deal.value||d.value}:d));}).catch(()=>{});}setEditD(null);};
+  const delD=(id)=>{setDeals(p=>p.filter(x=>x.id!==id));if(selDeal===id)setSelDeal(null);showT("Deleted","success");if(api.isConnected())api.del(`/crm/deals/${id}`).catch(()=>{});};
   const openDE=d=>{setDN(d.name);setDV(String(d.value));setDS(d.stage);setDO(d.owner);setDC(d.closeDate);setDNo(d.notes);setDCo(d.company);setDCt(d.contact||"");setDProd(d.product||"Pro");setEditD(d);setShowDF(true);};
   const openDN=()=>{setDN("");setDV("");setDS("Lead");setDO("Priya");setDC("");setDNo("");setDCo("");setDCt("");setDProd("Pro");setEditD(null);setShowDF(true);};
   const markDeal=(id,stage)=>{setDeals(p=>p.map(d=>d.id===id?{...d,stage,probability:stage==="Won"?100:0,activities:[{type:"note",date:"Today",note:"Deal marked as "+stage},...(d.activities||[])]}:d));showT("Deal: "+stage,"success");};
@@ -33,23 +23,13 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   // ═══ LEADS ═══
   const LEAD_STAGES=["New","Contacted","Interested","Qualified","Converted","Lost"];
   const LC2={New:C.t3,Contacted:C.a,Interested:C.cy,Qualified:C.p,Converted:C.g,Lost:C.r};
-  const [leads,setLeads]=useState([
-    {id:"ld1",name:"Vikram Sinha",email:"vikram@cloudnine.io",company:"CloudNine",phone:"+91 90001 22334",source:"Website",stage:"Qualified",score:72,owner:"Priya",created:"20/03/26",lastContact:"Today",notes:"Enterprise plan interest, needs multi-brand support. Budget approved for Q2.",designation:"VP Engineering",value:48000,tags:["enterprise","inbound"],activities:[{type:"call",date:"Today",note:"Discussed pricing, sending proposal"},{type:"email",date:"Yesterday",note:"Sent feature comparison doc"},{type:"meeting",date:"18/03/26",note:"30min discovery call"}]},
-    {id:"ld2",name:"Ananya Reddy",email:"ananya@freshmart.com",company:"FreshMart",phone:"+91 88765 11223",source:"Referral",stage:"Interested",score:55,owner:"Dev",created:"18/03/26",lastContact:"Yesterday",notes:"200+ agent team, referred by EduConnect. Looking at Pro plan.",designation:"Head of CX",value:24000,tags:["referral","large-team"],activities:[{type:"email",date:"Yesterday",note:"Follow-up on requirements"},{type:"call",date:"16/03/26",note:"Initial discovery, interested in AI features"}]},
-    {id:"ld3",name:"James Wilson",email:"james@globex.us",company:"Globex Corp",phone:"+1 415 555 0198",source:"LinkedIn",stage:"New",score:30,owner:"Meena",created:"25/03/26",lastContact:"25/03/26",notes:"Connected on LinkedIn, asked about API capabilities and webhooks.",designation:"CTO",value:96000,tags:["api","outbound","enterprise"],activities:[{type:"note",date:"25/03/26",note:"LinkedIn connection accepted, showed interest in API docs"}]},
-    {id:"ld4",name:"Priya Nair",email:"priya@designstudio.co",company:"DesignStudio",phone:"+91 70045 88990",source:"Webinar",stage:"Contacted",score:45,owner:"Priya",created:"22/03/26",lastContact:"2d ago",notes:"Attended AI-powered support webinar. Small team but growing fast.",designation:"Founder",value:6000,tags:["webinar","startup"],activities:[{type:"email",date:"25/03/26",note:"Sent webinar recording + case study"},{type:"note",date:"22/03/26",note:"Registered for AI webinar, asked good questions"}]},
-    {id:"ld5",name:"Rahul Kapoor",email:"rahul@payease.in",company:"PayEase",phone:"+91 98123 45678",source:"Trial Signup",stage:"Converted",score:90,owner:"Dev",created:"10/03/26",lastContact:"Today",notes:"Converted to Pro plan! 14-day trial, activated on day 3. Very happy.",designation:"Product Manager",value:12000,tags:["trial","converted"],activities:[{type:"call",date:"Today",note:"Onboarding kickoff call"},{type:"email",date:"24/03/26",note:"Sent Pro welcome pack"},{type:"meeting",date:"22/03/26",note:"Demo of advanced features"}]},
-    {id:"ld6",name:"Sneha Iyer",email:"sneha@techwave.io",company:"TechWave",phone:"+91 81234 56789",source:"Cold Email",stage:"Lost",score:15,owner:"Meena",created:"05/03/26",lastContact:"1w ago",notes:"Chose Zendesk. Price was not the issue — they needed Salesforce native integration.",designation:"Support Lead",value:18000,tags:["lost","competitor"],activities:[{type:"email",date:"20/03/26",note:"Sent last attempt with discount offer"},{type:"call",date:"15/03/26",note:"Said going with Zendesk"}]},
-    {id:"ld7",name:"Arjun Mehta",email:"arjun@techcorp.io",company:"TechCorp",phone:"+91 98765 43210",source:"Trade Show",stage:"Qualified",score:68,owner:"Priya",created:"15/03/26",lastContact:"Today",notes:"Met at SaaS Connect Bengaluru. Interested in Enterprise with SSO.",designation:"Director of IT",value:72000,tags:["enterprise","event"],activities:[{type:"meeting",date:"Today",note:"Follow-up demo scheduled"},{type:"note",date:"15/03/26",note:"Met at SaaS Connect booth, exchanged cards"}]},
-    {id:"ld8",name:"Meera Krishnan",email:"meera@startupxyz.com",company:"StartupXYZ",phone:"+91 77665 44332",source:"Partner",stage:"Interested",score:52,owner:"Dev",created:"22/03/26",lastContact:"Yesterday",notes:"Came through Razorpay partner channel. Evaluating 3 tools.",designation:"Operations Head",value:12000,tags:["partner","evaluation"],activities:[{type:"email",date:"Yesterday",note:"Sent competitive comparison sheet"},{type:"call",date:"23/03/26",note:"Intro call, currently using email only"}]},
-    {id:"ld9",name:"David Chen",email:"david@globalretail.com",company:"GlobalRetail",phone:"+1 212 555 0199",source:"Ad Campaign",stage:"New",score:22,owner:"Meena",created:"26/03/26",lastContact:"26/03/26",notes:"Clicked Google Ad, downloaded whitepaper. No response to follow-up yet.",designation:"VP Customer Success",value:60000,tags:["inbound","whitepaper"],activities:[{type:"note",date:"26/03/26",note:"Downloaded 'Scaling Support' whitepaper from Google Ad"}]},
-    {id:"ld10",name:"Fatima Al-Rashid",email:"fatima@financehub.co",company:"FinanceHub",phone:"+91 44 2233 9988",source:"Website",stage:"Contacted",score:40,owner:"Priya",created:"24/03/26",lastContact:"Yesterday",notes:"Submitted contact form asking about HIPAA compliance and audit logs.",designation:"Compliance Officer",value:36000,tags:["compliance","healthcare"],activities:[{type:"email",date:"Yesterday",note:"Sent compliance datasheet + audit log feature guide"},{type:"note",date:"24/03/26",note:"Contact form: HIPAA compliance inquiry"}]}
-  ]);
+  const [leads,setLeads]=useState([]);
   const [showLF,setShowLF]=useState(false);const [editL,setEditL]=useState(null);const [selLead,setSelLead]=useState(null);const [leadSideTab,setLeadSideTab]=useState("details");
   const [lName,setLName]=useState("");const [lEmail,setLEmail]=useState("");const [lCompany,setLCompany]=useState("");const [lPhone,setLPhone]=useState("");const [lSource,setLSource]=useState("Website");const [lStage,setLStage]=useState("New");const [lOwner,setLOwner]=useState("Priya");const [lNotes,setLNotes]=useState("");const [lTags,setLTags]=useState("");const [lDesig,setLDesig]=useState("");const [lValue,setLValue]=useState("");
   const LEAD_SOURCES=["Website","Referral","LinkedIn","Webinar","Trial Signup","Cold Email","Ad Campaign","Trade Show","Partner","Other"];
   const [leadFilter,setLeadFilter]=useState("all");const [leadView,setLeadView]=useState("pipeline");const [leadSearch,setLeadSearch]=useState("");const [leadSourceFilter,setLeadSourceFilter]=useState("all");const [leadOwnerFilter,setLeadOwnerFilter]=useState("all");const [leadSort,setLeadSort]=useState("score_desc");const [dragLead,setDragLead]=useState(null);
-  const saveL=()=>{if(!lName.trim())return showT("Name required","error");const p={name:lName,email:lEmail,company:lCompany,phone:lPhone,source:lSource,stage:lStage,owner:lOwner,notes:lNotes,designation:lDesig,value:Number(lValue)||0,tags:lTags?lTags.split(",").map(t=>t.trim()).filter(Boolean):[],score:lStage==="Converted"?90:lStage==="Qualified"?70:lStage==="Interested"?50:lStage==="Contacted"?35:lStage==="New"?20:10,created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),lastContact:"Today",activities:editL?.activities||[]};if(editL)setLeads(pr=>pr.map(l=>l.id===editL.id?{...l,...p}:l));else setLeads(pr=>[{id:"ld"+uid(),...p},...pr]);showT(editL?"Updated":"Lead created!","success");setShowLF(false);setEditL(null);if(api.isConnected()){if(editL)api.patch(`/crm/leads/${editL.id}`,{name:lName,email:lEmail,company:lCompany,stage:lStage,score:p.score,owner:lOwner,value:p.value}).catch(()=>{});else api.post("/crm/leads",{name:lName,email:lEmail,company:lCompany,phone:lPhone,source:lSource,stage:lStage,owner:lOwner,value:p.value}).catch(()=>{});}};
+  const saveL=()=>{if(!lName.trim())return showT("Name required","error");const p={name:lName,email:lEmail,company:lCompany,phone:lPhone,source:lSource,stage:lStage,owner:lOwner,notes:lNotes,designation:lDesig,value:Number(lValue)||0,tags:lTags?lTags.split(",").map(t=>t.trim()).filter(Boolean):[],score:lStage==="Converted"?90:lStage==="Qualified"?70:lStage==="Interested"?50:lStage==="Contacted"?35:lStage==="New"?20:10,created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),lastContact:"Today",activities:editL?.activities||[]};const nid="ld"+uid();if(editL)setLeads(pr=>pr.map(l=>l.id===editL.id?{...l,...p}:l));else setLeads(pr=>[{id:nid,...p},...pr]);showT(editL?"Updated":"Lead created!","success");setShowLF(false);if(api.isConnected()){if(editL)api.patch(`/crm/leads/${editL.id}`,{name:p.name,email:p.email,company:p.company,status:p.stage,score:p.score,value:p.value,phone:p.phone,source:p.source,notes:p.notes}).catch(()=>{});else api.post("/crm/leads",{name:p.name,email:p.email,company:p.company,status:p.stage,score:p.score,value:p.value,phone:p.phone,source:p.source,notes:p.notes}).then(r=>{if(r?.lead?.id)setLeads(pr=>pr.map(l=>l.id===nid?{...l,id:r.lead.id,...(r.lead.status?{stage:r.lead.status}:{})}:l));}).catch(()=>{});}setEditL(null);};
+  const delL=(id)=>{setLeads(p=>p.filter(x=>x.id!==id));if(selLead===id)setSelLead(null);showT("Deleted","success");if(api.isConnected())api.del(`/crm/leads/${id}`).catch(()=>{});};
   const openLE=l=>{setLName(l.name);setLEmail(l.email);setLCompany(l.company);setLPhone(l.phone);setLSource(l.source);setLStage(l.stage);setLOwner(l.owner);setLNotes(l.notes);setLTags((l.tags||[]).join(", "));setLDesig(l.designation||"");setLValue(String(l.value||""));setEditL(l);setShowLF(true);};
   const openLN=()=>{setLName("");setLEmail("");setLCompany("");setLPhone("");setLSource("Website");setLStage("New");setLOwner("Priya");setLNotes("");setLTags("");setLDesig("");setLValue("");setEditL(null);setShowLF(true);};
   const convertToContact=l=>{setContacts(p=>[{id:"ct"+uid(),uid:"USR-"+Math.floor(3000+Math.random()*9000),name:l.name,email:l.email,phone:l.phone,company:l.company,plan:"Starter",notes:"Converted from lead: "+l.notes,userType:"User",language:"EN",currency:"INR",location:"",timezone:"Asia/Kolkata",tags:["converted",...(l.tags||[])],convs:0,csat:null,totalSpend:"—",color:[C.a,C.g,C.p,C.y][Math.floor(Math.random()*4)],av:l.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(),createdAt:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),lastActivity:"Today"},...p]);setLeads(p=>p.map(x=>x.id===l.id?{...x,stage:"Converted",score:90}:x));showT(l.name+" converted to contact!","success");if(api.isConnected()){api.post("/contacts",{name:l.name,email:l.email,phone:l.phone,company_id:null,plan:"Starter",notes:"Converted from lead"}).catch(()=>{});api.patch(`/crm/leads/${l.id}`,{stage:"Converted",score:90}).catch(()=>{});}};
@@ -58,14 +38,39 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   const [crmLoading,setCrmLoading]=useState(false);
   const [crmAi,setCrmAi]=useState(null);const [crmAiLoad,setCrmAiLoad]=useState(false);
   const genCrmAi=async()=>{setCrmAiLoad(true);try{const ctx=`Leads: ${leads.length} (${leads.filter(l=>l.stage==="Qualified").length} qualified). Deals: ${deals.length} (pipeline: $${deals.filter(d=>!["Won","Lost"].includes(d.stage)).reduce((s,d)=>s+d.value,0).toLocaleString()}). Won: ${deals.filter(d=>d.stage==="Won").length}, Lost: ${deals.filter(d=>d.stage==="Lost").length}. Tasks: ${tasks.filter(t=>t.status!=="done").length} open.`;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:350,system:"You are a CRM AI advisor. Analyze the pipeline and give 4-5 specific actions: deals at risk, leads to prioritize, follow-ups needed. Use names and numbers. No markdown.",messages:[{role:"user",content:ctx}]})});const d=await r.json();setCrmAi(d.content?.[0]?.text);}catch{setCrmAi("• PayEase Upgrade ($36K) is 80% probability — schedule final contract review this week\n• TechCorp Enterprise ($48K) stalled in Negotiation — Priya should send security compliance docs\n• 3 leads scored 60+ haven't been contacted in 5 days: Vikram, Ananya, Arjun\n• FreshMart comparing with Freshdesk — send ROI calculator + case study today\n• CloudNine ($72K) budget cycle is Q2 — set follow-up reminder for April 10");}setCrmAiLoad(false);};
+  const fmtDbDate=d=>{if(!d)return"";const p=d.split("T")[0].split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0].slice(2)}`:"";};
   useEffect(()=>{
     if(!api.isConnected())return;
     setCrmLoading(true);
     Promise.allSettled([
-      api.get("/crm/leads").then(r=>{if(r?.data?.length)setLeads(r.data.map(l=>({...l,tags:l.tags||[],activities:[],lastContact:l.last_contact||""})));}),
-      api.get("/crm/deals").then(r=>{if(r?.data?.length)setDeals(r.data.map(d=>({...d,tags:d.tags||[],activities:[],closeDate:d.close_date||"",contact:d.contact_name||""})));}),
-      api.get("/crm/tasks").then(r=>{if(r?.data?.length)setTasks(r.data.map(t=>({...t,tags:t.tags||[],comments:[],dueDate:t.due_date||"",contact:t.contact_name||"",desc:t.description||""})));}),
-      api.get("/crm/meetings").then(r=>{if(r?.data?.length)setMeetings(r.data.map(m=>({...m,attendees:m.attendees||[],contact:m.contact_name||""})));})
+      api.get("/crm/leads").then(r=>{if(r?.leads?.length)setLeads(r.leads.map(l=>({...l,
+        stage:l.status||l.stage||"New",
+        owner:l.owner_name||l.owner||"",
+        tags:typeof l.tags==="string"?JSON.parse(l.tags||"[]"):l.tags||[],
+        activities:[],lastContact:l.last_contact||fmtDbDate(l.updated_at)||"",
+      })));}).catch(()=>{}),
+      api.get("/crm/deals").then(r=>{if(r?.deals?.length)setDeals(r.deals.map(d=>({...d,
+        name:d.title||d.name||"",
+        owner:d.owner_name||d.owner||"",
+        closeDate:fmtDbDate(d.expected_close)||d.close_date||"",
+        contact:d.contact_name||d.contact||"",
+        tags:typeof d.tags==="string"?JSON.parse(d.tags||"[]"):d.tags||[],
+        activities:[],
+      })));}).catch(()=>{}),
+      api.get("/crm/tasks").then(r=>{if(r?.tasks?.length)setTasks(r.tasks.map(t=>({...t,
+        assignee:t.assignee_name||t.assignee||"",
+        dueDate:fmtDbDate(t.due_date)||"",
+        desc:t.description||"",contact:t.contact_name||"",
+        tags:typeof t.tags==="string"?JSON.parse(t.tags||"[]"):t.tags||[],
+        comments:[],
+      })));}).catch(()=>{}),
+      api.get("/crm/meetings").then(r=>{if(r?.meetings?.length)setMeetings(r.meetings.map(m=>{
+        const st=m.start_time||"";
+        return{...m,date:fmtDbDate(st),time:st.split("T")[1]?.slice(0,5)||"",
+          contact:m.contact_name||m.contact||"",
+          notes:m.notes||m.description||"",
+          attendees:m.attendees||[],host:"",agenda:"",outcome:m.outcome||"",activities:[]};
+      }));}).catch(()=>{})
     ]).finally(()=>setCrmLoading(false));
   },[]);
   const convertToDeal=l=>{setDN(l.company+" Deal");setDV(String(l.value||""));setDS("Lead");setDO(l.owner);setDCo(l.company);setDCt(l.name);setDNo("From lead: "+l.notes);setDC("");setEditD(null);setShowDF(true);setTab("deals");};
@@ -74,24 +79,14 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   const filteredLeads=sortLeads(leads.filter(l=>(leadFilter==="all"||l.stage===leadFilter)&&(leadSourceFilter==="all"||l.source===leadSourceFilter)&&(leadOwnerFilter==="all"||l.owner===leadOwnerFilter)&&(!leadSearch||l.name.toLowerCase().includes(leadSearch.toLowerCase())||l.email.toLowerCase().includes(leadSearch.toLowerCase())||l.company.toLowerCase().includes(leadSearch.toLowerCase()))));
 
   // ═══ TASKS ═══
-  const [tasks,setTasks]=useState([
-    {id:"tk1",title:"Send proposal to TechCorp",desc:"Enterprise plan proposal with security addendum and SLA guarantees. Include case studies.",assignee:"Priya",deal:"TechCorp Enterprise Plan",contact:"Arjun Mehta",company:"TechCorp",dueDate:"28/03/26",priority:"high",status:"in_progress",created:"20/03/26",tags:["proposal","enterprise"],comments:[{by:"Priya",date:"Today",text:"Draft ready, reviewing with legal"},{by:"Dev",date:"Yesterday",text:"Added security compliance section"}]},
-    {id:"tk2",title:"Follow up with FreshMart",desc:"Call Ananya about team size, requirements, and timeline. She's comparing us with Freshdesk.",assignee:"Dev",deal:"FreshMart Pro",contact:"Ananya Reddy",company:"FreshMart",dueDate:"27/03/26",priority:"urgent",status:"todo",created:"25/03/26",tags:["follow-up","call"],comments:[{by:"Meena",date:"25/03/26",text:"Ananya prefers afternoon calls"}]},
-    {id:"tk3",title:"Prepare demo sandbox",desc:"Set up sandbox with sample data, multi-brand config, and AI bot for GlobalRetail demo.",assignee:"Meena",deal:"GlobalRetail Multi-Brand",contact:"David Chen",company:"GlobalRetail",dueDate:"30/03/26",priority:"normal",status:"todo",created:"24/03/26",tags:["demo","setup"],comments:[]},
-    {id:"tk4",title:"Send onboarding materials",desc:"Welcome email with setup guide, training video links, and Slack invite for EduConnect.",assignee:"Dev",deal:"EduConnect Starter",contact:"Priya Nair",company:"EduConnect",dueDate:"26/03/26",priority:"normal",status:"done",created:"22/03/26",tags:["onboarding"],comments:[{by:"Dev",date:"26/03/26",text:"All materials sent, customer confirmed receipt"}]},
-    {id:"tk5",title:"Update CRM with Globex notes",desc:"Log LinkedIn conversation details and API requirements. Schedule follow-up demo.",assignee:"Meena",deal:"Globex Corp API Package",contact:"James Wilson",company:"Globex Corp",dueDate:"28/03/26",priority:"low",status:"todo",created:"26/03/26",tags:["admin","crm"],comments:[]},
-    {id:"tk6",title:"Contract review with legal",desc:"Review FinanceHub HIPAA compliance terms, data residency clause, and SLA penalties.",assignee:"Priya",deal:"FinanceHub Compliance",contact:"Fatima Al-Rashid",company:"FinanceHub",dueDate:"01/04/26",priority:"high",status:"in_progress",created:"23/03/26",tags:["legal","compliance"],comments:[{by:"Priya",date:"Yesterday",text:"Legal reviewing HIPAA addendum, ETA 2 days"}]},
-    {id:"tk7",title:"Create ROI calculator for PayEase",desc:"Build spreadsheet showing cost savings vs current Freshdesk setup for Enterprise upgrade pitch.",assignee:"Dev",deal:"PayEase Upgrade to Enterprise",contact:"Rahul Kapoor",company:"PayEase",dueDate:"29/03/26",priority:"normal",status:"in_progress",created:"25/03/26",tags:["sales-tool","spreadsheet"],comments:[{by:"Dev",date:"Today",text:"50% done, adding AI feature savings"}]},
-    {id:"tk8",title:"Schedule CloudNine technical demo",desc:"Set up 1hr demo focusing on SSO integration, API webhooks, and custom fields. Invite CTO.",assignee:"Priya",deal:"CloudNine Enterprise",contact:"Vikram Sinha",company:"CloudNine",dueDate:"02/04/26",priority:"normal",status:"todo",created:"26/03/26",tags:["demo","technical"],comments:[]},
-    {id:"tk9",title:"Competitive analysis: Zendesk vs us",desc:"Update battle card with latest Zendesk pricing and features. Add TechWave loss learnings.",assignee:"Meena",deal:"",contact:"",company:"",dueDate:"31/03/26",priority:"low",status:"blocked",created:"20/03/26",tags:["research","internal"],comments:[{by:"Meena",date:"24/03/26",text:"Blocked — waiting for updated Zendesk pricing from partner"}]},
-    {id:"tk10",title:"Q2 pipeline review deck",desc:"Prepare slide deck with pipeline overview, win/loss analysis, and Q2 targets for Monday standup.",assignee:"Priya",deal:"",contact:"",company:"",dueDate:"31/03/26",priority:"high",status:"todo",created:"26/03/26",tags:["internal","report"],comments:[]}
-  ]);
+  const [tasks,setTasks]=useState([]);
   const [showTF,setShowTF]=useState(false);const [editTk,setEditTk]=useState(null);const [selTask,setSelTask]=useState(null);const [taskSideTab,setTaskSideTab]=useState("details");
   const [tkTitle,setTkTitle]=useState("");const [tkDesc,setTkDesc]=useState("");const [tkAssignee,setTkAssignee]=useState("Priya");const [tkDue,setTkDue]=useState("");const [tkPriority,setTkPriority]=useState("normal");const [tkStatus,setTkStatus]=useState("todo");const [tkContact,setTkContact]=useState("");const [tkDeal,setTkDeal]=useState("");const [tkCompany,setTkCompany]=useState("");const [tkTags,setTkTags]=useState("");
   const TASK_STATUS=[{v:"todo",l:"To Do",c:C.t3,i:"○"},{v:"in_progress",l:"In Progress",c:C.a,i:"◐"},{v:"done",l:"Done",c:C.g,i:"●"},{v:"blocked",l:"Blocked",c:C.r,i:"⊘"}];
   const PRIORITIES=[{v:"low",l:"Low",c:C.t3},{v:"normal",l:"Normal",c:C.a},{v:"high",l:"High",c:C.y},{v:"urgent",l:"Urgent",c:C.r}];
   const [taskView,setTaskView]=useState("board");const [taskFilter,setTaskFilter]=useState("all");const [taskAssigneeFilter,setTaskAssigneeFilter]=useState("all");const [taskPriorityFilter,setTaskPriorityFilter]=useState("all");const [taskSearch,setTaskSearch]=useState("");const [taskSort,setTaskSort]=useState("priority_desc");
-  const saveTk=()=>{if(!tkTitle.trim())return showT("Title required","error");const p={title:tkTitle,desc:tkDesc,assignee:tkAssignee,dueDate:tkDue,priority:tkPriority,status:tkStatus,contact:tkContact,deal:tkDeal,company:tkCompany,tags:tkTags?tkTags.split(",").map(t=>t.trim()).filter(Boolean):[],created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),comments:editTk?.comments||[]};if(editTk)setTasks(pr=>pr.map(t=>t.id===editTk.id?{...t,...p}:t));else setTasks(pr=>[{id:"tk"+uid(),...p},...pr]);showT(editTk?"Updated":"Task created!","success");setShowTF(false);setEditTk(null);if(api.isConnected()){if(editTk)api.patch(`/crm/tasks/${editTk.id}`,{title:tkTitle,description:tkDesc,assignee:tkAssignee,due_date:tkDue,priority:tkPriority,status:tkStatus}).catch(()=>{});else api.post("/crm/tasks",{title:tkTitle,description:tkDesc,assignee:tkAssignee,due_date:tkDue,priority:tkPriority,status:tkStatus}).catch(()=>{});}};
+  const saveTk=()=>{if(!tkTitle.trim())return showT("Title required","error");const p={title:tkTitle,desc:tkDesc,assignee:tkAssignee,dueDate:tkDue,priority:tkPriority,status:tkStatus,contact:tkContact,deal:tkDeal,company:tkCompany,tags:tkTags?tkTags.split(",").map(t=>t.trim()).filter(Boolean):[],created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),comments:editTk?.comments||[]};const nid="tk"+uid();if(editTk)setTasks(pr=>pr.map(t=>t.id===editTk.id?{...t,...p}:t));else setTasks(pr=>[{id:nid,...p},...pr]);showT(editTk?"Updated":"Task created!","success");setShowTF(false);if(api.isConnected()){if(editTk)api.patch(`/crm/tasks/${editTk.id}`,{title:p.title,description:p.desc,due_date:p.dueDate,priority:p.priority,status:p.status}).catch(()=>{});else api.post("/crm/tasks",{title:p.title,description:p.desc,due_date:p.dueDate,priority:p.priority,status:p.status}).then(r=>{if(r?.task?.id)setTasks(pr=>pr.map(t=>t.id===nid?{...t,id:r.task.id,title:r.task.title||t.title,status:r.task.status||t.status}:t));}).catch(()=>{});}setEditTk(null);};
+  const delTk=(id)=>{setTasks(p=>p.filter(x=>x.id!==id));if(selTask===id)setSelTask(null);showT("Deleted","success");if(api.isConnected())api.del(`/crm/tasks/${id}`).catch(()=>{});};
   const openTkE=t=>{setTkTitle(t.title);setTkDesc(t.desc||"");setTkAssignee(t.assignee);setTkDue(t.dueDate);setTkPriority(t.priority);setTkStatus(t.status);setTkContact(t.contact||"");setTkDeal(t.deal||"");setTkCompany(t.company||"");setTkTags((t.tags||[]).join(", "));setEditTk(t);setShowTF(true);};
   const openTkN=()=>{setTkTitle("");setTkDesc("");setTkAssignee("Priya");setTkDue("");setTkPriority("normal");setTkStatus("todo");setTkContact("");setTkDeal("");setTkCompany("");setTkTags("");setEditTk(null);setShowTF(true);};
   const addTaskComment=(tid,text)=>{setTasks(p=>p.map(t=>t.id===tid?{...t,comments:[{by:"Priya",date:"Today",text},...(t.comments||[])]}:t));showT("Comment added","success");};
@@ -100,22 +95,12 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   const fTasks=sortTasks(tasks.filter(t=>(taskFilter==="all"||t.status===taskFilter)&&(taskAssigneeFilter==="all"||t.assignee===taskAssigneeFilter)&&(taskPriorityFilter==="all"||t.priority===taskPriorityFilter)&&(!taskSearch||t.title.toLowerCase().includes(taskSearch.toLowerCase())||(t.contact||"").toLowerCase().includes(taskSearch.toLowerCase())||(t.company||"").toLowerCase().includes(taskSearch.toLowerCase()))));
 
   // ═══ MEETINGS ═══
-  const [meetings,setMeetings]=useState([
-    {id:"mt1",title:"TechCorp Enterprise Demo",type:"demo",contact:"Arjun Mehta",company:"TechCorp",date:"28/03/26",time:"10:00 AM",duration:"45 min",location:"Zoom",host:"Priya",attendees:["Priya","Dev"],agenda:"Product demo with IT team. Cover: multi-brand, security, SSO. Show pricing tiers.",status:"scheduled",notes:"Prep: sandbox ready, load sample data. Arjun confirmed 3 attendees from their side.",outcome:"",deal:"TechCorp Enterprise Plan",activities:[{date:"26/03/26",note:"Sent calendar invite + pre-demo questionnaire"},{date:"25/03/26",note:"Confirmed demo scope with Arjun"}]},
-    {id:"mt2",title:"FreshMart Discovery Call",type:"discovery",contact:"Ananya Reddy",company:"FreshMart",date:"27/03/26",time:"2:00 PM",duration:"30 min",location:"Google Meet",host:"Dev",attendees:["Dev"],agenda:"Understand team size (200+ agents), current tools, pain points, timeline.",status:"scheduled",notes:"Referral from EduConnect. Ananya prefers afternoon slots.",outcome:"",deal:"FreshMart Pro",activities:[{date:"25/03/26",note:"Ananya confirmed via email"}]},
-    {id:"mt3",title:"Globex API Integration Deep-Dive",type:"technical",contact:"James Wilson",company:"Globex Corp",date:"29/03/26",time:"11:00 AM",duration:"60 min",location:"Teams",host:"Meena",attendees:["Meena","Dev"],agenda:"API walkthrough, webhook setup, authentication flow, rate limits, custom fields.",status:"scheduled",notes:"James is CTO — highly technical audience. Prepare Postman collection.",outcome:"",deal:"Globex Corp API Package",activities:[{date:"27/03/26",note:"Shared API docs + Postman collection"},{date:"26/03/26",note:"James requested OAuth2 flow details"}]},
-    {id:"mt4",title:"FinanceHub Contract Review",type:"negotiation",contact:"Fatima Al-Rashid",company:"FinanceHub",date:"01/04/26",time:"3:00 PM",duration:"30 min",location:"Zoom",host:"Priya",attendees:["Priya"],agenda:"HIPAA compliance addendum, SLA guarantees, data residency, penalty terms.",status:"scheduled",notes:"Legal team joining from FinanceHub. Our legal reviewed draft.",outcome:"",deal:"FinanceHub Compliance Add-on",activities:[{date:"28/03/26",note:"Legal approved HIPAA addendum draft"}]},
-    {id:"mt5",title:"EduConnect Onboarding Kickoff",type:"onboarding",contact:"Priya Nair",company:"EduConnect",date:"25/03/26",time:"10:30 AM",duration:"60 min",location:"Zoom",host:"Dev",attendees:["Dev","Meena"],agenda:"Account setup walkthrough, admin training, inbox configuration, bot setup.",status:"completed",notes:"All modules configured. Customer very happy with onboarding experience.",outcome:"Fully onboarded — all channels connected, 3 inboxes configured, AI bot trained.",deal:"EduConnect Starter",activities:[{date:"25/03/26",note:"Completed full onboarding in single session"},{date:"24/03/26",note:"Sent pre-onboarding checklist"}]},
-    {id:"mt6",title:"Weekly Sales Standup",type:"internal",contact:"",company:"",date:"27/03/26",time:"9:00 AM",duration:"15 min",location:"Huddle",host:"Priya",attendees:["Priya","Dev","Meena"],agenda:"Pipeline review: 10 active deals. Discuss blockers. Q2 target check.",status:"completed",notes:"Quick sync before week starts.",outcome:"3 deals progressed. PayEase upgrade almost closed. Globex needs technical demo.",deal:"",activities:[{date:"27/03/26",note:"Action items: Meena to prep Globex demo, Dev to follow up PayEase"}]},
-    {id:"mt7",title:"PayEase Enterprise Walkthrough",type:"demo",contact:"Rahul Kapoor",company:"PayEase",date:"30/03/26",time:"11:30 AM",duration:"45 min",location:"Google Meet",host:"Dev",attendees:["Dev","Priya"],agenda:"Enterprise features demo: SSO, audit logs, custom roles, API access. Show upgrade path.",status:"scheduled",notes:"Current Pro customer. Very engaged, upgrading for compliance features.",outcome:"",deal:"PayEase Upgrade to Enterprise",activities:[{date:"28/03/26",note:"Rahul confirmed + adding his CTO to the call"}]},
-    {id:"mt8",title:"CloudNine Technical Assessment",type:"technical",contact:"Vikram Sinha",company:"CloudNine",date:"02/04/26",time:"2:30 PM",duration:"60 min",location:"Zoom",host:"Priya",attendees:["Priya","Meena"],agenda:"SSO integration, API webhooks, custom fields, data migration from Zendesk.",status:"scheduled",notes:"Vikram wants to see live API calls. Prepare dev sandbox with API explorer.",outcome:"",deal:"CloudNine Enterprise",activities:[{date:"27/03/26",note:"Sent technical requirements questionnaire"}]},
-    {id:"mt9",title:"StartupXYZ Feature Comparison",type:"follow_up",contact:"Meera Krishnan",company:"StartupXYZ",date:"26/03/26",time:"4:00 PM",duration:"30 min",location:"Phone",host:"Dev",attendees:["Dev"],agenda:"Walk through feature comparison vs Freshdesk and Intercom. Address pricing concerns.",status:"completed",notes:"Meera comparing us with 2 competitors. Price is key factor.",outcome:"Good call — Meera leaning towards us. Needs volume discount for 50+ agents.",deal:"StartupXYZ Pro Upgrade",activities:[{date:"26/03/26",note:"Shared detailed comparison + discount proposal"},{date:"25/03/26",note:"Meera requested side-by-side feature matrix"}]},
-    {id:"mt10",title:"Q2 Planning & Strategy",type:"internal",contact:"",company:"",date:"31/03/26",time:"10:00 AM",duration:"90 min",location:"In-Person",host:"Priya",attendees:["Priya","Dev","Meena","Aryan"],agenda:"Q1 review, Q2 targets, territory assignments, marketing campaigns, hiring plan.",status:"scheduled",notes:"Full team meeting. Book the large conference room. Order lunch.",outcome:"",deal:"",activities:[{date:"28/03/26",note:"Priya preparing Q1 review deck"}]}
-  ]);
+  const [meetings,setMeetings]=useState([]);
   const [showMF,setShowMF]=useState(false);const [editMt,setEditMt]=useState(null);const [mtFilter,setMtFilter]=useState("all");const [mtView,setMtView]=useState("list");const [selMeeting,setSelMeeting]=useState(null);const [mtSideTab,setMtSideTab]=useState("details");const [mtSearch,setMtSearch]=useState("");const [mtStatusFilter,setMtStatusFilter]=useState("all");const [mtHostFilter,setMtHostFilter]=useState("all");const [mtSort,setMtSort]=useState("date_asc");
   const [mtTitle,setMtTitle]=useState("");const [mtType,setMtType]=useState("demo");const [mtContact,setMtContact]=useState("");const [mtCompany,setMtCompany]=useState("");const [mtDate,setMtDate]=useState("");const [mtTime,setMtTime]=useState("");const [mtDuration,setMtDuration]=useState("30 min");const [mtLocation,setMtLocation]=useState("Zoom");const [mtHost,setMtHost]=useState("Priya");const [mtAgenda,setMtAgenda]=useState("");const [mtNotes,setMtNotes]=useState("");const [mtOutcome,setMtOutcome]=useState("");const [mtDeal,setMtDeal]=useState("");
   const MT_TYPES=[{v:"demo",l:"Demo",i:"🖥",c:C.a},{v:"discovery",l:"Discovery",i:"🔍",c:C.cy},{v:"technical",l:"Technical",i:"⚙",c:C.p},{v:"negotiation",l:"Negotiation",i:"🤝",c:C.y},{v:"onboarding",l:"Onboarding",i:"🚀",c:C.g},{v:"internal",l:"Internal",i:"👥",c:C.t3},{v:"follow_up",l:"Follow-up",i:"📞",c:"#ff6b35"}];
-  const saveMt=()=>{if(!mtTitle.trim())return showT("Title required","error");const p={title:mtTitle,type:mtType,contact:mtContact,company:mtCompany,date:mtDate,time:mtTime,duration:mtDuration,location:mtLocation,host:mtHost,attendees:[mtHost],agenda:mtAgenda,notes:mtNotes,outcome:mtOutcome,deal:mtDeal,status:editMt?.status||"scheduled",activities:editMt?.activities||[]};if(editMt)setMeetings(pr=>pr.map(m=>m.id===editMt.id?{...m,...p}:m));else setMeetings(pr=>[{id:"mt"+uid(),...p},...pr]);showT(editMt?"Updated":"Scheduled!","success");setShowMF(false);setEditMt(null);if(api.isConnected()){if(editMt)api.patch(`/crm/meetings/${editMt.id}`,{title:mtTitle,type:mtType,contact_name:mtContact,company:mtCompany,date:mtDate,time:mtTime,duration:mtDuration,location:mtLocation}).catch(()=>{});else api.post("/crm/meetings",{title:mtTitle,type:mtType,contact_name:mtContact,company:mtCompany,date:mtDate,time:mtTime,duration:mtDuration,location:mtLocation}).catch(()=>{});}};
+  const saveMt=()=>{if(!mtTitle.trim())return showT("Title required","error");const p={title:mtTitle,type:mtType,contact:mtContact,company:mtCompany,date:mtDate,time:mtTime,duration:mtDuration,location:mtLocation,host:mtHost,attendees:[mtHost],agenda:mtAgenda,notes:mtNotes,outcome:mtOutcome,deal:mtDeal,status:editMt?.status||"scheduled",activities:editMt?.activities||[]};const nid="mt"+uid();if(editMt)setMeetings(pr=>pr.map(m=>m.id===editMt.id?{...m,...p}:m));else setMeetings(pr=>[{id:nid,...p},...pr]);showT(editMt?"Updated":"Scheduled!","success");setShowMF(false);if(api.isConnected()){const st=p.date&&(p.time?`${p.date}T${p.time}`:p.date);if(editMt)api.patch(`/crm/meetings/${editMt.id}`,{title:p.title,description:p.notes,start_time:st,location:p.location,status:p.status}).catch(()=>{});else api.post("/crm/meetings",{title:p.title,description:p.notes,start_time:st,location:p.location,status:p.status}).then(r=>{if(r?.meeting?.id)setMeetings(pr=>pr.map(m=>m.id===nid?{...m,id:r.meeting.id}:m));}).catch(()=>{});}setEditMt(null);};
+  const delMt=(id)=>{setMeetings(p=>p.filter(x=>x.id!==id));if(selMeeting===id)setSelMeeting(null);showT("Deleted","success");if(api.isConnected())api.del(`/crm/meetings/${id}`).catch(()=>{});};
   const openMtE=m=>{setMtTitle(m.title);setMtType(m.type);setMtContact(m.contact);setMtCompany(m.company);setMtDate(m.date);setMtTime(m.time);setMtDuration(m.duration);setMtLocation(m.location);setMtHost(m.host);setMtAgenda(m.agenda);setMtNotes(m.notes);setMtOutcome(m.outcome||"");setMtDeal(m.deal||"");setEditMt(m);setShowMF(true);};
   const openMtN=()=>{setMtTitle("");setMtType("demo");setMtContact("");setMtCompany("");setMtDate("");setMtTime("");setMtDuration("30 min");setMtLocation("Zoom");setMtHost("Priya");setMtAgenda("");setMtNotes("");setMtOutcome("");setMtDeal("");setEditMt(null);setShowMF(true);};
   const completeMeeting=(id,outcome)=>{setMeetings(p=>p.map(m=>m.id===id?{...m,status:"completed",outcome:outcome||"Completed",activities:[{date:"Today",note:"Meeting completed"+(outcome?" — "+outcome:"")},...(m.activities||[])]}:m));showT("Meeting completed","success");};
@@ -143,14 +128,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   const fComps=sortComps(comps.filter(c=>(compIndFilter==="all"||c.industry===compIndFilter)&&(compSzFilter==="all"||c.size===compSzFilter)&&(!compQ||c.name.toLowerCase().includes(compQ.toLowerCase())||c.industry.toLowerCase().includes(compQ.toLowerCase())||(c.domain||"").toLowerCase().includes(compQ.toLowerCase()))));
 
   // ═══ ACTIVITIES ═══
-  const [acts,setActs]=useState([
-    {id:"ac1",type:"call",contact:"Arjun Mehta",subject:"Follow-up on payment",date:"Today 10:30",agent:"Priya",duration:"12 min",notes:"Resolved via Stripe",done:true},
-    {id:"ac2",type:"email",contact:"Sneha Iyer",subject:"Send pricing proposal",date:"Today 14:00",agent:"Dev",duration:"",notes:"Enterprise quote",done:false},
-    {id:"ac3",type:"meeting",contact:"Rohan Patel",subject:"Demo for Pro features",date:"Tomorrow 11:00",agent:"Meena",duration:"30 min",notes:"Zoom call",done:false},
-    {id:"ac4",type:"task",contact:"Priya Nair",subject:"Prepare onboarding docs",date:"Mar 28",agent:"Priya",duration:"",notes:"New enterprise",done:false},
-    {id:"ac5",type:"call",contact:"Dev Kumar",subject:"API integration support",date:"Yesterday",agent:"Dev",duration:"8 min",notes:"Webhook setup",done:true},
-    {id:"ac6",type:"email",contact:"Arjun Mehta",subject:"Invoice correction",date:"2d ago",agent:"Priya",duration:"",notes:"",done:true}
-  ]);
+  const [acts,setActs]=useState([]);
   const [showAF,setShowAF]=useState(false);const [aT,setAT]=useState("call");const [aSubj,setASubj]=useState("");const [aCont,setACont]=useState("");const [aNote,setANote]=useState("");const [aDate,setADate]=useState("");const [aAg,setAAg]=useState("Priya");const [actFilter,setActFilter]=useState("all");const [actView,setActView]=useState("list");
   const AIC={call:"📞",email:"📧",meeting:"🤝",task:"📋",note:"📝"};
   const saveA=()=>{if(!aSubj.trim())return showT("Subject required","error");setActs(p=>[{id:"ac"+uid(),type:aT,contact:aCont,subject:aSubj,date:aDate||"Today",agent:aAg,duration:"",notes:aNote,done:false},...p]);showT("Activity logged","success");setShowAF(false);};
@@ -198,7 +176,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   // Export
   const exportCSV=(type)=>{let csv="";if(type==="deals"){csv="Name,Company,Value,Stage,Probability,Owner,Contact,Close Date,Product\n";deals.forEach(d=>csv+=`"${d.name}","${d.company}",${d.value},"${d.stage}",${d.probability},"${d.owner}","${d.contact||""}","${d.closeDate}","${d.product||""}"\n`);}else if(type==="leads"){csv="Name,Email,Company,Designation,Phone,Source,Stage,Score,Owner,Value\n";leads.forEach(l=>csv+=`"${l.name}","${l.email}","${l.company}","${l.designation||""}","${l.phone}","${l.source}","${l.stage}",${l.score},"${l.owner}",${l.value||0}\n`);}else if(type==="tasks"){csv="Title,Assignee,Due,Priority,Status,Contact,Company,Deal\n";tasks.forEach(t=>csv+=`"${t.title}","${t.assignee}","${t.dueDate}","${t.priority}","${t.status}","${t.contact||""}","${t.company||""}","${t.deal||""}"\n`);}const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=type+"_export.csv";a.click();URL.revokeObjectURL(url);showT("Exported "+type+".csv","success");};
 
-  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
+  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden",fontFamily:FB,color:C.t1}}>
     {/* ═══ CRM DASHBOARD HEADER ═══ */}
     <div style={{flexShrink:0,background:C.s1,borderBottom:`1px solid ${C.b1}`}}>
       {/* Title + Global Search + Quick Actions */}
@@ -345,7 +323,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     {crmLoading&&<div style={{flex:1,padding:"24px"}}><div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}><Spin/><span style={{fontSize:12,color:C.t2,fontFamily:FM}}>Loading CRM data from API…</span></div><SkelTable rows={6} cols={5}/></div>}
 
     {/* ═══ DEALS ═══ */}
-    {!crmLoading&&tab==="deals"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="deals"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -400,7 +378,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
                     {selDeal===d.id&&<div style={{display:"flex",gap:3,marginTop:6,borderTop:`1px solid ${C.b1}`,paddingTop:6}} onClick={e=>e.stopPropagation()}>
                       <Btn ch="✎" v="ghost" sm onClick={()=>openDE(d)}/>
                       {!["Won","Lost"].includes(d.stage)&&<><Btn ch="✓ Won" v="success" sm onClick={()=>markDeal(d.id,"Won")}/><Btn ch="✕ Lost" v="danger" sm onClick={()=>markDeal(d.id,"Lost")}/></>}
-                      <Btn ch="🗑" v="danger" sm onClick={()=>{setDeals(p=>p.filter(x=>x.id!==d.id));setSelDeal(null);showT("Deleted","success");}}/>
+                      <Btn ch="🗑" v="danger" sm onClick={()=>delD(d.id)}/>
                     </div>}
                   </div>
                 ))}
@@ -434,7 +412,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
               <span style={{fontSize:11,color:C.t2}}>{d.owner}</span>
               <div style={{display:"flex",gap:2}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openDE(d)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer"}}>✎</button>
-                <button onClick={()=>{setDeals(p=>p.filter(x=>x.id!==d.id));if(selDeal===d.id)setSelDeal(null);showT("Deleted","success");}} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+                <button onClick={()=>delD(d.id)} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
               </div>
             </div>
           ))}
@@ -528,14 +506,14 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
           </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
             <Btn ch="✎ Edit Deal" v="ghost" full sm onClick={()=>openDE(d)}/>
-            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>{setDeals(p=>p.filter(x=>x.id!==d.id));setSelDeal(null);showT("Deleted","success");}}/>
+            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>delD(d.id)}/>
           </div>
         </div>
       </aside>;})()}
     </div>}
 
     {/* ═══ LEADS ═══ */}
-    {!crmLoading&&tab==="leads"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="leads"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -611,7 +589,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
                     {LEAD_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                   <button onClick={e=>{e.stopPropagation();openLE(l);}} title="Edit" style={{padding:"2px 6px",borderRadius:4,fontSize:10,color:C.a,background:"none",border:`1px solid ${C.b1}`,cursor:"pointer"}}>✎</button>
-                  <button onClick={e=>{e.stopPropagation();setLeads(p=>p.filter(x=>x.id!==l.id));if(selLead===l.id)setSelLead(null);showT("Deleted","success");}} title="Delete" style={{padding:"2px 6px",borderRadius:4,fontSize:10,color:C.r,background:"none",border:`1px solid ${C.b1}`,cursor:"pointer"}}>✕</button>
+                  <button onClick={e=>{e.stopPropagation();delL(l.id);}} title="Delete" style={{padding:"2px 6px",borderRadius:4,fontSize:10,color:C.r,background:"none",border:`1px solid ${C.b1}`,cursor:"pointer"}}>✕</button>
                 </div>
               </div>
             </div>
@@ -679,7 +657,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
               </div>
               <div style={{display:"flex",gap:2}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openLE(l)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer",padding:2}}>✎</button>
-                <button onClick={()=>{setLeads(p=>p.filter(x=>x.id!==l.id));if(selLead===l.id)setSelLead(null);showT("Deleted","success");}} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer",padding:2}}>✕</button>
+                <button onClick={()=>delL(l.id)} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer",padding:2}}>✕</button>
               </div>
             </div>
           ))}
@@ -833,14 +811,14 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
           </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
             <Btn ch="✎ Edit" v="ghost" full sm onClick={()=>openLE(l)}/>
-            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>{setLeads(p=>p.filter(x=>x.id!==l.id));setSelLead(null);showT("Deleted","success");}}/>
+            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>delL(l.id)}/>
           </div>
         </div>
       </aside>;})()}
     </div>}
 
     {/* ═══ TASKS ═══ */}
-    {!crmLoading&&tab==="tasks"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="tasks"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -917,7 +895,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
               <span style={{fontSize:9,color:C.t3}}>{t.company||"—"}</span>
               <div style={{display:"flex",gap:2}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openTkE(t)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer"}}>✎</button>
-                <button onClick={()=>{setTasks(p=>p.filter(x=>x.id!==t.id));if(selTask===t.id)setSelTask(null);showT("Deleted","success");}} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+                <button onClick={()=>delTk(t.id)} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
               </div>
             </div>
           );})}
@@ -994,7 +972,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
         <div style={{padding:"12px 18px",borderTop:`1px solid ${C.b1}`,flexShrink:0}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
             <Btn ch="✎ Edit Task" v="ghost" full sm onClick={()=>openTkE(t)}/>
-            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>{setTasks(p=>p.filter(x=>x.id!==t.id));setSelTask(null);showT("Deleted","success");}}/>
+            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>delTk(t.id)}/>
           </div>
           {/* Custom Fields for task */}
           {customFields&&<div style={{padding:"6px 0"}}><CfPanel entity="task" recordId={t.id} fields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} compact/></div>}
@@ -1003,7 +981,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ MEETINGS ═══ */}
-    {!crmLoading&&tab==="meetings"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="meetings"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -1066,7 +1044,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
               <Tag text={m.status} color={m.status==="scheduled"?C.a:m.status==="completed"?C.g:C.r}/>
               <div style={{display:"flex",gap:2}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openMtE(m)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer"}}>✎</button>
-                <button onClick={()=>{setMeetings(p=>p.filter(x=>x.id!==m.id));if(selMeeting===m.id)setSelMeeting(null);showT("Deleted","success");}} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+                <button onClick={()=>delMt(m.id)} style={{fontSize:9,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
               </div>
             </div>
           );})}
@@ -1181,7 +1159,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
           </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
             <Btn ch="✎ Edit" v="ghost" full sm onClick={()=>openMtE(m)}/>
-            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>{setMeetings(p=>p.filter(x=>x.id!==m.id));setSelMeeting(null);showT("Deleted","success");}}/>
+            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>delMt(m.id)}/>
           </div>
           {/* Custom Fields for meeting */}
           {customFields&&<div style={{padding:"6px 0"}}><CfPanel entity="meeting" recordId={m.id} fields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} compact/></div>}
@@ -1190,7 +1168,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ COMPANIES ═══ */}
-    {tab==="companies"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {tab==="companies"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -1429,7 +1407,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ ACTIVITIES ═══ */}
-    {tab==="activities"&&<div style={{flex:1,padding:"20px 24px",overflowY:"auto"}}>
+    {tab==="activities"&&<div style={{flex:1,padding:"20px 24px",overflowY:"auto",minHeight:0}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{display:"flex",gap:3}}>{[{v:"all",l:"All"},...Object.entries(AIC).map(([t,i])=>({v:t,l:i+" "+t}))].map(f=><button key={f.v} onClick={()=>setActFilter(f.v)} style={{padding:"6px 10px",borderRadius:8,fontSize:10,fontWeight:700,fontFamily:FM,background:actFilter===f.v?C.ad:"transparent",color:actFilter===f.v?C.a:C.t3,border:`1px solid ${actFilter===f.v?C.a+"44":C.b1}`,cursor:"pointer"}}>{f.l}</button>)}</div>
         <div style={{display:"flex",background:C.s2,borderRadius:8,border:`1px solid ${C.b1}`,overflow:"hidden"}}>{[["list","☰"],["kanban","▦"]].map(([v,i])=><button key={v} onClick={()=>setActView(v)} style={{padding:"6px 12px",fontSize:12,background:actView===v?C.ad:"transparent",color:actView===v?C.a:C.t3,border:"none",cursor:"pointer",fontWeight:700}}>{i}</button>)}</div>
@@ -1491,7 +1469,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Stage"><Sel val={dS} set={setDS} opts={STAGES.map(s=>({v:s,l:s}))}/></Fld></div><div style={{flex:1}}><Fld label="Owner"><Sel val={dO} set={setDO} opts={["Priya","Dev","Meena","Aryan"].map(n=>({v:n,l:n}))}/></Fld></div></div>
       <Fld label="Expected Close Date"><Inp val={dC} set={setDC} ph="DD/MM/YY"/></Fld>
       <Fld label="Notes"><textarea value={dNo} onChange={e=>setDNo(e.target.value)} rows={3} placeholder="Deal context, requirements, next steps…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowDF(false);setEditD(null);}}/>{editD&&<Btn ch="Delete" v="danger" onClick={()=>{setDeals(p=>p.filter(d=>d.id!==editD.id));setShowDF(false);showT("Deleted","success");}}/>}<Btn ch={editD?"Save":"Create Deal"} v="primary" onClick={saveD}/></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowDF(false);setEditD(null);}}/>{editD&&<Btn ch="Delete" v="danger" onClick={()=>{delD(editD.id);setShowDF(false);}}/>}<Btn ch={editD?"Save":"Create Deal"} v="primary" onClick={saveD}/></div>
     </Mdl>}
     {showLF&&<Mdl title={editL?"Edit Lead":"New Lead"} onClose={()=>{setShowLF(false);setEditL(null);}} w={580}>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Full Name"><Inp val={lName} set={setLName} ph="Vikram Sinha"/></Fld></div><div style={{flex:1}}><Fld label="Email"><Inp val={lEmail} set={setLEmail} ph="vikram@company.com" type="email"/></Fld></div></div>
@@ -1500,7 +1478,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Source"><Sel val={lSource} set={setLSource} opts={LEAD_SOURCES.map(s=>({v:s,l:s}))}/></Fld></div><div style={{flex:1}}><Fld label="Stage"><Sel val={lStage} set={setLStage} opts={LEAD_STAGES.map(s=>({v:s,l:s}))}/></Fld></div></div>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Owner"><Sel val={lOwner} set={setLOwner} opts={["Priya","Dev","Meena","Aryan"].map(n=>({v:n,l:n}))}/></Fld></div><div style={{flex:1}}><Fld label="Tags (comma-sep)"><Inp val={lTags} set={setLTags} ph="enterprise, inbound"/></Fld></div></div>
       <Fld label="Notes"><textarea value={lNotes} onChange={e=>setLNotes(e.target.value)} rows={3} placeholder="Context, requirements, next steps…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowLF(false);setEditL(null);}}/>{editL&&<Btn ch="Delete" v="danger" onClick={()=>{setLeads(p=>p.filter(l=>l.id!==editL.id));setShowLF(false);showT("Deleted","success");}}/>}<Btn ch={editL?"Save":"Create Lead"} v="primary" onClick={saveL}/></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowLF(false);setEditL(null);}}/>{editL&&<Btn ch="Delete" v="danger" onClick={()=>{delL(editL.id);setShowLF(false);}}/>}<Btn ch={editL?"Save":"Create Lead"} v="primary" onClick={saveL}/></div>
     </Mdl>}
     {showTF&&<Mdl title={editTk?"Edit Task":"New Task"} onClose={()=>{setShowTF(false);setEditTk(null);}} w={560}>
       <Fld label="Title"><Inp val={tkTitle} set={setTkTitle} ph="e.g. Send proposal to TechCorp"/></Fld>
@@ -1510,7 +1488,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Status"><Sel val={tkStatus} set={setTkStatus} opts={TASK_STATUS.map(s=>({v:s.v,l:s.i+" "+s.l}))}/></Fld></div><div style={{flex:1}}><Fld label="Company"><CompanyPicker val={tkCompany} set={setTkCompany} comps={comps} setComps={setComps}/></Fld></div></div>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Contact"><Inp val={tkContact} set={setTkContact} ph="Contact name"/></Fld></div><div style={{flex:1}}><Fld label="Related Deal"><Inp val={tkDeal} set={setTkDeal} ph="Deal name"/></Fld></div></div>
       <Fld label="Tags (comma-separated)"><Inp val={tkTags} set={setTkTags} ph="proposal, follow-up, demo"/></Fld>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowTF(false);setEditTk(null);}}/>{editTk&&<Btn ch="Delete" v="danger" onClick={()=>{setTasks(p=>p.filter(t=>t.id!==editTk.id));setShowTF(false);setSelTask(null);showT("Deleted","success");}}/>}<Btn ch={editTk?"Save":"Create Task"} v="primary" onClick={saveTk}/></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowTF(false);setEditTk(null);}}/>{editTk&&<Btn ch="Delete" v="danger" onClick={()=>{delTk(editTk.id);setShowTF(false);}}/>}<Btn ch={editTk?"Save":"Create Task"} v="primary" onClick={saveTk}/></div>
     </Mdl>}
     {showMF&&<Mdl title={editMt?"Edit Meeting":"Schedule Meeting"} onClose={()=>{setShowMF(false);setEditMt(null);}} w={580}>
       <Fld label="Title"><Inp val={mtTitle} set={setMtTitle} ph="e.g. TechCorp Enterprise Demo"/></Fld>
@@ -1522,7 +1500,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
       <Fld label="Agenda"><textarea value={mtAgenda} onChange={e=>setMtAgenda(e.target.value)} rows={3} placeholder="Meeting agenda, discussion points, goals…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
       <Fld label="Notes"><textarea value={mtNotes} onChange={e=>setMtNotes(e.target.value)} rows={2} placeholder="Prep notes, reminders…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
       {editMt?.status==="completed"&&<Fld label="Outcome"><textarea value={mtOutcome} onChange={e=>setMtOutcome(e.target.value)} rows={2} placeholder="Meeting outcome, next steps…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>}
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowMF(false);setEditMt(null);}}/>{editMt&&<Btn ch="Delete" v="danger" onClick={()=>{setMeetings(p=>p.filter(m=>m.id!==editMt.id));setShowMF(false);setSelMeeting(null);showT("Cancelled","success");}}/>}<Btn ch={editMt?"Save":"Schedule"} v="primary" onClick={saveMt}/></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowMF(false);setEditMt(null);}}/>{editMt&&<Btn ch="Delete" v="danger" onClick={()=>{delMt(editMt.id);setShowMF(false);}}/>}<Btn ch={editMt?"Save":"Schedule"} v="primary" onClick={saveMt}/></div>
     </Mdl>}
     {showAF&&<Mdl title="Log Activity" onClose={()=>setShowAF(false)} w={460}>
       <Fld label="Type"><div style={{display:"flex",gap:4}}>{Object.entries(AIC).map(([t,i])=><button key={t} onClick={()=>setAT(t)} style={{flex:1,padding:8,borderRadius:8,fontSize:12,background:aT===t?C.ad:C.s2,color:aT===t?C.a:C.t2,border:`1px solid ${aT===t?C.a+"44":C.b1}`,cursor:"pointer",textAlign:"center"}}>{i} {t}</button>)}</div></Fld>

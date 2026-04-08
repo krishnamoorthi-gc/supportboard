@@ -125,8 +125,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     (async()=>{
       try{
         const res=await api.get(`/conversations/${aid}/messages`);
-        if(res?.data?.length){
-          setMsgs(p=>({...p,[aid]:res.data.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split("T")[1]?.slice(0,5)||""}))}));
+        if(res?.messages?.length){
+          setMsgs(p=>({...p,[aid]:res.messages.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split("T")[1]?.slice(0,5)||""}))}));
         }
       }catch{}
       setMsgsLoading(false);

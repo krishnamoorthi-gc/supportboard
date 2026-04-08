@@ -101,77 +101,103 @@ export default function App(){
     setLoginLoading(false);
   };
 
-  // ── Load initial data from API (or keep hardcoded fallback) ──
-  const loadInitialData=async()=>{
-    if(!apiOk)return; // Keep hardcoded data if no API
+  // ── Session restore on page reload ──
+  useEffect(()=>{
+    const savedToken=localStorage.getItem("sd_token");
+    console.log('🔑 Session restore - token exists:', !!savedToken);
+    if(!savedToken)return;
+    api.get("/auth/me").then(res=>{
+      console.log('✅ Auth check passed:', res);
+      if(res?.agent){
+        setIsLoggedIn(true);
+        setApiOk(true);
+        console.log('📦 Calling loadInitialData with force=true');
+        loadInitialData(true);
+      }
+    }).catch((err)=>{
+      console.error('❌ Auth check failed:', err);
+      api.setToken(null);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // ── Load initial data from API ──
+  const loadInitialData=async(force=false)=>{
+    if(!apiOk&&!force)return;
     setDataLoading(true);
     try{
-      const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes]=await Promise.allSettled([
+      console.log('🔄 Loading initial data from API...');
+      const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes]=await Promise.allSettled([
         api.get("/settings/agents"),api.get("/contacts"),api.get("/conversations"),
         api.get("/settings/labels"),api.get("/settings/teams"),api.get("/settings/inboxes"),
         api.get("/settings/canned-responses"),api.get("/companies"),
+        api.get("/settings/automations"),api.get("/settings/custom-fields"),
       ]);
-      if(agRes.status==="fulfilled"&&agRes.value?.data){
-        const mapped=agRes.value.data.map(a=>({...a,av:a.avatar_initials,color:a.color||"#4c82fb"}));
-        setAgents(mapped);
+      const ok=(r)=>r.status==="fulfilled"&&r.value;
+      console.log('API Results:', {
+        agents: ok(agRes)?agRes.value.agents?.length:'FAILED',
+        contacts: ok(ctRes)?ctRes.value.contacts?.length:'FAILED',
+        conversations: ok(cvRes)?cvRes.value.conversations?.length:'FAILED',
+        labels: ok(lbRes)?lbRes.value.labels?.length:'FAILED',
+        teams: ok(tmRes)?'OK':'FAILED',
+        inboxes: ok(ibRes)?ibRes.value.inboxes?.length:'FAILED',
+        canned: ok(cnRes)?cnRes.value.canned?.length:'FAILED',
+        companies: ok(coRes)?coRes.value.companies?.length:'FAILED',
+        automations: ok(auRes)?'OK':'FAILED',
+        customFields: ok(cfRes)?cfRes.value.fields?.length:'FAILED',
+      });
+      if(ok(agRes)&&agRes.value.agents){
+        setAgents(agRes.value.agents.map(a=>({...a,av:a.avatar||a.name?.split(" ").map(w=>w[0]).join("")||"?",color:a.color||"#4c82fb"})));
       }
-      if(ctRes.status==="fulfilled"&&ctRes.value?.data){
-        const mapped=ctRes.value.data.map(c=>({...c,av:c.avatar_initials,convs:c.conversations?.length||0,tags:c.tags||[]}));
-        setContacts(mapped);
+      if(ok(ctRes)&&ctRes.value.contacts){
+        console.log('✅ Contacts loaded from DB:', ctRes.value.contacts.length);
+        console.log('First contact:', ctRes.value.contacts[0]);
+        const mappedContacts = ctRes.value.contacts.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,av:c.avatar||c.name?.split(" ").map(w=>w[0]).join("")||"?",convs:c.conversation_count||0,tags,color:c.color||"#4c82fb"};});
+        console.log('Mapped contacts:', mappedContacts.length, mappedContacts[0]);
+        setContacts(mappedContacts);
+      } else {
+        console.warn('⚠️ No contacts loaded. ctRes status:', ctRes?.status);
+        if(ctRes?.status==="rejected") console.error('❌ Contacts error:', ctRes.reason);
+        else if(ctRes?.value) console.log('ctRes.value:', ctRes.value);
+        else console.log('ctRes:', ctRes);
       }
-      if(cvRes.status==="fulfilled"&&cvRes.value?.data){
-        const mapped=cvRes.value.data.map(c=>({...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel,agent:c.agent_id,team:c.team_id,labels:c.labels||[],unread:c.unread_count||0,time:c.updated_at||"",color:c.contact_color||"#4c82fb"}));
-        setConvs(mapped);
+      if(ok(cvRes)&&cvRes.value.conversations){
+        setConvs(cvRes.value.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
       }
-      if(lbRes.status==="fulfilled"&&lbRes.value?.data)setLabels(lbRes.value.data);
-      if(tmRes.status==="fulfilled"&&tmRes.value?.data)setTeams(tmRes.value.data);
-      if(ibRes.status==="fulfilled"&&ibRes.value?.data)setInboxes(ibRes.value.data);
-      if(cnRes.status==="fulfilled"&&cnRes.value?.data)setCanned(cnRes.value.data);
-      if(coRes.status==="fulfilled"&&coRes.value?.data)setComps(coRes.value.data);
+      if(ok(lbRes)&&lbRes.value.labels)setLabels(lbRes.value.labels);
+      if(ok(tmRes)&&tmRes.value.teams)setTeams(tmRes.value.teams.map(t=>({...t,members:typeof t.members==="string"?JSON.parse(t.members||"[]"):t.members||[]})));
+      if(ok(ibRes)&&ibRes.value.inboxes)setInboxes(ibRes.value.inboxes);
+      if(ok(cnRes)&&cnRes.value.canned)setCanned(cnRes.value.canned.map(c=>({...c,code:c.code||c.shortcode||""})));
+      if(ok(coRes)&&coRes.value.companies)setComps(coRes.value.companies.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,tags,color:c.color||"#4c82fb"};}));
+      if(ok(auRes)&&auRes.value.automations)setAutos(auRes.value.automations.map(a=>({...a,conditions:typeof a.conditions==="string"?JSON.parse(a.conditions||"[]"):a.conditions||[],actions:typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[]})));
+      if(ok(cfRes)&&cfRes.value.fields)setCustomFields(cfRes.value.fields);
       // Load messages for first few conversations
-      const convIds=(cvRes.status==="fulfilled"?cvRes.value?.data:[]).slice(0,5).map(c=>c.id);
+      const convIds=(ok(cvRes)&&cvRes.value.conversations?cvRes.value.conversations:[]).slice(0,5).map(c=>c.id);
       const msgMap={};
       for(const cid of convIds){
         try{
           const mr=await api.get(`/conversations/${cid}/messages`);
-          if(mr?.data)msgMap[cid]=mr.data.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split("T")[1]?.slice(0,5)||""}));
+          if(mr?.messages)msgMap[cid]=mr.messages.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split?.("T")?.[1]?.slice(0,5)||""}));
         }catch{}
       }
-      if(Object.keys(msgMap).length)setMsgs(p=>({...p,...msgMap}));
-      showT("✓ Loaded "+((cvRes.value?.data?.length)||0)+" conversations from API","success");
+      if(Object.keys(msgMap).length)setMsgs(msgMap);
+      showT("✓ Data loaded from API","success");
     }catch(e){
-      showT("API load partial — using cached data","info");
+      showT("API load partial","info");
     }
     setDataLoading(false);
   };
   const [scr,setScr]=useState(()=>hashToScr());
-  const [agents,setAgents]=useState(A0);
-  const [labels,setLabels]=useState(L0);
-  const [inboxes,setInboxes]=useState(IB0);
-  const [teams,setTeams]=useState(TM0);
-  const [canned,setCanned]=useState(CR0);
-  const [autos,setAutos]=useState(AU0);
-  const [contacts,setContacts]=useState(CT0);
-  const [convs,setConvs]=useState(CV0);
-  const [comps,setComps]=useState([
-    {id:"co1",name:"TechCorp",domain:"techcorp.io",industry:"SaaS / Technology",size:"51-200",phone:"+91 80 4567 8900",email:"info@techcorp.io",website:"techcorp.io",address:"Koramangala, Bengaluru",country:"India",color:C.a,notes:"Enterprise prospect, annual contract",tags:["enterprise","priority"],created:"01/01/26"},
-    {id:"co2",name:"StartupXYZ",domain:"startupxyz.com",industry:"E-Commerce",size:"11-50",phone:"+91 22 1234 5678",email:"hello@startupxyz.com",website:"startupxyz.com",address:"Andheri, Mumbai",country:"India",color:C.p,notes:"Fast-growing, referred by customer",tags:["startup","referral"],created:"15/01/26"},
-    {id:"co3",name:"GlobalRetail",domain:"globalretail.com",industry:"Retail",size:"201-500",phone:"+1 212 555 0100",email:"support@globalretail.com",website:"globalretail.com",address:"New York, NY",country:"United States",color:C.g,notes:"Multi-brand requirement",tags:["multi-brand","international"],created:"10/02/26"},
-    {id:"co4",name:"FinanceHub",domain:"financehub.co",industry:"Finance",size:"51-200",phone:"+91 44 2233 4455",email:"contact@financehub.co",website:"financehub.co",address:"T. Nagar, Chennai",country:"India",color:C.y,notes:"HIPAA compliance required",tags:["compliance","finance"],created:"20/02/26"},
-    {id:"co5",name:"EduConnect",domain:"educonnect.in",industry:"Education",size:"11-50",phone:"+91 40 6677 8899",email:"admin@educonnect.in",website:"educonnect.in",address:"HITEC City, Hyderabad",country:"India",color:C.cy,notes:"Customer since Jan 2026",tags:["customer","edtech"],created:"05/01/26"},
-    {id:"co6",name:"CloudNine",domain:"cloudnine.io",industry:"SaaS / Technology",size:"11-50",phone:"+91 98765 00111",email:"hello@cloudnine.io",website:"cloudnine.io",address:"HSR Layout, Bengaluru",country:"India",color:"#ff6b35",notes:"New lead from website",tags:["lead","saas"],created:"20/03/26"},
-    {id:"co7",name:"DevCo",domain:"devco.dev",industry:"SaaS / Technology",size:"11-50",phone:"+91 98001 11222",email:"hello@devco.dev",website:"devco.dev",address:"Indiranagar, Bengaluru",country:"India",color:C.a,notes:"Developer tools company",tags:["saas"],created:"10/01/26"},
-    {id:"co8",name:"Corp SA",domain:"corpsa.co",industry:"Finance",size:"51-200",phone:"+55 11 5555 1234",email:"info@corpsa.co",website:"corpsa.co",address:"São Paulo",country:"Other",color:C.p,notes:"South American client",tags:["international"],created:"15/02/26"},
-    {id:"co9",name:"Japan Co.",domain:"japanco.jp",industry:"Manufacturing",size:"201-500",phone:"+81 3 1234 5678",email:"info@japanco.jp",website:"japanco.jp",address:"Tokyo",country:"Japan",color:C.g,notes:"Enterprise customer, APAC region",tags:["enterprise","apac"],created:"20/01/26"},
-    {id:"co10",name:"Startup Inc",domain:"startupinc.io",industry:"SaaS / Technology",size:"1-10",phone:"+91 77001 22334",email:"team@startupinc.io",website:"startupinc.io",address:"Whitefield, Bengaluru",country:"India",color:C.cy,notes:"Early-stage startup",tags:["startup"],created:"05/02/26"},
-    {id:"co11",name:"OldCo",domain:"oldco.com",industry:"Retail",size:"51-200",phone:"+91 44 5566 7788",email:"support@oldco.com",website:"oldco.com",address:"Mylapore, Chennai",country:"India",color:C.t3,notes:"Former customer, churned",tags:["churned"],created:"01/01/26"},
-    {id:"co12",name:"DesignStudio",domain:"designstudio.co",industry:"Media",size:"11-50",phone:"+91 70045 88990",email:"hello@designstudio.co",website:"designstudio.co",address:"Bandra, Mumbai",country:"India",color:"#e91e63",notes:"Creative agency lead",tags:["agency"],created:"22/03/26"},
-    {id:"co13",name:"FreshMart",domain:"freshmart.com",industry:"E-Commerce",size:"51-200",phone:"+91 88765 00111",email:"biz@freshmart.com",website:"freshmart.com",address:"Koregaon Park, Pune",country:"India",color:C.g,notes:"Referred by EduConnect, 200+ agents",tags:["referral","large-team"],created:"18/03/26"},
-    {id:"co14",name:"Globex Corp",domain:"globex.us",industry:"SaaS / Technology",size:"201-500",phone:"+1 415 555 0198",email:"sales@globex.us",website:"globex.us",address:"San Francisco, CA",country:"United States",color:C.a,notes:"US enterprise lead via LinkedIn",tags:["enterprise","outbound"],created:"25/03/26"},
-    {id:"co15",name:"PayEase",domain:"payease.in",industry:"Finance",size:"51-200",phone:"+91 98123 45678",email:"contact@payease.in",website:"payease.in",address:"MG Road, Bengaluru",country:"India",color:C.y,notes:"Converted from trial to Pro",tags:["customer","fintech"],created:"10/03/26"},
-    {id:"co16",name:"TechWave",domain:"techwave.io",industry:"SaaS / Technology",size:"11-50",phone:"+91 81234 56789",email:"info@techwave.io",website:"techwave.io",address:"Madhapur, Hyderabad",country:"India",color:C.r,notes:"Lost to competitor (Zendesk)",tags:["lost","competitor"],created:"05/03/26"}
-  ]);
-  const [msgs,setMsgs]=useState(MG0);
+  const [agents,setAgents]=useState([]);
+  const [labels,setLabels]=useState([]);
+  const [inboxes,setInboxes]=useState([]);
+  const [teams,setTeams]=useState([]);
+  const [canned,setCanned]=useState([]);
+  const [autos,setAutos]=useState([]);
+  const [contacts,setContacts]=useState([]);
+  const [convs,setConvs]=useState([]);
+  const [comps,setComps]=useState([]);
+  const [msgs,setMsgs]=useState({});
   const [aid,setAid]=useState("cv1");
   const [fontKey,setFontKey]=useState("outfit");
   const [fontScale,setFontScale]=useState("md");
@@ -329,17 +355,13 @@ export default function App(){
     if((e.metaKey||e.ctrlKey)&&e.key==="3"){e.preventDefault();navigate("reports");}
     if(e.key==="?"&&!e.target.matches("input,textarea")){e.preventDefault();setShowShortcuts(p=>!p);}
   };window.addEventListener("keydown",handler);return()=>window.removeEventListener("keydown",handler);},[]);
-  const [notifs,setNotifs]=useState([
-    {id:"n1",text:"Arjun Mehta sent a new message",type:"message",read:false,time:"2m"},
-    {id:"n2",text:"Conv #cv3 is unassigned — needs attention",type:"warn",read:false,time:"15m"},
-    {id:"n3",text:"SLA breach warning: Conv #cv1",type:"error",read:false,time:"20m"},
-    {id:"n4",text:"Dev Kumar resolved Conv #cv5",type:"success",read:true,time:"2h"}]);
+  const [notifs,setNotifs]=useState([]);
   const [showN,setShowN]=useState(false);
   const [stab,setStab]=useState("inboxes");
   const unread=notifs.filter(n=>!n.read).length;
   // ═══ CUSTOM FIELDS — App-level state, shared across all screens ═══
-  const [customFields,setCustomFields]=useState(CUSTOM_FIELDS_INIT);
-  const [cfValues,setCfValues]=useState({"ct1":{"cf1":"SDK-2024-PREMIUM","cf3":"2026-06-15","cf4":"79.00","cf5":"9"},"ct2":{"cf1":"ENT-2025-001","cf3":"2026-09-01","cf4":"240.00"},"ct3":{"cf6":"https://linkedin.com/in/davidchen"},"cv1":{"cf7":"Billing","cf9":"P1 - High","cf11":"24000"},"cv2":{"cf7":"API","cf9":"P2 - Medium","cf10":"Bug,Docs Gap"},"cv3":{"cf7":"Dashboard","cf9":"P0 - Critical","cf10":"Bug","cf11":"48000"},"d1":{"cf12":"Annual","cf13":"15","cf14":"Freshdesk,Intercom","cf15":"2026-04-15","cf16":"Arjun Mehta"},"d2":{"cf12":"Annual","cf14":"Zendesk"},"ld1":{"cf17":"Google Ads - Campaign 3","cf18":"82","cf19":"Website"},"ld2":{"cf17":"Referred by EduConnect","cf18":"55","cf19":"Referral"},"co1":{"cf20":"12000000","cf21":"Slack,Jira,AWS"},"co2":{"cf20":"800000","cf21":"Slack,Stripe,Shopify"}});
+  const [customFields,setCustomFields]=useState([]);
+  const [cfValues,setCfValues]=useState({});
   const getCfVal=(recordId,fieldId)=>cfValues[recordId]?.[fieldId]||"";
   const setCfVal=(recordId,fieldId,val)=>setCfValues(p=>({...p,[recordId]:{...(p[recordId]||{}),[fieldId]:val}}));
   const sp={agents,setAgents,labels,setLabels,inboxes,setInboxes,teams,setTeams,canned,setCanned,autos,setAutos,contacts,setContacts,convs,setConvs,msgs,setMsgs,comps,setComps,customFields,setCustomFields,getCfVal,setCfVal};

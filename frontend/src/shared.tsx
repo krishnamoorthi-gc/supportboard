@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, startTransition } from "react";
 
 export const API_BASE = "http://localhost:3001/api";
-export const _token = { current: null };
+export const _token = { current: (typeof localStorage!=="undefined"?localStorage.getItem("sd_token"):null) as string|null };
 export const _connected = { current: false };
 
 export async function api(path, opts = {}) {
@@ -33,7 +33,7 @@ api.post = (p, body) => api(p, { method: "POST", body });
 api.patch = (p, body) => api(p, { method: "PATCH", body });
 api.del = (p) => api(p, { method: "DELETE" });
 api.isConnected = () => _connected.current;
-api.setToken = (t) => { _token.current = t; };
+api.setToken = (t) => { _token.current = t; if(t)localStorage.setItem("sd_token",t); else localStorage.removeItem("sd_token"); };
 api.getToken = () => _token.current;
 
 /* ═══ LAZY MOUNT — defers rendering until first activation, stays mounted after ═══ */
@@ -220,139 +220,8 @@ export function NavIcon({id,s=20,col}){
   return icons[id]||<svg style={st} viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke={c} strokeWidth="1.8" fill="none"/></svg>;
 }
 
-export const A0=[{id:"a1",name:"Priya Sharma",email:"priya@acme.com",role:"Owner",av:"PS",color:C.a,status:"online"},
-  {id:"a2",name:"Dev Kumar",email:"dev@acme.com",role:"Agent",av:"DK",color:C.g,status:"online"},
-  {id:"a3",name:"Meena Rao",email:"meena@acme.com",role:"Agent",av:"MR",color:C.p,status:"busy"},
-  {id:"a4",name:"Aryan Shah",email:"aryan@acme.com",role:"Admin",av:"AS",color:C.y,status:"offline"}];
-export const L0=[{id:"l1",title:"billing",color:"#f5a623"},{id:"l2",title:"urgent",color:"#f04f5a"},
-  {id:"l3",title:"bug",color:"#f04f5a"},{id:"l4",title:"api",color:"#4c82fb"},
-  {id:"l5",title:"feature",color:"#1fd07a"},{id:"l6",title:"sales",color:"#9b6dff"}];
-export const IB0=[{id:"ib1",name:"Website Chat",type:"live",color:C.g,greeting:"Hi! How can we help?",active:true,convs:142},
-  {id:"ib2",name:"Support Email",type:"email",color:C.a,greeting:"",active:true,convs:89},
-  {id:"ib3",name:"WhatsApp Business",type:"whatsapp",color:"#25d366",greeting:"Hello!",active:true,convs:56},
-  {id:"ib4",name:"Telegram Bot",type:"telegram",color:"#0088cc",greeting:"",active:false,convs:23},
-  {id:"ib5",name:"Facebook Page",type:"facebook",color:"#1877f2",greeting:"Hi! Thanks for reaching out on Facebook.",active:true,convs:38},
-  {id:"ib6",name:"Instagram DMs",type:"instagram",color:"#e1306c",greeting:"Hi! We got your DM. How can we help?",active:true,convs:27},
-  {id:"ib7",name:"Viber Business",type:"viber",color:"#7360f2",greeting:"Hello! How can we help you today?",active:false,convs:14},
-  {id:"ib8",name:"Apple Business Chat",type:"apple",color:"#555555",greeting:"Hi! You're chatting with our support team.",active:false,convs:9},
-  {id:"ib9",name:"LINE Official",type:"line",color:"#06c755",greeting:"Hello! How may I assist you?",active:false,convs:21},
-  {id:"ib10",name:"TikTok Messages",type:"tiktok",color:"#ff0050",greeting:"Hey! Thanks for reaching out.",active:false,convs:6},
-  {id:"ib11",name:"X (Twitter) DMs",type:"x",color:"#e7e9ea",greeting:"Hi there! How can we help?",active:true,convs:17},
-  {id:"ib12",name:"SMS Support",type:"sms",color:"#f5a623",greeting:"",active:true,convs:33},
-  {id:"ib13",name:"Voice Support",type:"voice",color:"#1fd07a",greeting:"",active:false,convs:5},
-  {id:"ib14",name:"Video Support",type:"video",color:"#9b6dff",greeting:"",active:false,convs:2},
-  {id:"ib15",name:"REST API",type:"api",color:"#22d4e8",greeting:"",active:true,convs:44}];
-export const TM0=[{id:"t1",name:"Technical Support",desc:"Handles bugs & API issues",members:["a1","a2","a3"]},
-  {id:"t2",name:"Sales Team",desc:"Upgrades, billing, enterprise",members:["a1","a4"]}];
-export const CR0=[{id:"c1",code:"greet",content:"Hi {{name}}! Welcome to SupportDesk. How can I help you today?"},
-  {id:"c2",code:"sorry",content:"I sincerely apologize for the inconvenience. Let me resolve this immediately."},
-  {id:"c3",code:"escalate",content:"I'm escalating this to our specialist team. You'll hear back in 2 business hours."},
-  {id:"c4",code:"close",content:"I'm glad I could help! Is there anything else before I close this ticket?"},
-  {id:"c5",code:"thanks",content:"Thank you for your patience. Your issue has been fully resolved."},
-  {id:"c6",code:"followup",content:"Just following up to make sure everything is working well on your end!"}];
-export const AU0=[{id:"au1",name:"Auto-assign WhatsApp",active:true,event:"CONVERSATION_CREATED",
-    conditions:[{attr:"channel",op:"equals",val:"whatsapp"}],actions:[{type:"assign_team",val:"t1"}]},
-  {id:"au2",name:"Urgent keyword → priority",active:true,event:"MESSAGE_CREATED",
-    conditions:[{attr:"message",op:"contains",val:"urgent"}],actions:[{type:"set_priority",val:"URGENT"},{type:"add_label",val:"urgent"}]},
-  {id:"au3",name:"Auto-resolve pending",active:false,event:"CONVERSATION_UPDATED",
-    conditions:[{attr:"status",op:"equals",val:"pending"}],actions:[{type:"resolve",val:""}]}];
-export const CT0=[
-  {id:"ct1",uid:"USR-3871",name:"Arjun Mehta",email:"arjun@techcorp.com",phone:"+91 98765 43210",company:"TechCorp",plan:"Pro",convs:7,color:C.y,av:"AM",notes:"VIP – payment issues recurring",userType:"Admin",createdAt:"14/01/25",lastActivity:"25/02/25",language:"EN",currency:"INR",currentUrl:"app.techcorp.com/billing",location:"Mumbai, India",timezone:"Asia/Kolkata",browser:"Chrome 122",os:"macOS 14",ip:"103.21.58.44",csat:4.2,totalSpend:"₹1,24,000",tags:["vip","payment","recurring"]},
-  {id:"ct2",uid:"USR-3872",name:"Sarah Chen",email:"sarah@devco.io",phone:"+1 415 555 0101",company:"DevCo",plan:"Starter",convs:3,color:C.a,av:"SC",notes:"",userType:"User",createdAt:"22/03/25",lastActivity:"10/03/26",language:"EN",currency:"USD",currentUrl:"demo.board.support",location:"San Francisco, United States",timezone:"America/Los_Angeles",browser:"Firefox 123",os:"Windows 11",ip:"198.51.100.42",csat:4.8,totalSpend:"$0",tags:["api","developer"]},
-  {id:"ct3",uid:"USR-3873",name:"Marcus Williams",email:"marcus@startup.com",phone:"+44 7700 900123",company:"Startup Inc",plan:"Pro",convs:5,color:C.p,av:"MW",notes:"Bug reporter",userType:"User",createdAt:"08/11/24",lastActivity:"09/03/26",language:"EN",currency:"GBP",currentUrl:"app.startup.com/settings",location:"London, United Kingdom",timezone:"Europe/London",browser:"Chrome 122",os:"Ubuntu 22.04",ip:"81.2.69.144",csat:3.9,totalSpend:"£2,400",tags:["bug","power-user"]},
-  {id:"ct4",uid:"USR-3874",name:"Nadia Popescu",email:"nadia@corp.ro",phone:"+40 720 000 001",company:"Corp SA",plan:"Starter",convs:2,color:C.g,av:"NP",notes:"",userType:"User",createdAt:"30/01/25",lastActivity:"05/03/26",language:"RO",currency:"EUR",currentUrl:"corp.ro/dashboard",location:"Bucharest, Romania",timezone:"Europe/Bucharest",browser:"Safari 17",os:"macOS 13",ip:"79.112.33.18",csat:5.0,totalSpend:"€0",tags:[]},
-  {id:"ct5",uid:"USR-3875",name:"Takeshi Yama",email:"takeshi@japan.co",phone:"+81 90 0000 1234",company:"Japan Co.",plan:"Enterprise",convs:12,color:C.cy,av:"TY",notes:"Enterprise key account",userType:"Admin",createdAt:"03/06/24",lastActivity:"10/03/26",language:"JA",currency:"JPY",currentUrl:"japan.co/enterprise/reports",location:"Tokyo, Japan",timezone:"Asia/Tokyo",browser:"Edge 122",os:"Windows 11",ip:"203.0.113.77",csat:4.6,totalSpend:"¥18,40,000",tags:["enterprise","key-account","vip"]},
-  {id:"ct6",uid:"USR-3876",name:"Li Wei",email:"li.wei@techfirm.cn",phone:"+86 138 0000 1234",company:"TechFirm",plan:"Pro",convs:4,color:"#1877f2",av:"LW",notes:"Password reset issues",userType:"User",createdAt:"15/09/24",lastActivity:"29/03/26",language:"ZH",currency:"CNY",currentUrl:"app.techfirm.cn/login",location:"Shanghai, China",timezone:"Asia/Shanghai",browser:"Chrome 122",os:"Windows 11",ip:"116.233.88.12",csat:4.0,totalSpend:"¥8,600",tags:["recurring"]},
-  {id:"ct7",uid:"USR-3877",name:"Priya Nair",email:"priya.n@retailhub.in",phone:"+91 98001 22334",company:"RetailHub",plan:"Pro",convs:6,color:"#e1306c",av:"PN",notes:"Escalation prone — handle with care",userType:"Admin",createdAt:"20/07/24",lastActivity:"29/03/26",language:"EN",currency:"INR",currentUrl:"retailhub.in/orders",location:"Bangalore, India",timezone:"Asia/Kolkata",browser:"Safari 17",os:"iOS 17",ip:"49.207.55.91",csat:3.5,totalSpend:"₹2,48,000",tags:["escalation","vip"]},
-  {id:"ct8",uid:"USR-3878",name:"Ahmed Hassan",email:"ahmed@shopcart.ae",phone:"+971 50 987 6543",company:"ShopCart",plan:"Starter",convs:2,color:"#25d366",av:"AH",notes:"Shopify integration inquiry",userType:"User",createdAt:"10/02/26",lastActivity:"28/03/26",language:"AR",currency:"AED",currentUrl:"shopcart.ae/admin",location:"Dubai, UAE",timezone:"Asia/Dubai",browser:"Chrome 122",os:"macOS 14",ip:"94.200.12.55",csat:4.8,totalSpend:"$0",tags:["api","shopify"]},
-  {id:"ct9",uid:"USR-3879",name:"Elena Rodriguez",email:"elena@saasflow.com",phone:"+1 650 555 0188",company:"SaaSFlow",plan:"Starter",convs:1,color:C.a,av:"ER",notes:"Custom domain request",userType:"Admin",createdAt:"25/03/26",lastActivity:"29/03/26",language:"ES",currency:"USD",currentUrl:"saasflow.com/help",location:"Austin, United States",timezone:"America/Chicago",browser:"Firefox 123",os:"macOS 14",ip:"72.14.201.77",csat:0,totalSpend:"$0",tags:[]},
-  {id:"ct10",uid:"USR-3880",name:"Kim Soo-jin",email:"soojin@designlab.kr",phone:"+82 10 1234 5678",company:"DesignLab",plan:"Pro",convs:3,color:C.g,av:"KS",notes:"Loves the new UI, gave great feedback",userType:"User",createdAt:"01/12/24",lastActivity:"28/03/26",language:"KO",currency:"KRW",currentUrl:"designlab.kr/projects",location:"Seoul, South Korea",timezone:"Asia/Seoul",browser:"Chrome 122",os:"macOS 14",ip:"211.234.67.89",csat:5.0,totalSpend:"₩1,200,000",tags:["feedback","happy"]}
-];
-export const CV0=[{id:"cv1",cid:"ct1",iid:"ib1",ch:"live",status:"open",priority:"urgent",subject:"Payment stuck 3 days",agent:"a1",team:"t1",labels:["billing","urgent"],unread:3,time:"2m",color:C.y},
-  {id:"cv2",cid:"ct2",iid:"ib2",ch:"email",status:"open",priority:"normal",subject:"API auth failing 401",agent:"a2",team:null,labels:["api"],unread:1,time:"14m",color:C.a},
-  {id:"cv3",cid:"ct3",iid:"ib3",ch:"whatsapp",status:"open",priority:"high",subject:"App crashes on Settings",agent:null,team:null,labels:["bug"],unread:0,time:"31m",color:C.p},
-  {id:"cv4",cid:"ct4",iid:"ib1",ch:"live",status:"open",priority:"normal",subject:"Enterprise plan upgrade",agent:"a1",team:"t2",labels:["sales"],unread:0,time:"1h",color:C.g},
-  {id:"cv5",cid:"ct5",iid:"ib2",ch:"email",status:"resolved",priority:"normal",subject:"Re: Thank you!",agent:"a2",team:null,labels:[],unread:0,time:"2h",color:C.cy},
-  {id:"cv6",cid:"ct1",iid:"ib1",ch:"live",status:"open",priority:"normal",subject:"CSV export feature",agent:null,team:null,labels:["feature"],unread:2,time:"3h",color:C.r},
-  {id:"cv7",cid:"ct6",iid:"ib5",ch:"facebook",status:"open",priority:"normal",subject:"Can't reset my password",agent:"a3",team:null,labels:[],unread:1,time:"45m",color:"#1877f2"},
-  {id:"cv8",cid:"ct7",iid:"ib6",ch:"instagram",status:"open",priority:"high",subject:"Wrong product delivered",agent:"a1",team:"t1",labels:["urgent"],unread:4,time:"20m",color:"#e1306c"},
-  {id:"cv9",cid:"ct8",iid:"ib3",ch:"whatsapp",status:"resolved",priority:"normal",subject:"How to integrate Shopify?",agent:"a2",team:null,labels:["api"],unread:0,time:"5h",color:"#25d366"},
-  {id:"cv10",cid:"ct9",iid:"ib2",ch:"email",status:"open",priority:"normal",subject:"Custom domain setup help",agent:null,team:null,labels:["feature"],unread:0,time:"6h",color:C.a},
-  {id:"cv11",cid:"ct10",iid:"ib1",ch:"live",status:"resolved",priority:"low",subject:"Feedback: Love the new UI!",agent:"a4",team:null,labels:[],unread:0,time:"1d",color:C.g},
-  {id:"cv12",cid:"ct3",iid:"ib3",ch:"whatsapp",status:"open",priority:"urgent",subject:"Data not syncing across devices",agent:"a2",team:"t1",labels:["bug","urgent"],unread:2,time:"8m",color:C.r}];
-export const MG0={
-  cv1:[{id:1,role:"contact",text:"Hi! My payment ORDER-48291 has been stuck at 'processing' for 3 days. This is really urgent!",t:"10:02"},
-    {id:2,role:"agent",aid:"a1",text:"Hi Arjun! I'm sorry to hear that. Let me look into ORDER-48291 right away.",t:"10:04"},
-    {id:3,role:"contact",text:"It's been 3 days with no update. I need this resolved today.",t:"10:05"},
-    {id:4,role:"sys",text:"Conversation marked Urgent · AI Copilot activated"}],
-  cv2:[{id:1,role:"contact",text:"Hi, I'm getting 401 errors from your API even with the correct key.",t:"9:30"},
-    {id:2,role:"agent",aid:"a2",text:"Hello Sarah! Are you passing it as 'Authorization: Bearer YOUR_KEY'?",t:"9:35"},
-    {id:3,role:"contact",text:"Yes, exactly like that. Still 401.",t:"9:37"}],
-  cv3:[{id:1,role:"contact",text:"Every time I open Settings > Notifications the app crashes.",t:"8:15"},
-    {id:2,role:"sys",text:"Auto-labeled: bug · Assigned to Technical Support"}],
-  cv4:[{id:1,role:"contact",text:"Hi, we have 50 people and need enterprise features. Can you walk me through options?",t:"Yesterday"}],
-  cv5:[{id:1,role:"contact",text:"The issue was resolved perfectly. Thank you!",t:"2h ago"},
-    {id:2,role:"agent",aid:"a2",text:"Glad we could help! Feel free to reach out anytime.",t:"2h ago"}],
-  cv6:[{id:1,role:"contact",text:"Is there a way to export all conversation history to CSV for auditing?",t:"3h ago"}],
-  cv7:[{id:1,role:"contact",text:"Hi, I forgot my password and the reset email isn't coming through. Can you help?",t:"9:45"},
-    {id:2,role:"agent",aid:"a3",text:"Hi! Let me check your account. What email did you register with?",t:"9:48"},
-    {id:3,role:"contact",text:"It's li.wei@techfirm.cn",t:"9:49"}],
-  cv8:[{id:1,role:"contact",text:"I ordered the Pro plan but received Starter features only! This is unacceptable.",t:"10:12"},
-    {id:2,role:"agent",aid:"a1",text:"I sincerely apologize for the mix-up. Let me check your account right away.",t:"10:15"},
-    {id:3,role:"contact",text:"I paid ₹24,999 and I'm not getting what I paid for.",t:"10:16"},
-    {id:4,role:"contact",text:"Please fix this ASAP or I want a refund.",t:"10:18"},
-    {id:5,role:"sys",text:"Priority escalated to High"}],
-  cv9:[{id:1,role:"contact",text:"How do I integrate SupportDesk with my Shopify store?",t:"Yesterday"},
-    {id:2,role:"agent",aid:"a2",text:"Great question! Go to Integrations > Shopify and enter your store URL. I'll walk you through it.",t:"Yesterday"},
-    {id:3,role:"contact",text:"That worked perfectly, thank you so much!",t:"Yesterday"},
-    {id:4,role:"sys",text:"Conversation resolved by Dev Kumar"}],
-  cv10:[{id:1,role:"contact",text:"Hi, I'd like to use a custom domain for my help center. Is that possible on the Pro plan?",t:"4h ago"}],
-  cv11:[{id:1,role:"contact",text:"Just wanted to say the new dashboard redesign is amazing! Great work team 🎉",t:"1d ago"},
-    {id:2,role:"agent",aid:"a4",text:"Thank you so much! We worked hard on it. Glad you love it!",t:"1d ago"},
-    {id:3,role:"sys",text:"Conversation resolved by Aryan Shah"}],
-  cv12:[{id:1,role:"contact",text:"My data isn't syncing between mobile and desktop. I've tried logging out and back in.",t:"10:22"},
-    {id:2,role:"agent",aid:"a2",text:"I see the sync issue on your account. Let me force a refresh from our end.",t:"10:25"},
-    {id:3,role:"contact",text:"It's been happening since yesterday. Really affecting my work.",t:"10:27"}]};
-export const AI_S={
-  cv1:["Based on ORDER-48291, this is a payment gateway webhook timeout. I'm manually triggering settlement — you'll get confirmation in 5 minutes.",
-    "I sincerely apologize for the 3-day delay. ORDER-48291 has been escalated to our payments team as top priority. Resolution by end of day.",
-    "I've identified the issue — a webhook delivery failure. I've resolved it manually and added a ₹500 credit to your account for the inconvenience."],
-  cv2:["Make sure you're also sending Content-Type: application/json. Try the request again with that header.",
-    "Your key appears to be from the sandbox environment. Regenerate a production key from Settings > API Keys.",
-    "Can you share your account ID? I'll verify the key scopes and permissions for you."],
-  cv3:["This is a known issue in v2.4.1. A hotfix ships tomorrow — update to v2.4.2 beta in the meantime.",
-    "I've reproduced the crash — null reference in the notification settings loader. Engineering has been notified.",
-    "Can you share your device model and OS version? That will help us pinpoint the exact cause."],
-  cv4:["Enterprise starts at ₹24,999/month: unlimited agents, SSO/SAML, SLA management, dedicated support. Want a demo call?",
-    "For 50 agents: unlimited seats, audit logs, SAML SSO, priority SLA, custom reports, dedicated account manager.",
-    "I'd love to walk you through Enterprise! Can I set up a 30-minute discovery call this week?"],
-  cv6:["Yes! Go to Reports → Export. Export as CSV with date range filters including messages, agent names, timestamps, and labels.",
-    "Navigate to Reports > Conversations > date range > Export CSV. Filter by inbox, agent, or label first.",
-    "CSV export is on Pro and Enterprise. Reports → Export Data → Conversations → apply filters → Download."],
-  cv7:["I've sent a password reset link to li.wei@techfirm.cn. Check your spam folder too — sometimes it lands there.",
-    "I can see the reset email was blocked by your email provider's firewall. I'll generate a temporary password for you.",
-    "Try this: Go to login page → 'Forgot Password' → enter your email. If no email in 5 min, I'll reset it manually."],
-  cv8:["I've verified your account — you're on Pro but the feature flags weren't activated. I'm enabling them now, give it 5 minutes.",
-    "This was a provisioning error on our end. Your Pro features are now active. I've also added a 1-month credit as compensation.",
-    "I sincerely apologize. The upgrade didn't propagate correctly. I've fixed it and escalated to prevent this from happening again."],
-  cv12:["I can see a sync conflict in your account. I'm forcing a full re-sync now — should resolve within 2 minutes.",
-    "This is caused by a caching issue in our CDN. I've purged the cache for your account. Try logging out and back in.",
-    "I've identified the root cause — a timestamp mismatch between your devices. Fixed on our end, please restart the app."]};
-export const BOT=["Thanks for reaching out! A support agent will join shortly. Your ID is #WEB-"+Math.floor(Math.random()*9000+1000),
-  "Got it! Routing you to the right agent now. Average wait: ~2 minutes.",
-  "Can you share a bit more detail so I can connect you with the right specialist?",
-  "Hello! I'm the SupportDesk assistant. A human agent will be with you very soon."];
-export const REPLY_POOL={
-  cv1:["Still waiting for a response...","This is getting really frustrating!","Hello? Can someone please help me?"],
-  cv2:["I tried that but still getting the same 401 error.","What else can I check?","Here's the full error response..."],
-  cv3:["Just tried again, still crashing.","iPhone 15 Pro, iOS 17.4","Should I send a crash log?"],
-  cv4:["Yes please, can we schedule something this week?","What about tomorrow at 3pm?"],
-  cv5:["Thank you again! ⭐⭐⭐⭐⭐"],
-  cv6:["That would be really helpful, thanks!","Does it support date range filters?"],
-  cv7:["I checked spam, nothing there either.","Can you just reset it manually?","It's really urgent, I have a demo in 30 minutes."],
-  cv8:["I need this fixed NOW. My team is waiting.","This has been going on for 2 days!","When exactly will this be resolved?"],
-  cv10:["That would be great. What are the steps?","Do I need to update DNS records?"],
-  cv12:["Still not working after logging out.","My desktop shows old data, phone shows new.","Can you check from your end?"]};
+// -- Data defaults (loaded from API) --
+export const A0=[];export const L0=[];export const IB0=[];export const TM0=[];export const CR0=[];export const AU0=[];export const CT0=[];export const CV0=[];export const MG0={};export const AI_S={};export const BOT=[];export const REPLY_POOL={};
 
 // ─── ATOMS ───────────────────────────────────────────────────────────────
 export function Av({i,c,s=34,dot}){

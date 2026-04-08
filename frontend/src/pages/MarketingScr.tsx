@@ -101,8 +101,9 @@ export default function MarketingScr({contacts}){
   const [tplFilter,setTplFilter]=useState("all");
   // ═══ MARKETING API LOADING ═══
   useEffect(()=>{if(!api.isConnected())return;
-    api.get("/marketing/campaigns").then(r=>{if(r?.data?.length)setCamps(prev=>{const apiCamps=r.data.map(c=>({...c,channel:c.type||"email",openRate:c.sent_count?(c.open_count/c.sent_count*100).toFixed(1):0,clickRate:c.sent_count?(c.click_count/c.sent_count*100).toFixed(1):0,sent:c.sent_count||0}));return apiCamps.length?apiCamps:prev;});}).catch(()=>{});
-    api.get("/marketing/segments").then(r=>{if(r?.data?.length)setSegments(r.data.map(s=>({...s,reach:s.contact_count||0,conditions:s.conditions||{}})));}).catch(()=>{});
+    api.get("/marketing/campaigns").then(r=>{if(r?.campaigns?.length)setCamps(prev=>{const apiCamps=r.campaigns.map(c=>({...c,ch:c.type||c.ch||"email",name:c.name||"Campaign",goal:c.goal||"promotion",status:c.status||"draft",sent:c.sent_count||0,delivered:c.delivered_count||0,read:c.open_count||0,clicked:c.click_count||0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:c.scheduled_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0]}));return apiCamps.length?apiCamps:prev;});}).catch(()=>{});
+    api.get("/marketing/segments").then(r=>{if(r?.segments?.length)setSegments(r.segments.map(s=>({...s,count:s.contact_count||s.count||0,desc:s.description||s.desc||"",icon:"👥",fixed:false})));}).catch(()=>{});
+    api.get("/marketing/templates").then(r=>{if(r?.templates?.length)setTemplates(prev=>{return r.templates.length?r.templates.map(t=>({...t,ch:t.channel||t.ch||"email",cat:t.category||t.cat||"General",body:t.body||t.content||""})):prev;});}).catch(()=>{});
   },[]);
   const [tplCatFilter,setTplCatFilter]=useState("all");
   const [tplPreview,setTplPreview]=useState(null);

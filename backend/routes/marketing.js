@@ -10,6 +10,13 @@ router.get('/campaigns', auth, (req, res) => {
   res.json({ campaigns });
 });
 
+router.get('/campaigns/:id', auth, (req, res) => {
+  const c = db.prepare('SELECT * FROM campaigns WHERE id=?').get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  try { c.stats = JSON.parse(c.stats||'{}'); } catch { c.stats={}; }
+  res.json({ campaign: c });
+});
+
 router.post('/campaigns', auth, (req, res) => {
   const { name, type='email', subject, body, segment_id, scheduled_at } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
@@ -26,7 +33,15 @@ router.patch('/campaigns/:id', auth, (req, res) => {
   const fields = ['name','type','status','subject','body','segment_id','scheduled_at'];
   const updates = {};
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
-  if (req.body.status === 'sent') { updates.sent_at = new Date().toISOString(); updates.stats = JSON.stringify({ sent: Math.floor(Math.random()*500)+100, opens: Math.floor(Math.random()*200), clicks: Math.floor(Math.random()*80) }); }
+  if (req.body.status === 'sent') {
+    updates.sent_at = new Date().toISOString();
+    let sentCount = 0;
+    if (c.segment_id) {
+      const seg = db.prepare('SELECT contact_count FROM segments WHERE id=?').get(c.segment_id);
+      if (seg) sentCount = seg.contact_count || 0;
+    }
+    updates.stats = JSON.stringify({ sent: sentCount, opens: 0, clicks: 0 });
+  }
   if (!Object.keys(updates).length) return res.json({ campaign: c });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
   db.prepare(`UPDATE campaigns SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
@@ -53,6 +68,19 @@ router.post('/segments', auth, (req, res) => {
   res.status(201).json({ segment: db.prepare('SELECT * FROM segments WHERE id=?').get(id) });
 });
 
+router.patch('/segments/:id', auth, (req, res) => {
+  const s = db.prepare('SELECT * FROM segments WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  const updates = {};
+  if (req.body.name !== undefined) updates.name = req.body.name;
+  if (req.body.conditions !== undefined) updates.conditions = JSON.stringify(req.body.conditions);
+  if (req.body.contact_count !== undefined) updates.contact_count = req.body.contact_count;
+  if (!Object.keys(updates).length) return res.json({ segment: s });
+  const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
+  db.prepare(`UPDATE segments SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  res.json({ segment: db.prepare('SELECT * FROM segments WHERE id=?').get(req.params.id) });
+});
+
 router.delete('/segments/:id', auth, (req, res) => {
   db.prepare('DELETE FROM segments WHERE id=?').run(req.params.id);
   res.json({ success: true });
@@ -64,12 +92,35 @@ router.get('/templates', auth, (req, res) => {
   res.json({ templates });
 });
 
+router.get('/templates/:id', auth, (req, res) => {
+  const t = db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  res.json({ template: t });
+});
+
 router.post('/templates', auth, (req, res) => {
   const { name, type='email', subject, body } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
   db.prepare('INSERT INTO campaign_templates (id,name,type,subject,body) VALUES (?,?,?,?,?)').run(id, name, type, subject||null, body||null);
   res.status(201).json({ template: db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(id) });
+});
+
+router.patch('/templates/:id', auth, (req, res) => {
+  const t = db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const fields = ['name','type','subject','body'];
+  const updates = {};
+  for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
+  if (!Object.keys(updates).length) return res.json({ template: t });
+  const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
+  db.prepare(`UPDATE campaign_templates SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  res.json({ template: db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(req.params.id) });
+});
+
+router.delete('/templates/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM campaign_templates WHERE id=?').run(req.params.id);
+  res.json({ success: true });
 });
 
 module.exports = router;

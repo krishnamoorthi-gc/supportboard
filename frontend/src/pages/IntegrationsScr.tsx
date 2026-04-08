@@ -271,6 +271,12 @@ export default function IntegrationsScr(){
   const [editWhId,setEditWhId]=useState(null);
   const [editWhUrl,setEditWhUrl]=useState("");
 
+  // ── Load webhooks & API keys from backend ──
+  useEffect(() => {
+    api.get("/settings/webhooks").then(r => r?.webhooks && setWebhooks(r.webhooks)).catch(() => {});
+    api.get("/settings/api-keys").then(r => r?.keys && setApiKeys(r.keys)).catch(() => {});
+  }, []);
+
   const cats=[...new Set(integs.map(i=>i.cat))];
   const filteredIntegs=integs.filter(i=>{
     if(integFilter==="all")return true;

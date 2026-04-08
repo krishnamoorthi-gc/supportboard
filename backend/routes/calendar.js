@@ -13,6 +13,13 @@ router.get('/', auth, async (req, res) => {
   res.json({ events });
 });
 
+router.get('/:id', auth, async (req, res) => {
+  const e = await db.prepare('SELECT * FROM calendar_events WHERE id=?').get(req.params.id);
+  if (!e) return res.status(404).json({ error: 'Not found' });
+  try { e.attendees = JSON.parse(e.attendees||'[]'); } catch { e.attendees=[]; }
+  res.json({ event: e });
+});
+
 router.post('/', auth, async (req, res) => {
   const { title, description, start_time, end_time, all_day=0, type='meeting', color, attendees=[], location, recurrence } = req.body;
   if (!title || !start_time) return res.status(400).json({ error: 'title and start_time required' });

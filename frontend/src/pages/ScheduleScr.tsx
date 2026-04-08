@@ -68,8 +68,8 @@ function BookingsScr(){
   ]);
   // ═══ BOOKINGS API LOADING ═══
   useEffect(()=>{if(!api.isConnected())return;
-    api.get("/bookings/pages").then(r=>{if(r?.data?.length)setPages(r.data.map(p=>({...p,desc:p.description||"",buffer:p.buffer_minutes||10,maxPerDay:p.max_per_day||4,minNotice:p.min_notice_hours||24,bookings:p.booking_count||0,questions:p.questions||[],availability:p.availability||[]})));}).catch(()=>{});
-    api.get("/bookings").then(r=>{if(r?.data?.length)setBookings(r.data.map(b=>({...b,page:b.booking_page_id,name:b.guest_name,email:b.guest_email,phone:b.guest_phone,answers:b.answers||{},cancelReason:b.cancel_reason||""})));}).catch(()=>{});
+    api.get("/bookings/pages").then(r=>{if(r?.pages?.length)setPages(r.pages.map(p=>({...p,desc:p.description||"",buffer:p.buffer_minutes||10,maxPerDay:p.max_per_day||4,minNotice:p.min_notice_hours||24,bookings:p.booking_count||0,questions:p.questions||[],availability:p.availability||[]})));}).catch(()=>{});
+    api.get("/bookings").then(r=>{if(r?.bookings?.length)setBookings(r.bookings.map(b=>({...b,page:b.booking_page_id,name:b.guest_name,email:b.guest_email,phone:b.guest_phone,answers:b.answers||{},cancelReason:b.cancel_reason||""})));}).catch(()=>{});
   },[]);
 
   const pg=pages.find(p=>p.id===selPage);
@@ -589,7 +589,7 @@ function CalendarScr({embedded}){
     {id:"ev18",title:"Q2 Pipeline Review Deck",date:"2026-03-31",time:"",end:"",type:"deadline",desc:"Slide deck ready for Monday standup.",color:C.r,attendees:"Priya",link:"crm"}
   ]);
   // ═══ CALENDAR API LOADING ═══
-  useEffect(()=>{if(!api.isConnected())return;api.get("/calendar/events").then(r=>{if(r?.data?.length)setEvents(r.data.map(e=>({...e,time:e.time_start||"",end:e.time_end||"",desc:e.description||""})));}).catch(()=>{});},[]);
+  useEffect(()=>{if(!api.isConnected())return;api.get("/calendar/events").then(r=>{if(r?.events?.length)setEvents(r.events.map(e=>({...e,time:e.time_start||"",end:e.time_end||"",desc:e.description||""})));}).catch(()=>{});},[]);
   // AI Smart Scheduling
   const [calAi,setCalAi]=useState(null);const [calAiLoad,setCalAiLoad]=useState(false);
   const genCalAi=async()=>{setCalAiLoad(true);try{const ctx=`${events.length} events this month. Types: ${events.map(e=>e.type).join(",")}. Busiest days: ${events.reduce((m,e)=>{m[e.date]=(m[e.date]||0)+1;return m;},{})}.`;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:250,system:"You are a scheduling AI. Analyze calendar: suggest optimal meeting slots, flag conflicts, recommend prep actions. 4-5 bullets. No markdown.",messages:[{role:"user",content:ctx}]})});const d=await r.json();setCalAi(d.content?.[0]?.text);}catch{setCalAi("📅 Best slots for demos this week: Tue 10-11am, Thu 2-3pm (no conflicts)\n⚠️ March 31 is overloaded — 4 events including Q2 Planning, consider rescheduling\n🔔 TechCorp demo tomorrow at 11am — prep security compliance docs beforehand\n💡 No follow-ups scheduled for won deals — add check-in for EduConnect\n🕐 Priya has 3 back-to-back meetings Tue — add 15min buffers");}setCalAiLoad(false);};
