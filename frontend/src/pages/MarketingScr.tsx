@@ -18,7 +18,7 @@ const MKT_CAMPS=[
   {id:"mk13",ch:"push",name:"New Feature Alert",goal:"engagement",status:"scheduled",ab:false,audience:9400,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"₹940",roi:"—",date:"18/03/26",template:"feature_push",spark:[0,0,0,0,0,0,0]},
   {id:"mk14",ch:"whatsapp",name:"Champions Reward",goal:"retention",status:"active",ab:false,audience:420,sent:420,delivered:415,read:380,clicked:210,failed:5,unsub:0,revenue:"₹88,000",cost:"₹420",roi:"20,852%",date:"11/03/26",template:"loyalty_reward",spark:[5,12,22,35,42,38,28]}
 ];
-const WA_MKT_T=[{id:"t1",name:"promotional_offer",cat:"Promotion",text:"Hi {{first_name}}! We have an exclusive {{discount}}% OFF just for you. Shop now: {{link}} Valid till {{date}}"},{id:"t2",name:"cart_reminder",cat:"Retention",text:"Hey {{first_name}}! You left items in your cart worth {{amount}}. Complete your order: {{link}}"},{id:"t3",name:"feedback_request",cat:"Engagement",text:"Hi {{first_name}}, how was your experience with {{product}}? Share your thoughts: {{link}}"},{id:"t4",name:"order_update",cat:"Transactional",text:"Hi {{first_name}}, your order #{{order_id}} is {{status}}. Track: {{link}}"},{id:"t5",name:"flash_sale",cat:"Promotion",text:"FLASH SALE! {{discount}}% off everything for {{hours}} hours. Shop: {{link}}"},{id:"t6",name:"welcome",cat:"Onboarding",text:"Welcome to {{company}}, {{first_name}}! Here is how to get started: {{link}}"},{id:"t7",name:"loyalty_reward",cat:"Retention",text:"{{first_name}}, you have earned {{points}} reward points! Redeem now: {{link}}"}];
+const WA_MKT_T=[{id:"t1",name:"promotional_offer",cat:"Promotion",text:"Hi {{first_name}}! We have an exclusive {{discount}}% OFF just for you. Shop now: {{link}} Valid till {{date}}\n\nReply STOP to unsubscribe"},{id:"t2",name:"cart_reminder",cat:"Retention",text:"Hey {{first_name}}! You left items in your cart worth {{amount}}. Complete your order: {{link}}\n\nReply STOP to unsubscribe"},{id:"t3",name:"feedback_request",cat:"Engagement",text:"Hi {{first_name}}, how was your experience with {{product}}? Share your thoughts: {{link}}\n\nReply STOP to unsubscribe"},{id:"t4",name:"order_update",cat:"Transactional",text:"Hi {{first_name}}, your order #{{order_id}} is {{status}}. Track: {{link}}\n\nReply STOP to unsubscribe"},{id:"t5",name:"flash_sale",cat:"Promotion",text:"FLASH SALE! {{discount}}% off everything for {{hours}} hours. Shop: {{link}}\n\nReply STOP to unsubscribe"},{id:"t6",name:"welcome",cat:"Onboarding",text:"Welcome to {{company}}, {{first_name}}! Here is how to get started: {{link}}\n\nReply STOP to unsubscribe"},{id:"t7",name:"loyalty_reward",cat:"Retention",text:"{{first_name}}, you have earned {{points}} reward points! Redeem now: {{link}}\n\nReply STOP to unsubscribe"}];
 const SMS_MKT_T=[{id:"s1",name:"flash_sale",cat:"Promotion",text:"FLASH SALE! {{discount}}% off for {{hours}}hrs. Shop: {{link}} Reply STOP to opt out"},{id:"s2",name:"reminder",cat:"Transactional",text:"Reminder: {{first_name}}, your appointment is {{date}} at {{time}}. Reply C to confirm"},{id:"s3",name:"promo_code",cat:"Promotion",text:"{{first_name}}, exclusive {{discount}}% OFF code: {{code}}. Valid {{date}}. {{link}}"},{id:"s4",name:"payment_due",cat:"Transactional",text:"Hi {{first_name}}, payment of {{amount}} is due on {{date}}. Pay now: {{link}}"}];
 const EMAIL_MKT_T=[{id:"e1",name:"newsletter",cat:"Engagement",subj:"What is new this month at {{company}}"},{id:"e2",name:"product_launch",cat:"Promotion",subj:"Introducing {{product}} — available now"},{id:"e3",name:"welcome_series",cat:"Onboarding",subj:"Welcome to {{company}}, {{first_name}}!"},{id:"e4",name:"win_back",cat:"Retention",subj:"We miss you, {{first_name}}! Here is {{discount}}% off"}];
 const PUSH_MKT_T=[{id:"p1",name:"flash_push",cat:"Promotion",text:"{{discount}}% OFF everything! Ends in {{hours}} hours. Tap to shop."},{id:"p2",name:"cart_push",cat:"Retention",text:"{{first_name}}, you left {{product}} in your cart! Complete checkout now."},{id:"p3",name:"feature_push",cat:"Engagement",text:"New: {{product}} just launched! Be the first to try it."},{id:"p4",name:"review_push",cat:"Engagement",text:"How was your experience with {{product}}? Tap to leave a review."}];
@@ -101,9 +101,46 @@ export default function MarketingScr({contacts}){
   const [tplFilter,setTplFilter]=useState("all");
   // ═══ MARKETING API LOADING ═══
   useEffect(()=>{if(!api.isConnected())return;
-    api.get("/marketing/campaigns").then(r=>{if(r?.campaigns?.length)setCamps(prev=>{const apiCamps=r.campaigns.map(c=>({...c,ch:c.type||c.ch||"email",name:c.name||"Campaign",goal:c.goal||"promotion",status:c.status||"draft",sent:c.sent_count||0,delivered:c.delivered_count||0,read:c.open_count||0,clicked:c.click_count||0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:c.scheduled_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0]}));return apiCamps.length?apiCamps:prev;});}).catch(()=>{});
-    api.get("/marketing/segments").then(r=>{if(r?.segments?.length)setSegments(r.segments.map(s=>({...s,count:s.contact_count||s.count||0,desc:s.description||s.desc||"",icon:"👥",fixed:false})));}).catch(()=>{});
-    api.get("/marketing/templates").then(r=>{if(r?.templates?.length)setTemplates(prev=>{return r.templates.length?r.templates.map(t=>({...t,ch:t.channel||t.ch||"email",cat:t.category||t.cat||"General",body:t.body||t.content||""})):prev;});}).catch(()=>{});
+    api.get("/marketing/campaigns").then(r=>{
+      if(r?.campaigns){
+        const apiCamps=r.campaigns.map(c=>({
+          ...c,
+          ch:c.type||c.ch||"email",
+          name:c.name||"Campaign",
+          goal:c.goal||"promotion",
+          status:c.status||"draft",
+          audience:c.audience||0,
+          sent:c.sent_count||0,
+          delivered:c.delivered_count||0,
+          read:c.open_count||0,
+          clicked:c.click_count||0,
+          failed:0,
+          unsub:0,
+          revenue:"—",
+          cost:"—",
+          roi:"—",
+          date:c.scheduled_at?.split("T")[0]||c.created_at?.split("T")[0]||"—",
+          spark:[0,0,0,0,0,0,0],
+          ab:c.ab_test||false
+        }));
+        console.log('✅ Campaigns loaded from DB:', apiCamps.length);
+        setCamps(apiCamps);
+      }
+    }).catch(e=>console.error('❌ Failed to load campaigns:', e));
+    
+    api.get("/marketing/segments").then(r=>{
+      if(r?.segments){
+        setSegments(r.segments.map(s=>({...s,count:s.contact_count||s.count||0,desc:s.description||s.desc||"",icon:"👥",fixed:false})));
+        console.log('✅ Segments loaded from DB:', r.segments.length);
+      }
+    }).catch(e=>console.error('❌ Failed to load segments:', e));
+    
+    api.get("/marketing/templates").then(r=>{
+      if(r?.templates){
+        setTemplates(r.templates.map(t=>({...t,ch:t.type||t.ch||"email",cat:t.category||t.cat||"General",body:t.body||t.content||""})));
+        console.log('✅ Templates loaded from DB:', r.templates.length);
+      }
+    }).catch(e=>console.error('❌ Failed to load templates:', e));
   },[]);
   const [tplCatFilter,setTplCatFilter]=useState("all");
   const [tplPreview,setTplPreview]=useState(null);
@@ -135,6 +172,8 @@ export default function MarketingScr({contacts}){
   const delTpl=id=>{setTemplates(p=>p.filter(t=>t.id!==id));showT("Template deleted","success");};
 
   const chFilter=mtab==="whatsapp"||mtab==="email"||mtab==="sms"||mtab==="push"?mtab:null;
+  console.log('📊 Marketing state:', { totalCamps: camps.length, mtab, chFilter, filter, search });
+  console.log('📋 First camp:', camps[0]);
   const vis=camps.filter(c=>{
     if(chFilter&&c.ch!==chFilter)return false;
     if(filter!=="all"&&c.status!==filter)return false;
@@ -144,10 +183,45 @@ export default function MarketingScr({contacts}){
   const tot={sent:camps.reduce((s,c)=>s+c.sent,0),del:camps.reduce((s,c)=>s+c.delivered,0),read:camps.reduce((s,c)=>s+c.read,0),click:camps.reduce((s,c)=>s+c.clicked,0),fail:camps.reduce((s,c)=>s+c.failed,0)};
   const chTot=ch=>{const f=camps.filter(c=>c.ch===ch);return{cnt:f.length,sent:f.reduce((s,c)=>s+c.sent,0),del:f.reduce((s,c)=>s+c.delivered,0),read:f.reduce((s,c)=>s+c.read,0),click:f.reduce((s,c)=>s+c.clicked,0)};};
 
-  const togglePause=id=>setCamps(p=>p.map(c=>c.id===id?{...c,status:c.status==="paused"?"active":"paused"}:c));
-  const delCamp=id=>{setCamps(p=>p.filter(c=>c.id!==id));if(selCamp?.id===id)setSelCamp(null);showT("Campaign deleted","success");};
-  const launchCamp=id=>{setCamps(p=>p.map(c=>c.id===id?{...c,status:"active",sent:c.audience,delivered:Math.round(c.audience*0.97),read:Math.round(c.audience*0.55),clicked:Math.round(c.audience*0.18),failed:Math.round(c.audience*0.03),date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));showT("Campaign launched!","success");};
-  const dupCamp=c=>{const nw={...c,id:"mk"+uid(),name:c.name+" (Copy)",status:"draft",sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",roi:"—",date:"—",spark:[0,0,0,0,0,0,0]};setCamps(p=>[nw,...p]);showT("Campaign duplicated","success");return nw;};
+  const togglePause=id=>{
+    setCamps(p=>p.map(c=>c.id===id?{...c,status:c.status==="paused"?"active":"paused"}:c));
+    if(api.isConnected()){
+      const camp=camps.find(c=>c.id===id);
+      api.patch(`/marketing/campaigns/${id}`,{status:camp?.status==="paused"?"active":"paused"}).catch(()=>{
+        setCamps(p=>p.map(c=>c.id===id?{...c,status:c.status==="active"?"paused":"active"}:c));
+      });
+    }
+  };
+  const delCamp=id=>{
+    setCamps(p=>p.filter(c=>c.id!==id));
+    if(selCamp?.id===id)setSelCamp(null);
+    showT("Campaign deleted","success");
+    if(api.isConnected()){
+      api.del(`/marketing/campaigns/${id}`).catch(()=>{
+        showT("Failed to delete","error");
+      });
+    }
+  };
+  const launchCamp=id=>{
+    setCamps(p=>p.map(c=>c.id===id?{...c,status:"active",sent:c.audience,delivered:Math.round(c.audience*0.97),read:Math.round(c.audience*0.55),clicked:Math.round(c.audience*0.18),failed:Math.round(c.audience*0.03),date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));
+    showT("Campaign launched!","success");
+    if(api.isConnected()){
+      api.patch(`/marketing/campaigns/${id}`,{status:"active"}).catch(()=>{
+        showT("Failed to launch","error");
+      });
+    }
+  };
+  const dupCamp=c=>{
+    const nw={...c,id:"mk"+uid(),name:c.name+" (Copy)",status:"draft",sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",roi:"—",date:"—",spark:[0,0,0,0,0,0,0]};
+    setCamps(p=>[nw,...p]);
+    showT("Campaign duplicated","success");
+    if(api.isConnected()){
+      api.post("/marketing/campaigns",{name:c.name+" (Copy)",type:c.ch,goal:c.goal}).catch(()=>{
+        setCamps(p=>p.filter(x=>x.id!==nw.id));
+      });
+    }
+    return nw;
+  };
   const openNewForCh=ch2=>{setModalCh(ch2);setEditCamp(null);setShowModal(true);};
 
   // Sparkline SVG
@@ -796,9 +870,34 @@ export default function MarketingScr({contacts}){
     />}
 
     {/* ═══ CREATE/EDIT MODAL ═══ */}
-    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={camp=>{
-      if(editCamp){setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));showT("Campaign updated","success");}
-      else{setCamps(p=>[{id:"mk"+uid(),...camp,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:camp.status==="scheduled"?camp.schedDate||"—":"—",spark:[0,0,0,0,0,0,0]},...p]);showT("Campaign created!","success");}
+    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
+      if(editCamp){
+        setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));
+        showT("Campaign updated","success");
+        if(api.isConnected()){
+          api.patch(`/marketing/campaigns/${editCamp.id}`,camp).then(r=>{
+            if(r?.campaign){
+              const mapped={...r.campaign,ch:r.campaign.type||r.campaign.ch||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",sent:r.campaign.sent_count||0,delivered:r.campaign.delivered_count||0,read:r.campaign.open_count||0,clicked:r.campaign.click_count||0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0]};
+              setCamps(p=>p.map(c=>c.id===editCamp.id?mapped:c));
+            }
+          }).catch(()=>showT("Failed to update","error"));
+        }
+      } else {
+        const newCamp={id:"mk"+uid(),...camp,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:camp.status==="scheduled"?camp.schedDate||"—":"—",spark:[0,0,0,0,0,0,0]};
+        setCamps(p=>[newCamp,...p]);
+        showT("Campaign created!","success");
+        if(api.isConnected()){
+          api.post("/marketing/campaigns",{name:camp.name,type:camp.ch,goal:camp.goal,subject:camp.subject,body:camp.template,segment_id:camp.segment,scheduled_at:camp.schedDate||null}).then(r=>{
+            if(r?.campaign){
+              const mapped={...r.campaign,ch:r.campaign.type||r.campaign.ch||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",sent:r.campaign.sent_count||0,delivered:r.campaign.delivered_count||0,read:r.campaign.open_count||0,clicked:r.campaign.click_count||0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0]};
+              setCamps(p=>p.map(c=>c.id===newCamp.id?mapped:c));
+            }
+          }).catch(()=>{
+            setCamps(p=>p.filter(c=>c.id!==newCamp.id));
+            showT("Failed to create","error");
+          });
+        }
+      }
       setShowModal(false);setEditCamp(null);
     }}/>}
 
@@ -1002,10 +1101,10 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
       {/* Channel guidelines */}
       <div style={{padding:"8px 10px",background:C.s2,borderRadius:8,border:`1px solid ${C.b1}`,marginBottom:8}}>
         <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,letterSpacing:"0.4px",marginBottom:4}}>{ch.toUpperCase()} GUIDELINES</div>
-        {ch==="whatsapp"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>• Max 4,096 chars · No HTML · Include opt-out text · Broadcast requires approved template · 1-2 links max · Use {{first_name}} for personalization</div>}
-        {ch==="email"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>• Subject: under 60 chars · Avoid spam words (free, winner, urgent) · Include unsubscribe link · 1-3 CTAs · Use {{first_name}} · Avoid ALL CAPS</div>}
-        {ch==="sms"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>• 160 chars = 1 SMS · 161-320 = 2 SMS ($2x) · Unicode = 70 chars/segment · Include STOP opt-out · Use {{link}} for tracking · Avoid CAPS</div>}
-        {ch==="push"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>• Optimal 40-100 chars · Max 240 chars · Clear CTA · Personalize with {{first_name}}</div>}
+        {ch==="whatsapp"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>{"• Max 4,096 chars · No HTML · Include opt-out text · Broadcast requires approved template · 1-2 links max · Use {{first_name}} for personalization"}</div>}
+        {ch==="email"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>{"• Subject: under 60 chars · Avoid spam words (free, winner, urgent) · Include unsubscribe link · 1-3 CTAs · Use {{first_name}} · Avoid ALL CAPS"}</div>}
+        {ch==="sms"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>{"• 160 chars = 1 SMS · 161-320 = 2 SMS ($2x) · Unicode = 70 chars/segment · Include STOP opt-out · Use {{link}} for tracking · Avoid CAPS"}</div>}
+        {ch==="push"&&<div style={{fontSize:10,color:C.t3,lineHeight:1.6}}>{"• Optimal 40-100 chars · Max 240 chars · Clear CTA · Personalize with {{first_name}}"}</div>}
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:8}}>
         <Btn ch="← Back" v="ghost" onClick={()=>setStep(1)}/>
