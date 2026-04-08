@@ -11,7 +11,41 @@ router.get('/kpis', auth, async (req, res) => {
   const totalContacts = (await db.prepare('SELECT COUNT(*) as c FROM contacts').get()).c;
   const totalDeals = (await db.prepare('SELECT COUNT(*) as c FROM deals').get()).c;
   const dealsValue = (await db.prepare("SELECT COALESCE(SUM(value),0) as v FROM deals WHERE stage != 'Closed Lost'").get()).v;
-  const avgCsat = 4.2;
+
+  // Average CSAT score from conversations that have a rating
+  const csatRow = await db.query(
+    'SELECT AVG(csat_score) as avg_csat FROM conversations WHERE csat_score IS NOT NULL',
+    [], true
+  );
+  const avgCsat = csatRow && csatRow.avg_csat != null
+    ? parseFloat(Number(csatRow.avg_csat).toFixed(1))
+    : 0;
+
+  // Average response time: average seconds between conversation created_at and first agent message created_at
+  const rtRow = await db.query(
+    `SELECT AVG(TIMESTAMPDIFF(SECOND, c.created_at, m.created_at)) as avg_rt
+     FROM conversations c
+     INNER JOIN messages m ON m.conversation_id = c.id
+       AND m.role = 'agent'
+       AND m.id = (
+         SELECT m2.id FROM messages m2
+         WHERE m2.conversation_id = c.id AND m2.role = 'agent'
+         ORDER BY m2.created_at ASC LIMIT 1
+       )`,
+    [], true
+  );
+  let responseTime = 'N/A';
+  if (rtRow && rtRow.avg_rt != null) {
+    const totalSec = Math.round(rtRow.avg_rt);
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    responseTime = `${mins}m ${secs}s`;
+  }
+
+  // Resolution rate: resolved / total * 100
+  const resolvedAll = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE status='resolved'").get()).c;
+  const resolutionRate = totalConvs > 0 ? Math.round((resolvedAll / totalConvs) * 100) : 0;
+
   res.json({
     kpis: {
       totalConversations: totalConvs,
@@ -22,8 +56,8 @@ router.get('/kpis', auth, async (req, res) => {
       totalDeals,
       pipelineValue: dealsValue,
       avgCsat,
-      responseTime: '4m 32s',
-      resolutionRate: 87,
+      responseTime,
+      resolutionRate,
     }
   });
 });

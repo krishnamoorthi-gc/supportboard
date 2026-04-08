@@ -57,11 +57,21 @@ router.get('/', auth, (req, res) => {
   res.json({ bookings });
 });
 
+router.get('/:id', auth, (req, res) => {
+  const b = db.prepare(`
+    SELECT b.*, bp.name as page_name FROM bookings b
+    LEFT JOIN booking_pages bp ON b.page_id = bp.id
+    WHERE b.id=?
+  `).get(req.params.id);
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  res.json({ booking: b });
+});
+
 router.post('/', auth, (req, res) => {
   const { page_id, contact_name, contact_email, contact_phone, start_time, end_time, notes, form_responses={} } = req.body;
   if (!contact_name || !start_time) return res.status(400).json({ error: 'contact_name and start_time required' });
   const id = uid();
-  const noShowRisk = Math.floor(Math.random()*30);
+  const noShowRisk = 0;
   db.prepare('INSERT INTO bookings (id,page_id,contact_name,contact_email,contact_phone,start_time,end_time,notes,form_responses,no_show_risk) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
     id, page_id||null, contact_name, contact_email||null, contact_phone||null, start_time, end_time||null, notes||null, JSON.stringify(form_responses), noShowRisk
   );

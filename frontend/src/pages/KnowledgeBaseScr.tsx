@@ -93,7 +93,7 @@ export default function KnowledgeBaseScr(){
   const [aiGenLoad,setAiGenLoad]=useState(false);
   const [contentLang,setContentLang]=useState("en");
   // ═══ KB API LOADING ═══
-  useEffect(()=>{if(!api.isConnected())return;api.get("/kb/articles").then(r=>{if(r?.data?.length)setArticles(r.data.map(a=>({...a,cat:a.category_id||"kc1",tags:a.slug?[a.slug]:[],helpful:a.helpful_count||0,views:a.views||0,updated:a.updated_at?.split("T")[0]||""})));}).catch(()=>{});},[]);
+  useEffect(()=>{if(!api.isConnected())return;api.get("/kb/articles").then(r=>{if(r?.articles?.length)setArticles(r.articles.map(a=>({...a,cat:a.category_id||"kc1",tags:a.slug?[a.slug]:[],helpful:a.helpful_count||0,views:a.views||0,updated:a.updated_at?.split("T")[0]||""})));}).catch(()=>{});},[]);
 
   const filtered=articles.filter(a=>{
     if(kbCatFilter!=="all"&&a.cat!==kbCatFilter)return false;

@@ -502,7 +502,7 @@ function InboxSet({inboxes,setInboxes}){
   const save=()=>{
     if(!form.name.trim()){showT("Name required","error");return;}
     const payload={...form,cfg:{...cfg}};
-    if(edit)setInboxes(p=>p.map(i=>i.id===edit.id?{...i,...payload}:i));
+    if(edit){setInboxes(p=>p.map(i=>i.id===edit.id?{...i,...payload}:i));if(api.isConnected())api.patch(`/settings/inboxes/${edit.id}`,{name:payload.name,type:payload.type,color:payload.color,greeting:payload.greeting,active:payload.active}).catch(()=>{});}
     else{const nid="ib"+uid();setInboxes(p=>[...p,{id:nid,...payload,convs:0}]);if(api.isConnected())api.post("/settings/inboxes",{name:payload.name,type:payload.type||"live",color:payload.color,greeting:payload.greeting}).catch(()=>{});}
     showT(edit?"Inbox updated":"Inbox created!","success");setShowForm(false);setEdit(null);
   };
@@ -533,7 +533,7 @@ function InboxSet({inboxes,setInboxes}){
             <Toggle val={ib.active} set={v=>{setInboxes(p=>p.map(i=>i.id===ib.id?{...i,active:v}:i));showT("Inbox "+(v?"activated":"deactivated"),"info");}}/>
             <Tag text={ib.active?"Active":"Inactive"} color={ib.active?C.g:C.t3}/>
             <Btn ch="Configure" v="ghost" sm onClick={()=>openEdit(ib)}/>
-            <button onClick={()=>{if(window.confirm("Delete inbox?")){setInboxes(p=>p.filter(i=>i.id!==ib.id));showT("Inbox deleted","success");}}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:16}}>🗑</button>
+            <button onClick={()=>{if(window.confirm("Delete inbox?")){setInboxes(p=>p.filter(i=>i.id!==ib.id));showT("Inbox deleted","success");if(api.isConnected())api.del(`/settings/inboxes/${ib.id}`).catch(()=>{});}}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:16}}>🗑</button>
           </div>
 
           {/* Expanded form preview */}
@@ -1066,10 +1066,10 @@ function AgentSet({agents,setAgents,teams,setTeams}){
   };
   const promoteToAgent=id=>{setAgents(p=>p.map(a=>a.id===id?{...a,role:"Agent"}:a));showT("Promoted to Agent!","success");};
   const changeRole=(id,role)=>{setAgents(p=>p.map(a=>a.id===id?{...a,role}:a));showT("Role → "+role,"success");};
-  const removeMember=id=>{setAgents(p=>p.filter(a=>a.id!==id));showT("Removed","success");};
+  const removeMember=id=>{setAgents(p=>p.filter(a=>a.id!==id));showT("Removed","success");if(api.isConnected())api.del(`/settings/agents/${id}`).catch(()=>{});};
   const openEdit=a=>{setEmName(a.name);setEmEmail(a.email||"");setEmRole(a.role);setEmStatus(a.status);setEmMaxConvs(a.maxConvs||8);setEmPerms(rolePerms[a.role]||{});setEmAvail(a.availability||{start:"09:00",end:"18:00",tz:"Asia/Kolkata",autoAway:true,awayMin:15});setEmTab("profile");setEditMbr(a);};
-  const saveEdit=()=>{if(!emName.trim())return showT("Name required","error");setAgents(p=>p.map(a=>a.id===editMbr.id?{...a,name:emName,email:emEmail,role:emRole,status:emStatus,av:emName.slice(0,2).toUpperCase(),maxConvs:emMaxConvs,availability:emAvail}:a));showT("Saved","success");setEditMbr(null);};
-  const createTeam=()=>{if(!tName.trim())return showT("Name required","error");const payload={id:"t"+uid(),name:tName,desc:tDesc,members:tMembers,autoAssign:tAutoAssign,routing:tRouting,schedule:tSchedule};if(editTeam)setTeams(p=>p.map(t=>t.id===editTeam.id?{...t,...payload,id:editTeam.id}:t));else setTeams(p=>[...p,payload]);showT(editTeam?"Updated":"Created!","success");setShowTeamForm(false);setEditTeam(null);setTName("");setTDesc("");setTMembers([]);};
+  const saveEdit=()=>{if(!emName.trim())return showT("Name required","error");setAgents(p=>p.map(a=>a.id===editMbr.id?{...a,name:emName,email:emEmail,role:emRole,status:emStatus,av:emName.slice(0,2).toUpperCase(),maxConvs:emMaxConvs,availability:emAvail}:a));showT("Saved","success");if(api.isConnected())api.patch(`/settings/agents/${editMbr.id}`,{name:emName,email:emEmail,role:emRole,status:emStatus}).catch(()=>{});setEditMbr(null);};
+  const createTeam=()=>{if(!tName.trim())return showT("Name required","error");const payload={id:"t"+uid(),name:tName,desc:tDesc,members:tMembers,autoAssign:tAutoAssign,routing:tRouting,schedule:tSchedule};if(editTeam){setTeams(p=>p.map(t=>t.id===editTeam.id?{...t,...payload,id:editTeam.id}:t));if(api.isConnected())api.patch(`/settings/teams/${editTeam.id}`,{name:tName,members:tMembers}).catch(()=>{});}else{setTeams(p=>[...p,payload]);if(api.isConnected())api.post("/settings/teams",{name:tName,description:tDesc,members:tMembers}).catch(()=>{});}showT(editTeam?"Updated":"Created!","success");setShowTeamForm(false);setEditTeam(null);setTName("");setTDesc("");setTMembers([]);};
   const openEditTeam=t=>{setTName(t.name);setTDesc(t.desc);setTMembers(t.members||[]);setTAutoAssign(t.autoAssign!==false);setTRouting(t.routing||"round_robin");setTSchedule(t.schedule||{on:false,start:"09:00",end:"18:00",days:[1,2,3,4,5]});setEditTeam(t);setShowTeamForm(true);};
 
   const filtered=members.filter(a=>{
@@ -1203,7 +1203,7 @@ function AgentSet({agents,setAgents,teams,setTeams}){
               <Tag text={t.autoAssign!==false?"Auto":"Manual"} color={t.autoAssign!==false?C.g:C.t3}/>
               <Tag text={(t.routing||"round_robin").replace("_"," ")} color={C.cy}/>
               <Btn ch="Edit" v="ghost" sm onClick={()=>openEditTeam(t)}/>
-              <button onClick={()=>{setTeams(p=>p.filter(x=>x.id!==t.id));showT("Deleted","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>✕</button>
+              <button onClick={()=>{setTeams(p=>p.filter(x=>x.id!==t.id));showT("Deleted","success");if(api.isConnected())api.del(`/settings/teams/${t.id}`).catch(()=>{});}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>✕</button>
             </div>
           </div>
           <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>AGENTS ({(t.members||[]).length})</div>
@@ -1492,7 +1492,7 @@ function LabelSet({labels,setLabels}){
   const COLS=[C.a,C.g,C.p,C.y,C.r,C.cy,"#ff6b35","#e91e63","#00bcd4","#8bc34a"];
   const save=()=>{
     if(!title.trim()){showT("Title required","error");return;}
-    if(edit)setLabels(p=>p.map(l=>l.id===edit.id?{...l,title,color}:l));
+    if(edit){setLabels(p=>p.map(l=>l.id===edit.id?{...l,title,color}:l));if(api.isConnected())api.patch(`/settings/labels/${edit.id}`,{title,color}).catch(()=>{});}
     else{setLabels(p=>[...p,{id:"l"+uid(),title,color}]);if(api.isConnected())api.post("/settings/labels",{title,color}).catch(()=>{});}
     showT(edit?"Label updated":"Label created!","success");setShowForm(false);setEdit(null);setTitle("");
   };
@@ -1508,7 +1508,7 @@ function LabelSet({labels,setLabels}){
           <Tag text={l.title} color={l.color}/>
           <div style={{flex:1}}/>
           <button onClick={()=>{setTitle(l.title);setColor(l.color);setEdit(l);setShowForm(true);}} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:14}}>✎</button>
-          <button onClick={()=>{setLabels(p=>p.filter(x=>x.id!==l.id));showT("Label deleted","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>🗑</button>
+          <button onClick={()=>{setLabels(p=>p.filter(x=>x.id!==l.id));showT("Label deleted","success");if(api.isConnected())api.del(`/settings/labels/${l.id}`).catch(()=>{});}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>🗑</button>
         </div>
       ))}
     </div>
@@ -1534,7 +1534,7 @@ function CannedSet({canned,setCanned}){
   const filtered=canned.filter(c=>!search||c.code.includes(search)||c.content.toLowerCase().includes(search.toLowerCase()));
   const save=()=>{
     if(!code.trim()||!content.trim()){showT("Both fields required","error");return;}
-    if(edit)setCanned(p=>p.map(c=>c.id===edit.id?{...c,code,content}:c));
+    if(edit){setCanned(p=>p.map(c=>c.id===edit.id?{...c,code,content}:c));if(api.isConnected())api.patch(`/settings/canned-responses/${edit.id}`,{code,content}).catch(()=>{});}
     else{setCanned(p=>[...p,{id:"c"+uid(),code,content}]);if(api.isConnected())api.post("/settings/canned-responses",{code,content}).catch(()=>{});}
     showT(edit?"Updated":"Created!","success");setShowForm(false);setEdit(null);setCode("");setContent("");
   };
@@ -1553,7 +1553,7 @@ function CannedSet({canned,setCanned}){
           <div style={{background:C.ad,border:`1px solid ${C.a}44`,borderRadius:6,padding:"3px 9px",flexShrink:0}}><span style={{fontSize:11,color:C.a,fontFamily:FM,fontWeight:600}}>/{c.code}</span></div>
           <div style={{flex:1,fontSize:13,color:C.t2,lineHeight:1.5}}>{c.content}</div>
           <button onClick={()=>{setCode(c.code);setContent(c.content);setEdit(c);setShowForm(true);}} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:14}}>✎</button>
-          <button onClick={()=>{setCanned(p=>p.filter(x=>x.id!==c.id));showT("Deleted","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>🗑</button>
+          <button onClick={()=>{setCanned(p=>p.filter(x=>x.id!==c.id));showT("Deleted","success");if(api.isConnected())api.del(`/settings/canned-responses/${c.id}`).catch(()=>{});}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>🗑</button>
         </div>
       ))}
       {filtered.length===0&&<div style={{padding:"20px",textAlign:"center",fontSize:13,color:C.t3}}>No responses found</div>}
@@ -1601,7 +1601,7 @@ function AutoSet({autos,setAutos}){
             <Toggle val={a.active} set={v=>{setAutos(p=>p.map(x=>x.id===a.id?{...x,active:v}:x));showT(`Automation ${v?"enabled":"disabled"}`,"info");}}/>
             <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600,marginBottom:2}}>{a.name}</div><div style={{fontSize:11.5,color:C.t3,fontFamily:FM}}>Trigger: {a.event}</div></div>
             <Btn ch="✎ Edit" v="ghost" sm onClick={()=>openEdit(a)}/>
-            <button onClick={()=>{if(window.confirm("Delete automation?"))setAutos(p=>p.filter(x=>x.id!==a.id));showT("Deleted","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:16}}>🗑</button>
+            <button onClick={()=>{if(window.confirm("Delete automation?")){setAutos(p=>p.filter(x=>x.id!==a.id));showT("Deleted","success");if(api.isConnected())api.del(`/settings/automations/${a.id}`).catch(()=>{});}}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:16}}>🗑</button>
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>IF:</span>

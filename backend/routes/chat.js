@@ -16,6 +16,18 @@ router.get('/channels', auth, (req, res) => {
   res.json({ channels });
 });
 
+// GET /api/chat/channels/:id
+router.get('/channels/:id', auth, (req, res) => {
+  const c = db.prepare('SELECT * FROM chat_channels WHERE id=?').get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  try { c.members = JSON.parse(c.members||'[]'); } catch { c.members=[]; }
+  try { c.pinned_messages = JSON.parse(c.pinned_messages||'[]'); } catch { c.pinned_messages=[]; }
+  c.unreadCount = 0;
+  const last = db.prepare('SELECT * FROM chat_messages WHERE channel_id=? ORDER BY created_at DESC LIMIT 1').get(c.id);
+  c.lastMessage = last || null;
+  res.json({ channel: c });
+});
+
 // POST /api/chat/channels
 router.post('/channels', auth, (req, res) => {
   const { name, description, type='public', members=[] } = req.body;

@@ -62,10 +62,10 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     if(!api.isConnected())return;
     setCrmLoading(true);
     Promise.allSettled([
-      api.get("/crm/leads").then(r=>{if(r?.data?.length)setLeads(r.data.map(l=>({...l,tags:l.tags||[],activities:[],lastContact:l.last_contact||""})));}),
-      api.get("/crm/deals").then(r=>{if(r?.data?.length)setDeals(r.data.map(d=>({...d,tags:d.tags||[],activities:[],closeDate:d.close_date||"",contact:d.contact_name||""})));}),
-      api.get("/crm/tasks").then(r=>{if(r?.data?.length)setTasks(r.data.map(t=>({...t,tags:t.tags||[],comments:[],dueDate:t.due_date||"",contact:t.contact_name||"",desc:t.description||""})));}),
-      api.get("/crm/meetings").then(r=>{if(r?.data?.length)setMeetings(r.data.map(m=>({...m,attendees:m.attendees||[],contact:m.contact_name||""})));})
+      api.get("/crm/leads").then(r=>{if(r?.leads?.length)setLeads(r.leads.map(l=>({...l,tags:l.tags||[],activities:[],lastContact:l.last_contact||""})));}),
+      api.get("/crm/deals").then(r=>{if(r?.deals?.length)setDeals(r.deals.map(d=>({...d,tags:d.tags||[],activities:[],closeDate:d.close_date||"",contact:d.contact_name||""})));}),
+      api.get("/crm/tasks").then(r=>{if(r?.tasks?.length)setTasks(r.tasks.map(t=>({...t,tags:t.tags||[],comments:[],dueDate:t.due_date||"",contact:t.contact_name||"",desc:t.description||""})));}),
+      api.get("/crm/meetings").then(r=>{if(r?.meetings?.length)setMeetings(r.meetings.map(m=>({...m,attendees:m.attendees||[],contact:m.contact_name||""})));})
     ]).finally(()=>setCrmLoading(false));
   },[]);
   const convertToDeal=l=>{setDN(l.company+" Deal");setDV(String(l.value||""));setDS("Lead");setDO(l.owner);setDCo(l.company);setDCt(l.name);setDNo("From lead: "+l.notes);setDC("");setEditD(null);setShowDF(true);setTab("deals");};

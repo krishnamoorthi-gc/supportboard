@@ -11,7 +11,7 @@ export default function HomeScr({convs,contacts,agents,labels,inboxes,setScr,set
   useEffect(()=>{
     if(!api.isConnected())return;
     api.get("/dashboard/kpis").then(setApiKpis).catch(()=>{});
-    api.get("/dashboard/activity-feed").then(r=>setApiActivity(r?.data)).catch(()=>{});
+    api.get("/dashboard/activity-feed").then(r=>setApiActivity(r?.activity)).catch(()=>{});
   },[]);
   const openConvs=useMemo(()=>convs.filter(c=>c.status==="open"),[convs]);
   const urgentConvs=useMemo(()=>convs.filter(c=>c.priority==="urgent"||c.priority==="high"),[convs]);
