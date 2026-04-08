@@ -101,9 +101,23 @@ export default function App(){
     setLoginLoading(false);
   };
 
+  // ── Session restore on page reload ──
+  useEffect(()=>{
+    const savedToken=localStorage.getItem("sd_token");
+    if(!savedToken)return;
+    api.get("/auth/me").then(res=>{
+      if(res?.agent){
+        setIsLoggedIn(true);
+        setApiOk(true);
+        loadInitialData(true);
+      }
+    }).catch(()=>{api.setToken(null);});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
   // ── Load initial data from API ──
-  const loadInitialData=async()=>{
-    if(!apiOk)return;
+  const loadInitialData=async(force=false)=>{
+    if(!apiOk&&!force)return;
     setDataLoading(true);
     try{
       const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes]=await Promise.allSettled([

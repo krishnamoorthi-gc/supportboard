@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, startTransition } from "react";
 
 export const API_BASE = "http://localhost:3001/api";
-export const _token = { current: null };
+export const _token = { current: (typeof localStorage!=="undefined"?localStorage.getItem("sd_token"):null) as string|null };
 export const _connected = { current: false };
 
 export async function api(path, opts = {}) {
@@ -33,7 +33,7 @@ api.post = (p, body) => api(p, { method: "POST", body });
 api.patch = (p, body) => api(p, { method: "PATCH", body });
 api.del = (p) => api(p, { method: "DELETE" });
 api.isConnected = () => _connected.current;
-api.setToken = (t) => { _token.current = t; };
+api.setToken = (t) => { _token.current = t; if(t)localStorage.setItem("sd_token",t); else localStorage.removeItem("sd_token"); };
 api.getToken = () => _token.current;
 
 /* ═══ LAZY MOUNT — defers rendering until first activation, stays mounted after ═══ */

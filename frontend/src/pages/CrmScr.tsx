@@ -198,7 +198,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   // Export
   const exportCSV=(type)=>{let csv="";if(type==="deals"){csv="Name,Company,Value,Stage,Probability,Owner,Contact,Close Date,Product\n";deals.forEach(d=>csv+=`"${d.name}","${d.company}",${d.value},"${d.stage}",${d.probability},"${d.owner}","${d.contact||""}","${d.closeDate}","${d.product||""}"\n`);}else if(type==="leads"){csv="Name,Email,Company,Designation,Phone,Source,Stage,Score,Owner,Value\n";leads.forEach(l=>csv+=`"${l.name}","${l.email}","${l.company}","${l.designation||""}","${l.phone}","${l.source}","${l.stage}",${l.score},"${l.owner}",${l.value||0}\n`);}else if(type==="tasks"){csv="Title,Assignee,Due,Priority,Status,Contact,Company,Deal\n";tasks.forEach(t=>csv+=`"${t.title}","${t.assignee}","${t.dueDate}","${t.priority}","${t.status}","${t.contact||""}","${t.company||""}","${t.deal||""}"\n`);}const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=type+"_export.csv";a.click();URL.revokeObjectURL(url);showT("Exported "+type+".csv","success");};
 
-  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
+  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"hidden",fontFamily:FB,color:C.t1}}>
     {/* ═══ CRM DASHBOARD HEADER ═══ */}
     <div style={{flexShrink:0,background:C.s1,borderBottom:`1px solid ${C.b1}`}}>
       {/* Title + Global Search + Quick Actions */}
@@ -345,7 +345,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     {crmLoading&&<div style={{flex:1,padding:"24px"}}><div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}><Spin/><span style={{fontSize:12,color:C.t2,fontFamily:FM}}>Loading CRM data from API…</span></div><SkelTable rows={6} cols={5}/></div>}
 
     {/* ═══ DEALS ═══ */}
-    {!crmLoading&&tab==="deals"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="deals"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -535,7 +535,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ LEADS ═══ */}
-    {!crmLoading&&tab==="leads"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="leads"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -840,7 +840,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ TASKS ═══ */}
-    {!crmLoading&&tab==="tasks"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="tasks"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -1003,7 +1003,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ MEETINGS ═══ */}
-    {!crmLoading&&tab==="meetings"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {!crmLoading&&tab==="meetings"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -1190,7 +1190,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ COMPANIES ═══ */}
-    {tab==="companies"&&<div style={{flex:1,display:"flex",minWidth:0}}>
+    {tab==="companies"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
       <div style={{flex:1,padding:"16px 24px",overflowY:"auto"}}>
         {/* Toolbar */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
@@ -1429,7 +1429,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
     </div>}
 
     {/* ═══ ACTIVITIES ═══ */}
-    {tab==="activities"&&<div style={{flex:1,padding:"20px 24px",overflowY:"auto"}}>
+    {tab==="activities"&&<div style={{flex:1,padding:"20px 24px",overflowY:"auto",minHeight:0}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{display:"flex",gap:3}}>{[{v:"all",l:"All"},...Object.entries(AIC).map(([t,i])=>({v:t,l:i+" "+t}))].map(f=><button key={f.v} onClick={()=>setActFilter(f.v)} style={{padding:"6px 10px",borderRadius:8,fontSize:10,fontWeight:700,fontFamily:FM,background:actFilter===f.v?C.ad:"transparent",color:actFilter===f.v?C.a:C.t3,border:`1px solid ${actFilter===f.v?C.a+"44":C.b1}`,cursor:"pointer"}}>{f.l}</button>)}</div>
         <div style={{display:"flex",background:C.s2,borderRadius:8,border:`1px solid ${C.b1}`,overflow:"hidden"}}>{[["list","☰"],["kanban","▦"]].map(([v,i])=><button key={v} onClick={()=>setActView(v)} style={{padding:"6px 12px",fontSize:12,background:actView===v?C.ad:"transparent",color:actView===v?C.a:C.t3,border:"none",cursor:"pointer",fontWeight:700}}>{i}</button>)}</div>
