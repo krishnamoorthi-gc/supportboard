@@ -708,6 +708,18 @@ export default function App(){
   const [loginAgentId,setLoginAgentId]=useState("");
   const [apiOk,setApiOk]=useState(false);
   const [dataLoading,setDataLoading]=useState(false);
+  const [showProfileMenu,setShowProfileMenu]=useState(false);
+
+  const handleLogout=async()=>{
+    try {
+      if (apiOk) await api.post("/auth/logout");
+    } catch(e) {}
+    api.setToken(null);
+    setIsLoggedIn(false);
+    setLogin2FA(false);
+    setShowProfileMenu(false);
+    showT("Logged out successfully", "info");
+  };
 
   const doLogin=async()=>{
     if(!loginEmail||!loginPass)return;
@@ -834,6 +846,7 @@ export default function App(){
   const applyTheme=key=>{applyThemeColors(key);setThemeKey(key);};
   const navigate=useCallback(id=>{startTransition(()=>setScr(id));const r=ROUTES[id];if(r)window.location.hash=r.path?"/"+r.path:"/";},[]);
   useEffect(()=>{const handler=()=>setScr(hashToScr());window.addEventListener("hashchange",handler);return()=>window.removeEventListener("hashchange",handler);},[]);
+  useEffect(()=>{if(!showProfileMenu)return;const h=(e)=>{if(!(e.target as Element).closest?.("[data-profile-menu]"))setShowProfileMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[showProfileMenu]);
   // ── Dark/Light mode ──
   const [isDark,setIsDark]=useState(false);
   const [autoTheme,setAutoTheme]=useState(false);
@@ -1123,9 +1136,23 @@ export default function App(){
         {unread>0&&<span style={{position:"absolute",top:2,right:6,minWidth:16,height:16,background:C.r,borderRadius:"50%",fontSize:8,color:"#fff",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.s1}`}}>{unread}</span>}
       </button>
       {showN&&<div style={{position:"absolute",left:82,bottom:40,zIndex:100}}><NotifPanel notifs={notifs} setNotifs={setNotifs} onClose={()=>setShowN(false)}/></div>}
-      <div style={{padding:"7px 0",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}} onClick={()=>showT("Profile","info")}>
+      <div data-profile-menu style={{padding:"7px 0",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,position:"relative"}} onClick={()=>setShowProfileMenu(!showProfileMenu)}>
         <Av i="PS" c={C.a} s={30} dot={true}/>
         <span style={{fontSize:8.5,color:C.t2,fontWeight:600,fontFamily:FD}}>Priya</span>
+        {showProfileMenu && <div data-profile-menu style={{position:"fixed",left:86,bottom:8,width:200,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,.4)",zIndex:9999,overflow:"hidden",animation:"slideIn .15s ease"}} onClick={e=>e.stopPropagation()}>
+          <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s1}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.t1}}>Priya Sharma</div>
+            <div style={{fontSize:10,color:C.t3}}>priya@supportdesk.app</div>
+          </div>
+          <div style={{padding:4}}>
+            <button className="hov" onClick={()=>{navigate("settings");setStab("profile");setShowProfileMenu(false);}} style={{width:"100%",padding:"8px 10px",borderRadius:8,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",color:C.t2,fontSize:12,cursor:"pointer",textAlign:"left",transition:"all .1s"}}>
+              <NavIcon id="settings" s={14} col={C.t3}/> My Profile
+            </button>
+            <button className="hov" onClick={handleLogout} style={{width:"100%",padding:"8px 10px",borderRadius:8,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",color:C.r,fontSize:12,cursor:"pointer",textAlign:"left",transition:"all .1s"}}>
+              <span style={{fontSize:14}}>📤</span> Logout
+            </button>
+          </div>
+        </div>}
       </div>
     </nav>
 
