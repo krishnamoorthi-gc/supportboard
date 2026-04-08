@@ -68,7 +68,7 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
     </div>
 
     {/* ═══ CONTACTS ═══ */}
-    <div style={{flex:1,display:"flex",minWidth:0}}>
+    <div style={{flex:1,display:"flex",minWidth:0,overflow:"hidden"}}>
     {/* TABLE */}
     <div style={{flex:1,padding:"22px 24px",overflowY:"auto",minWidth:0}}>
       {activeList&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,padding:"8px 14px",background:C.ad,borderRadius:10,border:`1px solid ${C.a}33`}}>
