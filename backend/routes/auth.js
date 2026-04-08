@@ -19,7 +19,7 @@ router.post('/login', async (req, res) => {
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
   if (agent.two_fa_enabled) {
-    return res.json({ twoFaRequired: true, agentId: agent.id });
+    return res.json({ twoFaRequired: true, agent_id: agent.id });
   }
 
   const token = jwt.sign({ id: agent.id, email: agent.email, role: agent.role }, SECRET(), { expiresIn: '30d' });
@@ -35,11 +35,12 @@ router.post('/login', async (req, res) => {
 
 // POST /api/auth/2fa (Verify 2FA)
 router.post('/2fa', async (req, res) => {
-  const { agentId, code } = req.body;
-  if (!agentId || !code) return res.status(400).json({ error: 'agentId and code required' });
+  const { agent_id, agentId, code } = req.body;
+  const id = agent_id || agentId;
+  if (!id || !code) return res.status(400).json({ error: 'agent_id and code required' });
   if (code.length < 6) return res.status(401).json({ error: 'Invalid 2FA code' });
 
-  const agent = await db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId);
+  const agent = await db.prepare('SELECT * FROM agents WHERE id = ?').get(id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
   const token = jwt.sign({ id: agent.id, email: agent.email, role: agent.role }, SECRET(), { expiresIn: '30d' });

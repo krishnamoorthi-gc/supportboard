@@ -714,12 +714,21 @@ export default function App(){
     setLoginLoading(true);setLoginError("");
     try{
       const res=await api.post("/auth/login",{email:loginEmail,password:loginPass});
-      setLoginAgentId(res.agent_id);setLogin2FA(true);
+      if (res.twoFaRequired) {
+        setLoginAgentId(res.agent_id);
+        setLogin2FA(true);
+      } else {
+        api.setToken(res.token);
+        setIsLoggedIn(true);
+        showT("Welcome back!", "success");
+        loadInitialData();
+      }
       setApiOk(true);
     }catch(e){
       if(e.message==="Failed to fetch"||!_connected.current){
         // Backend offline → fallback to demo mode
-        setLogin2FA(true);setLoginAgentId("a1");
+        setLogin2FA(true);
+        setLoginAgentId("a1");
         setApiOk(false);
       }else{
         setLoginError(e.message||"Invalid credentials");
