@@ -3,11 +3,15 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 0,
+            "activePatchIndex": 1,
             "patches": [
                 {
                     "date": 1775647072150,
                     "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1775651347391,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -67,9 +67,9 @@\n       </div>\n     </div>\n \n     {/* ═══ CONTACTS ═══ */}\n-    <div style={{flex:1,display:\"flex\",minWidth:0}}>\n+    <div style={{flex:1,display:\"flex\",minWidth:0,overflow:\"hidden\"}}>\n     {/* TABLE */}\n     <div style={{flex:1,padding:\"22px 24px\",overflowY:\"auto\",minWidth:0}}>\n       {activeList&&<div style={{display:\"flex\",alignItems:\"center\",gap:8,marginBottom:12,padding:\"8px 14px\",background:C.ad,borderRadius:10,border:`1px solid ${C.a}33`}}>\n         <span style={{fontSize:14}}>{smartLists.find(l=>l.id===activeList)?.icon}</span>\n"
                 }
             ],
             "date": 1775647072149,
