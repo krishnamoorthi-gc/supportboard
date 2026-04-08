@@ -1,0 +1,18 @@
+{
+    "sourceFile": "backend/check_tables.js",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1775647895338,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1775647895338,
+            "name": "Commit-0",
+            "content": "const mysql = require('mysql2/promise');\r\n\r\nasync function checkDB() {\r\n  try {\r\n    const conn = await mysql.createConnection({\r\n      host: '127.0.0.1',\r\n      user: 'root',\r\n      password: '',\r\n      database: 'supportboard'\r\n    });\r\n\r\n    console.log('✅ Connected to MySQL\\n');\r\n\r\n    // Check tables\r\n    const [tables] = await conn.query('SHOW TABLES');\r\n    console.log('📋 Tables in database:');\r\n    tables.forEach(t => {\r\n      const tableName = Object.values(t)[0];\r\n      console.log(`  - ${tableName}`);\r\n    });\r\n\r\n    // Check contacts\r\n    const [contacts] = await conn.query('SELECT id, name, email, created_at FROM contacts ORDER BY created_at DESC LIMIT 10');\r\n    console.log(`\\n👥 Contacts count: ${contacts.length}`);\r\n    if (contacts.length > 0) {\r\n      console.log('Recent contacts:');\r\n      contacts.forEach(c => {\r\n        console.log(`  - ${c.name} (${c.email}) - ${c.created_at}`);\r\n      });\r\n    }\r\n\r\n    // Check teams table structure\r\n    try {\r\n      const [teams] = await conn.query('SELECT COUNT(*) as count FROM teams');\r\n      console.log(`\\n👥 Teams count: ${teams[0].count}`);\r\n    } catch (e) {\r\n      console.log(`\\n❌ Teams table error: ${e.message}`);\r\n    }\r\n\r\n    // Check automations table\r\n    try {\r\n      const [autos] = await conn.query('SELECT COUNT(*) as count FROM automations');\r\n      console.log(`\\n🤖 Automations count: ${autos[0].count}`);\r\n    } catch (e) {\r\n      console.log(`\\n❌ Automations table error: ${e.message}`);\r\n    }\r\n\r\n    // Check custom_fields table\r\n    try {\r\n      const [fields] = await conn.query('SELECT COUNT(*) as count FROM custom_fields');\r\n      console.log(`\\n📝 Custom fields count: ${fields[0].count}`);\r\n    } catch (e) {\r\n      console.log(`\\n❌ Custom fields table error: ${e.message}`);\r\n    }\r\n\r\n    await conn.end();\r\n  } catch (e) {\r\n    console.error('❌ Database error:', e.message);\r\n  }\r\n}\r\n\r\ncheckDB();\r\n"
+        }
+    ]
+}

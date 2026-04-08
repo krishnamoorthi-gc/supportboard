@@ -5,9 +5,14 @@ const bcrypt = require('bcryptjs');
 const { uid } = require('../utils/helpers');
 
 // ── AGENTS ──
-router.get('/agents', auth, (req, res) => {
-  const agents = db.prepare('SELECT id,name,email,role,avatar,color,status,phone,bio,two_fa_enabled,created_at FROM agents').all();
-  res.json({ agents });
+router.get('/agents', auth, async (req, res) => {
+  try {
+    const agents = await db.prepare('SELECT id,name,email,role,avatar,color,status,phone,bio,two_fa_enabled,created_at FROM agents').all();
+    res.json({ agents });
+  } catch (e) {
+    console.error('❌ GET /api/settings/agents error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/agents', auth, (req, res) => {
@@ -43,12 +48,17 @@ router.delete('/agents/:id', auth, (req, res) => {
 });
 
 // ── TEAMS ──
-router.get('/teams', auth, (req, res) => {
-  const teams = db.prepare('SELECT * FROM teams').all();
-  for (const t of teams) {
-    t.members = db.prepare('SELECT agent_id FROM team_members WHERE team_id=?').all(t.id).map(r=>r.agent_id);
+router.get('/teams', auth, async (req, res) => {
+  try {
+    const teams = await db.prepare('SELECT * FROM teams').all();
+    for (const t of teams) {
+      t.members = (await db.prepare('SELECT agent_id FROM team_members WHERE team_id=?').all(t.id)).map(r=>r.agent_id);
+    }
+    res.json({ teams });
+  } catch (e) {
+    console.error('❌ GET /api/settings/teams error:', e.message);
+    res.status(500).json({ error: e.message });
   }
-  res.json({ teams });
 });
 
 router.post('/teams', auth, (req, res) => {
@@ -80,8 +90,13 @@ router.delete('/teams/:id', auth, (req, res) => {
 });
 
 // ── LABELS ──
-router.get('/labels', auth, (req, res) => {
-  res.json({ labels: db.prepare('SELECT * FROM labels ORDER BY title ASC').all() });
+router.get('/labels', auth, async (req, res) => {
+  try {
+    res.json({ labels: await db.prepare('SELECT * FROM labels ORDER BY title ASC').all() });
+  } catch (e) {
+    console.error('❌ GET /api/settings/labels error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/labels', auth, (req, res) => {
@@ -109,11 +124,16 @@ router.delete('/labels/:id', auth, (req, res) => {
 });
 
 // ── CANNED RESPONSES ──
-router.get('/canned', auth, (req, res) => {
-  const { q } = req.query;
-  let rows = db.prepare('SELECT * FROM canned_responses ORDER BY code ASC').all();
-  if (q) rows = rows.filter(r => r.code.includes(q.toLowerCase()) || r.content.toLowerCase().includes(q.toLowerCase()));
-  res.json({ canned: rows });
+router.get('/canned', auth, async (req, res) => {
+  try {
+    const { q } = req.query;
+    let rows = await db.prepare('SELECT * FROM canned_responses ORDER BY code ASC').all();
+    if (q) rows = rows.filter(r => r.code.includes(q.toLowerCase()) || r.content.toLowerCase().includes(q.toLowerCase()));
+    res.json({ canned: rows });
+  } catch (e) {
+    console.error('❌ GET /api/settings/canned error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/canned', auth, (req, res) => {
@@ -141,8 +161,13 @@ router.delete('/canned/:id', auth, (req, res) => {
 });
 
 // ── INBOXES ──
-router.get('/inboxes', auth, (req, res) => {
-  res.json({ inboxes: db.prepare('SELECT * FROM inboxes ORDER BY name ASC').all() });
+router.get('/inboxes', auth, async (req, res) => {
+  try {
+    res.json({ inboxes: await db.prepare('SELECT * FROM inboxes ORDER BY name ASC').all() });
+  } catch (e) {
+    console.error('❌ GET /api/settings/inboxes error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/inboxes', auth, (req, res) => {
@@ -172,12 +197,17 @@ router.delete('/inboxes/:id', auth, (req, res) => {
 });
 
 // ── CUSTOM FIELDS ──
-router.get('/custom-fields', auth, (req, res) => {
-  const { entity } = req.query;
-  let rows = db.prepare('SELECT * FROM custom_fields ORDER BY entity,name ASC').all();
-  if (entity) rows = rows.filter(r => r.entity === entity);
-  for (const r of rows) { try { r.options = JSON.parse(r.options||'[]'); } catch { r.options=[]; } }
-  res.json({ fields: rows });
+router.get('/custom-fields', auth, async (req, res) => {
+  try {
+    const { entity } = req.query;
+    let rows = await db.prepare('SELECT * FROM custom_fields ORDER BY entity,name ASC').all();
+    if (entity) rows = rows.filter(r => r.entity === entity);
+    for (const r of rows) { try { r.options = JSON.parse(r.options||'[]'); } catch { r.options=[]; } }
+    res.json({ fields: rows });
+  } catch (e) {
+    console.error('❌ GET /api/settings/custom-fields error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/custom-fields', auth, (req, res) => {
@@ -210,13 +240,18 @@ router.delete('/custom-fields/:id', auth, (req, res) => {
 });
 
 // ── AUTOMATIONS ──
-router.get('/automations', auth, (req, res) => {
-  const rows = db.prepare('SELECT * FROM automations ORDER BY created_at DESC').all();
-  for (const r of rows) {
-    try { r.conditions = JSON.parse(r.conditions||'[]'); } catch { r.conditions=[]; }
-    try { r.actions = JSON.parse(r.actions||'[]'); } catch { r.actions=[]; }
+router.get('/automations', auth, async (req, res) => {
+  try {
+    const rows = await db.prepare('SELECT * FROM automations ORDER BY created_at DESC').all();
+    for (const r of rows) {
+      try { r.conditions = JSON.parse(r.conditions||'[]'); } catch { r.conditions=[]; }
+      try { r.actions = JSON.parse(r.actions||'[]'); } catch { r.actions=[]; }
+    }
+    res.json({ automations: rows });
+  } catch (e) {
+    console.error('❌ GET /api/settings/automations error:', e.message);
+    res.status(500).json({ error: e.message });
   }
-  res.json({ automations: rows });
 });
 
 router.post('/automations', auth, (req, res) => {

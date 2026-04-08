@@ -4,16 +4,22 @@ const auth = require('../middleware/auth');
 const { uid, paginate } = require('../utils/helpers');
 
 router.get('/', auth, async (req, res) => {
-  const { offset, limit } = paginate(req);
-  const { q, tag } = req.query;
-  let where = '1=1'; const params = [];
-  if (q) { where += ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR company LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq,lq); }
-  if (tag) { where += ' AND tags LIKE ?'; params.push(`%"${tag}"%`); }
-  const contacts = await db.prepare(`SELECT * FROM contacts WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, limit, offset);
-  const totalRow = await db.prepare(`SELECT COUNT(*) as c FROM contacts WHERE ${where}`).get(...params);
-  const total = totalRow ? totalRow.c : 0;
-  for (const c of contacts) { try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; } }
-  res.json({ contacts, total });
+  try {
+    const { offset, limit } = paginate(req);
+    const { q, tag } = req.query;
+    let where = '1=1'; const params = [];
+    if (q) { where += ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR company LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq,lq); }
+    if (tag) { where += ' AND tags LIKE ?'; params.push(`%"${tag}"%`); }
+    const contacts = await db.prepare(`SELECT * FROM contacts WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    const totalRow = await db.prepare(`SELECT COUNT(*) as c FROM contacts WHERE ${where}`).get(...params);
+    const total = totalRow ? totalRow.c : 0;
+    for (const c of contacts) { try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; } }
+    console.log(`✅ GET /api/contacts - returning ${contacts.length} contacts`);
+    res.json({ contacts, total });
+  } catch (e) {
+    console.error('❌ GET /api/contacts error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.get('/:id', auth, async (req, res) => {

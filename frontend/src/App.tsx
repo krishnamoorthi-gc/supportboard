@@ -104,14 +104,20 @@ export default function App(){
   // ── Session restore on page reload ──
   useEffect(()=>{
     const savedToken=localStorage.getItem("sd_token");
+    console.log('🔑 Session restore - token exists:', !!savedToken);
     if(!savedToken)return;
     api.get("/auth/me").then(res=>{
+      console.log('✅ Auth check passed:', res);
       if(res?.agent){
         setIsLoggedIn(true);
         setApiOk(true);
+        console.log('📦 Calling loadInitialData with force=true');
         loadInitialData(true);
       }
-    }).catch(()=>{api.setToken(null);});
+    }).catch((err)=>{
+      console.error('❌ Auth check failed:', err);
+      api.setToken(null);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
@@ -120,6 +126,7 @@ export default function App(){
     if(!apiOk&&!force)return;
     setDataLoading(true);
     try{
+      console.log('🔄 Loading initial data from API...');
       const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes]=await Promise.allSettled([
         api.get("/settings/agents"),api.get("/contacts"),api.get("/conversations"),
         api.get("/settings/labels"),api.get("/settings/teams"),api.get("/settings/inboxes"),
@@ -127,11 +134,32 @@ export default function App(){
         api.get("/settings/automations"),api.get("/settings/custom-fields"),
       ]);
       const ok=(r)=>r.status==="fulfilled"&&r.value;
+      console.log('API Results:', {
+        agents: ok(agRes)?agRes.value.agents?.length:'FAILED',
+        contacts: ok(ctRes)?ctRes.value.contacts?.length:'FAILED',
+        conversations: ok(cvRes)?cvRes.value.conversations?.length:'FAILED',
+        labels: ok(lbRes)?lbRes.value.labels?.length:'FAILED',
+        teams: ok(tmRes)?'OK':'FAILED',
+        inboxes: ok(ibRes)?ibRes.value.inboxes?.length:'FAILED',
+        canned: ok(cnRes)?cnRes.value.canned?.length:'FAILED',
+        companies: ok(coRes)?coRes.value.companies?.length:'FAILED',
+        automations: ok(auRes)?'OK':'FAILED',
+        customFields: ok(cfRes)?cfRes.value.fields?.length:'FAILED',
+      });
       if(ok(agRes)&&agRes.value.agents){
         setAgents(agRes.value.agents.map(a=>({...a,av:a.avatar||a.name?.split(" ").map(w=>w[0]).join("")||"?",color:a.color||"#4c82fb"})));
       }
       if(ok(ctRes)&&ctRes.value.contacts){
-        setContacts(ctRes.value.contacts.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,av:c.avatar||c.name?.split(" ").map(w=>w[0]).join("")||"?",convs:c.conversation_count||0,tags,color:c.color||"#4c82fb"};}));
+        console.log('✅ Contacts loaded from DB:', ctRes.value.contacts.length);
+        console.log('First contact:', ctRes.value.contacts[0]);
+        const mappedContacts = ctRes.value.contacts.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,av:c.avatar||c.name?.split(" ").map(w=>w[0]).join("")||"?",convs:c.conversation_count||0,tags,color:c.color||"#4c82fb"};});
+        console.log('Mapped contacts:', mappedContacts.length, mappedContacts[0]);
+        setContacts(mappedContacts);
+      } else {
+        console.warn('⚠️ No contacts loaded. ctRes status:', ctRes?.status);
+        if(ctRes?.status==="rejected") console.error('❌ Contacts error:', ctRes.reason);
+        else if(ctRes?.value) console.log('ctRes.value:', ctRes.value);
+        else console.log('ctRes:', ctRes);
       }
       if(ok(cvRes)&&cvRes.value.conversations){
         setConvs(cvRes.value.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
