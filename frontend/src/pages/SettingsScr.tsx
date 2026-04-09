@@ -506,7 +506,24 @@ function InboxSet({inboxes,setInboxes}){
     else{const nid="ib"+uid();setInboxes(p=>[...p,{id:nid,...payload,convs:0}]);if(api.isConnected())api.post("/settings/inboxes",{name:payload.name,type:payload.type||"live",color:payload.color,greeting:payload.greeting,config:payload.cfg}).then(r=>{if(r?.inbox){let c={};try{c=typeof r.inbox.config==="string"?JSON.parse(r.inbox.config):r.inbox.config||{};}catch{}setInboxes(p=>p.map(i=>i.id===nid?{...r.inbox,cfg:c}:i));}}).catch(()=>{});}
     showT(edit?"Inbox updated":"Inbox created!","success");setShowForm(false);setEdit(null);
   };
-  const testConnection=()=>{showT("Testing connection…","info");setTimeout(()=>showT("Connection successful! ✓","success"),1500);};
+  const testConnection=async(inboxId?:string)=>{
+    // Email inbox with a saved id → call the real API
+    if(form.type==="email"&&inboxId){
+      cfgFld("connTesting",true);cfgFld("connStatus","");
+      showT("Testing IMAP + SMTP connection…","info");
+      try{
+        const r=await api.post("/email/test-connection",{inboxId});
+        cfgFld("connTesting",false);
+        if(r?.success){cfgFld("connStatus","connected");showT("Connection successful! IMAP ✓  SMTP ✓","success");}
+        else{cfgFld("connStatus","error");showT(r?.message||"Connection failed","error");}
+      }catch(e:any){cfgFld("connTesting",false);cfgFld("connStatus","error");showT("Connection error: "+(e?.message||"unknown"),"error");}
+      return;
+    }
+    // Non-email channels (or unsaved email) — keep the simulated test
+    cfgFld("connTesting",true);cfgFld("connStatus","");
+    showT("Testing connection…","info");
+    setTimeout(()=>{cfgFld("connTesting",false);cfgFld("connStatus","connected");showT("Connection successful! ✓","success");},2000);
+  };
 
   const [expandedIb,setExpandedIb]=useState(null);
 
@@ -516,6 +533,9 @@ function InboxSet({inboxes,setInboxes}){
       <Btn ch="⊕ New Inbox" v="primary" onClick={()=>{setForm({name:"",type:"live",greeting:"",color:C.g,active:true});setCfg({apiKey:"",webhookUrl:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",autoAssign:true,assignMethod:"round_robin",maxPerAgent:8,bhEnabled:false,bhStart:"09:00",bhEnd:"18:00",bhDays:[1,2,3,4,5],bhOfflineMsg:"We are currently offline.",slaEnabled:true,slaFirstReply:5,slaResolution:240,csatEnabled:true,csatDelay:2,notifyNewConv:true,notifyNewMsg:true,notifyAssign:true,notifyMention:true,notifySla:true,imapHost:"",imapPort:"993",smtpHost:"",smtpPort:"587",emailUser:"",emailPass:"",autoClose:false,autoCloseDays:7,allowAttach:true,maxAttachMB:10,rateLimit:false,rateLimitPerMin:30,connStatus:"",connTesting:false,showDocs:false,formEnabled:true,formTitle:"Before we start…",formDesc:"Please fill in your details so we can assist you better.",formFields:[{id:"ff1",type:"text",label:"Full Name",placeholder:"Your name",required:true,options:[]},{id:"ff2",type:"email",label:"Email Address",placeholder:"you@company.com",required:true,options:[]},{id:"ff3",type:"select",label:"Department",placeholder:"Select department",required:true,options:["Sales","Support","Billing","Technical","Other"]},{id:"ff4",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}]});setEdit(null);setCfgTab("general");setShowForm(true);}}/>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {!inboxes.length&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12}}>
+        <EmptyState icon="[]" title="No inboxes to show" desc="No saved inboxes are available right now. If the API is offline, reconnect to load the stored list or create a new inbox."/>
+      </div>}
       {inboxes.map(ib=>{const ibCfg=ib.cfg||{};const ffEnabled=ibCfg.formEnabled!==undefined?ibCfg.formEnabled:true;const ff=ibCfg.formFields||defaultFormFields;const ffTitle=ibCfg.formTitle||"Before we start…";const ffDesc=ibCfg.formDesc||"Please fill in your details so we can assist you better.";const isExp=expandedIb===ib.id;return(
         <div key={ib.id} style={{background:C.s1,border:`1px solid ${ib.active?C.g+"33":C.b1}`,borderRadius:12,overflow:"hidden"}}>
           {/* Inbox header row */}
@@ -659,8 +679,9 @@ function InboxSet({inboxes,setInboxes}){
           <Btn ch={cfg.connTesting?"Testing…":"Test Connection"} v="primary" onClick={()=>{
             const fields=chFields[form.type]||[];const missing=fields.filter(f=>!cfg[f.k]?.trim());
             if(missing.length>0)return showT("Fill in: "+missing.map(f=>f.l).join(", "),"error");
-            cfgFld("connTesting",true);cfgFld("connStatus","");
-            setTimeout(()=>{cfgFld("connTesting",false);cfgFld("connStatus","connected");showT("Connection successful! ✓","success");},2000);
+            // For email inboxes, first save the config so the backend can read it, then test
+            if(form.type==="email"&&edit?.id){testConnection(edit.id);}
+            else{cfgFld("connTesting",true);cfgFld("connStatus","");setTimeout(()=>{cfgFld("connTesting",false);cfgFld("connStatus","connected");showT("Connection successful! ✓","success");},2000);}
           }}/>
           <Btn ch="View Documentation" v="ghost" onClick={()=>cfgFld("showDocs",!cfg.showDocs)}/>
           <Btn ch="Reset" v="ghost" onClick={()=>{(chFields[form.type]||[]).forEach(f=>cfgFld(f.k,""));cfgFld("connStatus","");showT("Credentials cleared","info");}}/>
@@ -3019,5 +3040,3 @@ function AccountSet(){
     </div>}
   </div>;
 }
-
-

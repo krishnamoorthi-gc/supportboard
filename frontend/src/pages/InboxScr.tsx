@@ -1,8 +1,60 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel, InfoRow } from "../shared";
+import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, API_BASE, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel, InfoRow } from "../shared";
 
 // ─── INBOX SCREEN ─────────────────────────────────────────────────────────
 const EMOJI_SET=["😀","😂","😍","🤔","😢","🙏","👍","👎","❤️","🔥","✅","❌","⚡","🎉","💯","👋","🤝","💡","⭐","🚀","😊","🤗","😎","🤷","😅","💪","👏","🙌","😇","🫡"];
+
+const parseMsgSortTime=(msg)=>{
+  const raw=msg?.created_at||msg?.updated_at||"";
+  const ts=raw?Date.parse(raw):NaN;
+  return Number.isNaN(ts)?Number.MAX_SAFE_INTEGER:ts;
+};
+
+const sortConversationMessages=(list=[])=>list
+  .map((msg,index)=>({msg,index}))
+  .sort((a,b)=>{
+    const ta=parseMsgSortTime(a.msg);
+    const tb=parseMsgSortTime(b.msg);
+    if(ta!==tb)return ta-tb;
+    return a.index-b.index;
+  })
+  .map(item=>item.msg);
+
+const BACKEND_ORIGIN=API_BASE.replace(/\/api$/,"");
+
+const formatAttachmentSize=(value)=>{
+  const size=Number(value||0);
+  if(!Number.isFinite(size)||size<=0)return "";
+  if(size<1024)return `${size} B`;
+  if(size<1024*1024)return `${(size/1024).toFixed(1)} KB`;
+  return `${(size/(1024*1024)).toFixed(1)} MB`;
+};
+
+const normalizeAttachmentMeta=(attachment:any={})=>{
+  const size=Number(attachment?.size||0);
+  const url=String(attachment?.url||"").trim();
+  return {
+    ...attachment,
+    id:attachment?.id||uid(),
+    name:String(attachment?.name||"Attachment").trim()||"Attachment",
+    size:Number.isFinite(size)?size:0,
+    sizeLabel:attachment?.sizeLabel||formatAttachmentSize(size),
+    status:attachment?.status||"ready",
+    url,
+  };
+};
+
+const normalizeAttachmentList=(value=[])=>{
+  if(Array.isArray(value))return value.filter(Boolean).map(normalizeAttachmentMeta);
+  return [];
+};
+
+const attachmentHref=(attachment:any)=>{
+  const url=String(attachment?.url||"").trim();
+  if(!url)return "";
+  if(/^https?:\/\//i.test(url))return url;
+  return `${BACKEND_ORIGIN}${url.startsWith("/")?"":"/"}${url}`;
+};
 
 export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,convs,setConvs,msgs,setMsgs,aid,setAid,soundOn,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,getCfVal,setCfVal,csatPending,setCsatPending,snoozeConv,convViewers,savedViews,setSavedViews}){
   const [fStatus,setFStatus]=useState("open");
@@ -28,6 +80,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const [aiReplying,setAiReplying]=useState(false);
   const [isNote,setIsNote]=useState(false);
   const [showEmoji,setShowEmoji]=useState(false);
+  const [refreshing,setRefreshing]=useState(false);
   const [showMsgSearch,setShowMsgSearch]=useState(false);
   const [msgSearchQ,setMsgSearchQ]=useState("");
   const [replyTo,setReplyTo]=useState(null);
@@ -73,17 +126,46 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   // ── Agent collision ──
   const [collisionAgents]=useState({"cv1":{id:"a2",name:"Dev Kumar",typing:false},"cv3":{id:"a3",name:"Meena Rao",typing:true}});
   // ── Email composer ──
+  const [emailTo,setEmailTo]=useState("");
   const [emailCc,setEmailCc]=useState("");
   const [emailBcc,setEmailBcc]=useState("");
   const [emailSubject,setEmailSubject]=useState("");
   const [showCcBcc,setShowCcBcc]=useState(false);
   // ── File attachments ──
-  const [attachments,setAttachments]=useState([]);
+  const [attachments,setAttachments]=useState<any[]>([]);
   const [dragOver,setDragOver]=useState(false);
-  const addAttach=(name,size)=>setAttachments(p=>[...p,{id:uid(),name,size,progress:100}]);
-  const removeAttach=id=>setAttachments(p=>p.filter(a=>a.id!==id));
-  const handleDrop=e=>{e.preventDefault();setDragOver(false);const files=e.dataTransfer?.files;if(files)Array.from(files).forEach(f=>addAttach(f.name,(f.size/1024).toFixed(1)+"KB"));};
-  const handleFilePick=()=>{addAttach("document_"+uid()+".pdf","245KB");showT("File attached","success");};
+  const fileInputRef=useRef<HTMLInputElement>(null);
+
+  const uploadFile=async(file:File)=>{
+    const tempId=uid();
+    setAttachments(p=>[...p,{id:tempId,name:file.name,size:file.size,sizeLabel:formatAttachmentSize(file.size),contentType:file.type||"",status:"uploading",uploading:true}]);
+    try{
+      const fd=new FormData();fd.append("file",file);
+      const res=await api.upload("/upload",fd);
+      setAttachments(p=>p.map(a=>a.id===tempId?normalizeAttachmentMeta({...a,url:res.url,name:res.name||file.name,size:res.size??file.size,contentType:file.type||a.contentType||"",status:"ready",uploading:false}):a));
+      return true;
+    }catch(e:any){
+      setAttachments(p=>p.map(a=>a.id===tempId?{...a,status:"error",uploading:false,error:e.message||"Upload failed"}:a));
+      showT("Upload failed: "+e.message,"error");
+      return false;
+    }
+  };
+
+  const removeAttach=(id:string)=>setAttachments(p=>p.filter(a=>a.id!==id));
+
+  const uploadFiles=async(files:File[])=>{
+    const results=await Promise.all(files.map(f=>uploadFile(f)));
+    const successCount=results.filter(Boolean).length;
+    if(successCount>0)showT(successCount===1?"File attached":"Files attached","success");
+  };
+
+  const handleDrop=(e:any)=>{
+    e.preventDefault();setDragOver(false);
+    const files=e.dataTransfer?.files;
+    if(files?.length)uploadFiles(Array.from(files) as File[]);
+  };
+
+  const handleFilePick=()=>fileInputRef.current?.click();
   const msgEnd=useRef(null);
   const autoRef=useRef(false);
   const replyingRef=useRef(false);
@@ -92,10 +174,38 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   replyingRef.current=aiReplying;
   aiChRef.current=aiChannels;
 
+  // ── Manual inbox refresh ──────────────────────────────────────────────────
+  const refreshInbox=async()=>{
+    if(refreshing||!api.isConnected())return;
+    setRefreshing(true);
+    try{
+      // 1. Trigger IMAP poll for all email inboxes (fire and forget)
+      const emailInboxes=inboxes.filter((ib:any)=>ib.type==="email"&&ib.active!==false&&ib.active!==0);
+      emailInboxes.forEach((ib:any)=>api.post("/email/poll-now",{inboxId:ib.id}).catch(()=>{}));
+      // 2. Reload conversations + contacts
+      const [cvRes,ctRes]=await Promise.allSettled([
+        api.get("/conversations?limit=100"),
+        api.get("/contacts?limit=200"),
+      ]);
+      if(cvRes.status==="fulfilled"&&cvRes.value?.conversations){
+        const fresh=cvRes.value.conversations.map((c:any)=>{
+          const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];
+          return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
+        });
+        setConvs(fresh);
+        showT("✓ Inbox synced","success");
+      }
+      // contacts are managed in App.tsx; skip setContacts here (not a prop)
+    }catch(e:any){showT("Refresh failed: "+e.message,"error");}
+    finally{setRefreshing(false);}
+  };
+
   const conv=convs.find(c=>c.id===aid);
   const contact=conv?contacts.find(c=>c.id===conv.cid):null;
   const isEmailCh=conv?.ch==="email";
-  const convMsgs=msgs[aid]||[];
+  const contactEmail=(contact?.email||conv?.contact_email||"").trim();
+  const contactName=contact?.name||conv?.contact_name||"Customer";
+  const convMsgs=useMemo(()=>sortConversationMessages(msgs[aid]||[]),[aid,msgs]);
   const assignedAg=conv?agents.find(a=>a.id===conv.agent):null;
   const lc=t=>labels.find(l=>l.title===t)?.color||C.t2;
 
@@ -114,24 +224,50 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     unassigned:convs.filter(cv=>(fStatus==="all"||cv.status===fStatus)&&!cv.agent).length,
   };
 
+  useEffect(()=>{
+    setEmailTo(contactEmail||"");
+    setEmailCc("");
+    setEmailBcc("");
+    setEmailSubject("");
+    setShowCcBcc(false);
+    setAttachments([]);
+  },[aid]);
+
+  useEffect(()=>{
+    if(isEmailCh&&contactEmail&&!emailTo){
+      setEmailTo(contactEmail);
+    }
+  },[contactEmail,emailTo,isEmailCh]);
+
   useEffect(()=>{msgEnd.current?.scrollIntoView({behavior:"smooth"});},[convMsgs.length,aid]);
 
   // ── Fetch messages from API when switching conversations ──
   const [msgsLoading,setMsgsLoading]=useState(false);
   useEffect(()=>{
     if(!api.isConnected()||!aid)return;
-    if(msgs[aid]?.length>0)return; // Already loaded
+    const shouldRefresh=!msgs[aid]?.length||conv?.ch==="email"||(conv?.unread||0)>0;
+    if(!shouldRefresh)return;
+    let cancelled=false;
     setMsgsLoading(true);
+    // Fire-and-forget IMAP poll — don't block message loading
+    if(conv?.ch==="email"&&conv?.iid){
+      api.post("/email/poll-now",{ inboxId: conv.iid }).catch(()=>{});
+    }
     (async()=>{
       try{
         const res=await api.get(`/conversations/${aid}/messages`);
+        if(cancelled)return;
         if(res?.messages?.length){
-          setMsgs(p=>({...p,[aid]:res.messages.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split("T")[1]?.slice(0,5)||""}))}));
+          const nextMsgs=sortConversationMessages(res.messages.map(m=>({...m,attachments:normalizeAttachmentList(m.attachments||[]),aid:m.agent_id,t:m.created_at?.split?.("T")?.[1]?.slice(0,5)||m.created_at?.split?.(" ")?.[1]?.slice(0,5)||""})));
+          setMsgs(p=>({...p,[aid]:nextMsgs}));
+        }else{
+          setMsgs(p=>({...p,[aid]:[]}));
         }
       }catch{}
-      setMsgsLoading(false);
+      if(!cancelled)setMsgsLoading(false);
     })();
-  },[aid]);
+    return()=>{cancelled=true;};
+  },[aid,conv?.ch,conv?.iid,conv?.unread]);
 
   const prevCounts=useRef({});
   useEffect(()=>{
@@ -141,7 +277,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       const cur=allM.length;
       if(cur>prev){
         const last=allM[cur-1];
-        if(last?.role==="contact"&&autoRef.current&&!replyingRef.current){
+        if((last?.role==="contact"||last?.role==="customer")&&autoRef.current&&!replyingRef.current){
           const cv=convs.find(c=>c.id===convId);
           if(cv&&aiChRef.current[cv.ch]!==false){
             doAiAutoReply(allM,convId);
@@ -201,23 +337,73 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     }
   },[aid]);
 
-  const sendMsg=()=>{
-    if(!inp.trim()&&!editMsgId)return;
+  const sendMsg=async()=>{
+    const readyAttachments=normalizeAttachmentList(attachments.filter((a:any)=>a?.url&&a?.status!=="error"));
+    if(!inp.trim()&&readyAttachments.length===0&&!editMsgId)return;
+    if(!aid)return;
     const txt=inp.trim();setInp("");setShowCanned(false);setShowEmoji(false);
+    const recipientEmail=(emailTo||contactEmail).trim();
     // Edit existing message
     if(editMsgId){
       setMsgs(p=>({...p,[aid]:(p[aid]||[]).map(m=>m.id===editMsgId?{...m,text:txt,edited:true}:m)}));
       setEditMsgId(null);setEditMsgText("");showT("Message edited","success");return;
     }
-    const newMsg={id:uid(),role:isNote?"note":"agent",aid:"a1",text:txt,t:now(),isNote:isNote,replyTo:replyTo?.id||null,replyText:replyTo?.text?.slice(0,60)||null,read:true};
+    if(isEmailCh&&!isNote&&!recipientEmail){
+      setInp(txt);
+      showT("Customer email missing for this conversation","error");
+      return;
+    }
+    if(isEmailCh&&!isNote&&!api.isConnected()){
+      setInp(txt);
+      showT("API disconnected. Email was not sent","error");
+      return;
+    }
+    // Block send while any file is still uploading
+    const pendingUploads=attachments.filter((a:any)=>a.uploading);
+    if(pendingUploads.length>0){showT("Please wait for uploads to finish","info");setInp(txt);return;}
+    const failedUploads=attachments.filter((a:any)=>a.status==="error");
+    if(failedUploads.length>0){showT("Remove failed attachments before sending","error");setInp(txt);return;}
+    const newMsg={id:uid(),role:isNote?"note":"agent",aid:"a1",text:txt,t:now(),isNote:isNote,replyTo:replyTo?.id||null,replyText:replyTo?.text?.slice(0,60)||null,read:true,attachments:readyAttachments};
+    const prevReplyTo=replyTo;
+    const prevAttachments=attachments;
     setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),newMsg]}));
     setConvs(p=>p.map(c=>c.id===aid?{...c,unread:0,time:"now"}:c));
     setReplyTo(null);
+    setAttachments([]);
     // ── Sync to API (background, non-blocking) ──
     if(api.isConnected()){
-      api.post(`/conversations/${aid}/messages`,{role:isNote?"note":"agent",text:txt}).catch(()=>{});
+      const payload:Record<string,unknown>={role:isNote?"note":"agent",text:txt,attachments:readyAttachments};
+      if(isEmailCh&&!isNote){
+        payload.toEmail=recipientEmail;
+        payload.contactId=conv?.cid||null;
+        payload.contactName=contactName;
+        if(emailCc.trim()) payload.cc=emailCc.trim();
+        if(emailBcc.trim()) payload.bcc=emailBcc.trim();
+        payload.emailSubject=(emailSubject.trim()||conv?.subject||"").trim();
+      }
+      try{
+        const res=await api.post(`/conversations/${aid}/messages`,payload);
+        const savedMsg=res?.message;
+        if(savedMsg){
+          setMsgs(p=>{
+            const list=p[aid]||[];
+            if(list.some(m=>m.id===savedMsg.id)){
+              return {...p,[aid]:list.filter(m=>m.id!==newMsg.id)};
+            }
+            return {...p,[aid]:list.map(m=>m.id===newMsg.id?{...m,...savedMsg,attachments:normalizeAttachmentList(savedMsg.attachments||m.attachments||[]),aid:savedMsg.agent_id,t:savedMsg.created_at?.split?.("T")?.[1]?.slice(0,5)||m.t}:m)};
+          });
+        }
+      }catch(e){
+        setMsgs(p=>({...p,[aid]:(p[aid]||[]).filter(m=>m.id!==newMsg.id)}));
+        setInp(txt);
+        setReplyTo(prevReplyTo);
+        setAttachments(prevAttachments);
+        showT(`${isEmailCh&&!isNote?"Email":"Message"} not sent: ${e?.message||"Delivery failed"}`,"error");
+        return;
+      }
     }
     if(isNote)return; // Notes don't trigger replies
+    if(isEmailCh)return; // Email waits for the real customer mailbox, not a fake demo reply
     const pool=REPLY_POOL[aid]||["Thanks for the reply!"];
     setTimeout(()=>{
       setTyping(true);
@@ -365,7 +551,13 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       <div style={{padding:"12px 12px 10px",borderBottom:`1px solid ${C.b1}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <span style={{fontSize:16,fontWeight:700,fontFamily:FD}}>Inbox</span>
-          <button onClick={()=>setShowNewConv(true)} style={{background:C.ad,border:`1px solid ${C.a}44`,borderRadius:7,padding:"4px 10px",fontSize:11,color:C.a,cursor:"pointer",fontWeight:600}}>+ New</button>
+          <div style={{display:"flex",gap:4}}>
+            <button onClick={refreshInbox} title="Sync email inbox" disabled={refreshing} style={{background:refreshing?C.s2:C.gd,border:`1px solid ${C.g}44`,borderRadius:7,padding:"4px 8px",fontSize:11,color:refreshing?C.t3:C.g,cursor:refreshing?"not-allowed":"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:3}}>
+              <span style={{display:"inline-block",animation:refreshing?"spin 1s linear infinite":"none"}}>↻</span>
+              {refreshing?"Syncing…":"Sync"}
+            </button>
+            <button onClick={()=>setShowNewConv(true)} style={{background:C.ad,border:`1px solid ${C.a}44`,borderRadius:7,padding:"4px 10px",fontSize:11,color:C.a,cursor:"pointer",fontWeight:600}}>+ New</button>
+          </div>
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:8}}>
           <div style={{display:"flex",gap:2,background:C.s2,borderRadius:6,padding:2,border:`1px solid ${C.b1}`}}>
@@ -574,7 +766,26 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                 {isNt&&<div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.y,letterSpacing:"0.4px",marginBottom:4}}>📝 INTERNAL NOTE</div>}
                 {isAg&&ag&&<div style={{fontSize:10,color:isNt?"#8b7a2e":"rgba(255,255,255,.6)",marginBottom:4,fontFamily:FM,display:"flex",alignItems:"center",gap:5}}>{ag.name}{isAuto&&<span style={{background:"rgba(255,255,255,.18)",borderRadius:4,padding:"1px 5px",fontSize:9,letterSpacing:"0.3px"}}>✦ AI</span>}</div>}
                 {m.replyTo&&<div style={{fontSize:10,color:isNt?C.t2:isAg?"rgba(255,255,255,.5)":C.t3,padding:"4px 8px",borderLeft:`2px solid ${isAg?"rgba(255,255,255,.3)":C.b1}`,marginBottom:6,fontStyle:"italic"}}>↩ {m.replyText||"…"}</div>}
-                <p style={{fontSize:13.5,lineHeight:1.55,color:isNt?"#5a4e1a":isAg?"#fff":C.t1}}>{highlight?(()=>{const re=new RegExp(`(${msgSearchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');return m.text.split(re).map((p,k)=>re.test(p)?<mark key={k} style={{background:C.y+"88",color:isAg?"#fff":C.t1,borderRadius:2,padding:"0 1px"}}>{p}</mark>:p);})():m.text}</p>
+                {m.text&&<p style={{fontSize:13.5,lineHeight:1.55,color:isNt?"#5a4e1a":isAg?"#fff":C.t1,margin:0}}>{highlight?(()=>{const re=new RegExp(`(${msgSearchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');return m.text.split(re).map((p:string,k:number)=>re.test(p)?<mark key={k} style={{background:C.y+"88",color:isAg?"#fff":C.t1,borderRadius:2,padding:"0 1px"}}>{p}</mark>:p);})():m.text}</p>}
+                {/* ── Attachments ── */}
+                {normalizeAttachmentList(m.attachments||[]).length>0&&<div style={{marginTop:m.text?6:0,display:"flex",flexWrap:"wrap",gap:4}}>
+                  {normalizeAttachmentList(m.attachments||[]).map((att:any,ai:number)=>{
+                    const isImg=/\.(png|jpe?g|gif|webp|svg)$/i.test(att.name||att.url||"");
+                    const href=attachmentHref(att)||"#";
+                    return isImg?(
+                      <a key={ai} href={href} target="_blank" rel="noreferrer" style={{display:"block"}}>
+                        <img src={href} alt={att.name} style={{maxWidth:200,maxHeight:160,borderRadius:8,border:`1px solid ${isAg?"rgba(255,255,255,.2)":C.b1}`,objectFit:"cover"}}
+                          onError={(e:any)=>{e.target.style.display="none";}}/>
+                      </a>
+                    ):(
+                      <a key={ai} href={href} target="_blank" rel="noreferrer" download={att.name} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:7,background:isAg?"rgba(255,255,255,.15)":"rgba(0,0,0,.07)",border:`1px solid ${isAg?"rgba(255,255,255,.2)":C.b1}`,textDecoration:"none",maxWidth:220}}>
+                        <span style={{fontSize:14}}>{/\.pdf$/i.test(att.name||"")?"📄":/\.(doc|docx)$/i.test(att.name||"")?"📝":/\.(xls|xlsx|csv)$/i.test(att.name||"")?"📊":/\.(zip|rar|gz)$/i.test(att.name||"")?"🗜️":"📎"}</span>
+                        <span style={{fontSize:10.5,color:isAg?"rgba(255,255,255,.85)":C.t2,fontFamily:FB,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:150}}>{att.name||"Attachment"}</span>
+                        {(att.size||att.sizeLabel)&&<span style={{fontSize:9,color:isAg?"rgba(255,255,255,.5)":C.t3,flexShrink:0}}>{att.sizeLabel||formatAttachmentSize(att.size)}</span>}
+                      </a>
+                    );
+                  })}
+                </div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
                   {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}</span>}
                   {isAg&&!isNt&&<span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>}
@@ -645,7 +856,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         {isEmailCh&&!isNote&&<div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <span style={{fontSize:10,color:C.t3,fontFamily:FM,width:30}}>To:</span>
-            <span style={{fontSize:11,color:C.t1,flex:1}}>{contact?.email||"customer@email.com"}</span>
+            <input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="customer@email.com" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
             <button onClick={()=>setShowCcBcc(p=>!p)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer",fontFamily:FM}}>{showCcBcc?"Hide":"CC/BCC"}</button>
           </div>
           {showCcBcc&&<>
@@ -666,12 +877,17 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           <span style={{flex:1,fontSize:11,color:C.a}}>Editing message…</span>
           <button onClick={()=>{setEditMsgId(null);setInp("");}} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:12}}>Cancel</button>
         </div>}
+        {/* Hidden real file input */}
+        <input ref={fileInputRef} type="file" multiple style={{display:"none"}}
+          onChange={e=>{if(e.target.files?.length)uploadFiles(Array.from(e.target.files) as File[]);e.target.value="";}}/>
         {/* File attachments preview */}
         {attachments.length>0&&<div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-          {attachments.map(a=>(
-            <div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:7,fontSize:10}}>
-              <NavIcon id="knowledgebase" s={12} col={C.a}/><span style={{color:C.t2}}>{a.name}</span><span style={{color:C.t3,fontFamily:FM}}>{a.size}</span>
-              <button onClick={()=>removeAttach(a.id)} style={{color:C.r,background:"none",border:"none",cursor:"pointer",fontSize:10}}>✕</button>
+          {attachments.map((a:any)=>(
+            <div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",background:a.status==="error"?C.rd:a.uploading?C.ad:C.s2,border:`1px solid ${a.status==="error"?C.r+"55":a.uploading?C.a+"55":C.b1}`,borderRadius:7,fontSize:10,transition:"all .2s"}}>
+              {a.uploading?<span style={{fontSize:10,animation:"spin 1s linear infinite"}}>⟳</span>:<span style={{fontSize:10}}>{a.status==="error"?"⚠":"📎"}</span>}
+              <span style={{color:C.t2,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
+              <span style={{color:a.status==="error"?C.r:C.t3,fontFamily:FM}}>{a.status==="error"?"failed":a.sizeLabel||formatAttachmentSize(a.size)}</span>
+              {!a.uploading&&<button onClick={()=>removeAttach(a.id)} style={{color:C.r,background:"none",border:"none",cursor:"pointer",fontSize:10}}>✕</button>}
             </div>
           ))}
         </div>}
@@ -955,11 +1171,66 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     </Mdl>}
 
     {showNewConv&&<NewConvMdl contacts={contacts} inboxes={inboxes} agents={agents} onClose={()=>setShowNewConv(false)}
-      onCreate={data=>{
-        const id="cv"+uid();const ct=contacts.find(c=>c.id===data.cid);
-        setConvs(p=>[{id,cid:data.cid,iid:data.iid,ch:inboxes.find(i=>i.id===data.iid)?.type||"live",status:"open",priority:"normal",subject:data.subject||"New conversation",agent:data.agent||null,team:null,labels:[],unread:0,time:"now",color:ct?.color||C.a},...p]);
-        if(data.msg)setMsgs(p=>({...p,[id]:[{id:uid(),role:"agent",aid:"a1",text:data.msg,t:now()}]}));
-        setAid(id);setShowNewConv(false);showT("Conversation created!","success");
+      onCreate={async data=>{
+        const ct=contacts.find(c=>c.id===data.cid);
+        const ib=inboxes.find(i=>i.id===data.iid);
+        const subject=(data.subject||"New conversation").trim();
+        const firstMsg=(data.msg||"").trim();
+        const isEmailInbox=(ib?.type||"live")==="email";
+        if(!api.isConnected()){
+          showT("API disconnected. Conversation was not created","error");
+          return;
+        }
+        if(isEmailInbox&&firstMsg&&!ct?.email){
+          showT("Selected contact has no email address","error");
+          return;
+        }
+        try{
+          const created=await api.post("/conversations",{
+            subject,
+            contact_id:data.cid,
+            inbox_id:data.iid,
+            assignee_id:data.agent||null,
+          });
+          const savedConv=created?.conversation;
+          if(!savedConv?.id){
+            throw new Error("Conversation create failed");
+          }
+          const convRow={
+            ...savedConv,
+            cid:savedConv.contact_id||data.cid,
+            iid:savedConv.inbox_id||data.iid,
+            ch:ib?.type||savedConv.inbox_type||"live",
+            agent:savedConv.assignee_id??data.agent??null,
+            team:savedConv.team_id??null,
+            labels:typeof savedConv.labels==="string"?JSON.parse(savedConv.labels||"[]"):savedConv.labels||[],
+            unread:0,
+            time:savedConv.updated_at||savedConv.created_at||"now",
+            color:ct?.color||savedConv.color||C.a,
+            contact_name:ct?.name||savedConv.contact_name,
+            contact_email:ct?.email||savedConv.contact_email,
+            inbox_name:ib?.name||savedConv.inbox_name,
+          };
+          setConvs(p=>[convRow,...p.filter(c=>c.id!==savedConv.id)]);
+          if(firstMsg){
+            const msgRes=await api.post(`/conversations/${savedConv.id}/messages`,{
+              role:"agent",
+              text:firstMsg,
+              ...(isEmailInbox?{
+                toEmail:ct?.email||"",
+                contactId:ct?.id||data.cid,
+                contactName:ct?.name||"Customer",
+                emailSubject:subject,
+              }:{})
+            });
+            if(msgRes?.message){
+              setMsgs(p=>({...p,[savedConv.id]:[{...msgRes.message,aid:msgRes.message.agent_id,t:msgRes.message.created_at?.split?.("T")?.[1]?.slice(0,5)||""}]}));
+            }
+          }
+          setAid(savedConv.id);setShowNewConv(false);showT(isEmailInbox&&firstMsg?"Conversation created and email sent!":"Conversation created!","success");
+        }catch(e){
+          showT(e?.message||"Failed to create conversation","error");
+        }
       }}/>}
   </div>;
 }
@@ -970,6 +1241,7 @@ function NewConvMdl({contacts,inboxes,agents,onClose,onCreate}){
   const [subject,setSubject]=useState("");
   const [msg,setMsg]=useState("");
   const [agent,setAgent]=useState("");
+  const [creating,setCreating]=useState(false);
   return <Mdl title="New Conversation" onClose={onClose}>
     <Fld label="Contact"><Sel val={cid} set={setCid} opts={contacts.map(c=>({v:c.id,l:c.name}))}/></Fld>
     <Fld label="Inbox"><Sel val={iid} set={setIid} opts={inboxes.map(i=>({v:i.id,l:i.name}))}/></Fld>
@@ -977,10 +1249,8 @@ function NewConvMdl({contacts,inboxes,agents,onClose,onCreate}){
     <Fld label="First Message (optional)"><textarea value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Type a first message…" rows={3} style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"none",outline:"none"}}/></Fld>
     <Fld label="Assign To (optional)"><Sel val={agent} set={setAgent} opts={[{v:"",l:"Unassigned"},...agents.map(a=>({v:a.id,l:a.name}))]}/></Fld>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
-      <Btn ch="Cancel" v="ghost" onClick={onClose}/>
-      <Btn ch="Create Conversation" v="primary" onClick={()=>onCreate({cid,iid,subject,msg,agent:agent||null})}/>
+      <Btn ch="Cancel" v="ghost" onClick={()=>{if(!creating)onClose();}}/>
+      <Btn ch={creating?"Creating...":"Create Conversation"} v="primary" onClick={async()=>{if(creating)return;setCreating(true);try{await onCreate({cid,iid,subject,msg,agent:agent||null});}finally{setCreating(false);}}}/>
     </div>
   </Mdl>;
 }
-
-

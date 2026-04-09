@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback, startTransition } from "react";
 
-export const API_BASE = "http://localhost:3001/api";
+export const API_BASE = "http://localhost:4002/api";
 export const _token = { current: (typeof localStorage!=="undefined"?localStorage.getItem("sd_token"):null) as string|null };
 export const _connected = { current: false };
 
-export async function api(path, opts = {}) {
+export async function api(path:string, opts:any = {}) {
   const { method = "GET", body, raw } = opts;
   const headers = { "Content-Type": "application/json" };
   if (_token.current) headers["Authorization"] = "Bearer " + _token.current;
@@ -32,6 +32,28 @@ api.get = (p) => api(p);
 api.post = (p, body) => api(p, { method: "POST", body });
 api.patch = (p, body) => api(p, { method: "PATCH", body });
 api.del = (p) => api(p, { method: "DELETE" });
+api.upload = async (path, formData) => {
+  const headers:Record<string,string> = {};
+  if (_token.current) headers["Authorization"] = "Bearer " + _token.current;
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    _connected.current = true;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return await res.json();
+  } catch (e) {
+    if (e.message === "Failed to fetch" || e.name === "TypeError") {
+      _connected.current = false;
+    }
+    throw e;
+  }
+};
 api.isConnected = () => _connected.current;
 api.setToken = (t) => { _token.current = t; if(t)localStorage.setItem("sd_token",t); else localStorage.removeItem("sd_token"); };
 api.getToken = () => _token.current;

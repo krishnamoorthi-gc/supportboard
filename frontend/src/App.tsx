@@ -31,6 +31,35 @@ import KnowledgeBaseScr from "./pages/KnowledgeBaseScr";
 import TeamChatScr from "./pages/TeamChatScr";
 import { MiniChatPanel, TC_CHANNELS, TC_DMS } from "./pages/TeamChatScr";
 
+const INBOX_CACHE_KEY = "sd_cached_inboxes";
+
+function normalizeInbox(raw, index = 0){
+  let cfg = {};
+  try{
+    if(typeof raw?.cfg === "string") cfg = JSON.parse(raw.cfg || "{}");
+    else if(typeof raw?.config === "string") cfg = JSON.parse(raw.config || "{}");
+    else cfg = raw?.cfg || raw?.config || {};
+  }catch{
+    cfg = {};
+  }
+
+  const type = raw?.type || "live";
+  const activeValue = raw?.active;
+  const convsValue = raw?.convs ?? raw?.conversation_count ?? 0;
+
+  return {
+    ...raw,
+    id: raw?.id || `cached_inbox_${index+1}`,
+    name: raw?.name || `Inbox ${index+1}`,
+    type,
+    color: raw?.color || chC(type) || "#4c82fb",
+    greeting: raw?.greeting || "",
+    active: activeValue === undefined || activeValue === null ? true : !(activeValue === false || activeValue === 0 || activeValue === "0" || activeValue === "false"),
+    convs: Number.isFinite(Number(convsValue)) ? Number(convsValue) : 0,
+    cfg: cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {},
+  };
+}
+
 export default function App(){
   // ── Auth ──
   const [isLoggedIn,setIsLoggedIn]=useState(false);
@@ -85,7 +114,7 @@ export default function App(){
       setIsLoggedIn(true);
       setApiOk(true);
       showT("Account created! Welcome to SupportDesk!", "success");
-      loadInitialData();
+      loadInitialData(true);
       setShowRegister(false);
     }catch(e){
       setRegError(e.message||"Registration failed");
@@ -99,6 +128,7 @@ export default function App(){
     setLoginLoading(true);setLoginError("");
     try{
       const res=await api.post("/auth/login",{email:loginEmail,password:loginPass});
+      setApiOk(true);
       if (res.twoFaRequired) {
         setLoginAgentId(res.agent_id);
         setLogin2FA(true);
@@ -106,9 +136,8 @@ export default function App(){
         api.setToken(res.token);
         setIsLoggedIn(true);
         showT("Welcome back!", "success");
-        loadInitialData();
+        loadInitialData(true);
       }
-      setApiOk(true);
     }catch(e){
       if(e.message==="Failed to fetch"||!_connected.current){
         // Backend offline → fallback to demo mode
@@ -131,8 +160,11 @@ export default function App(){
       }
       setLogin2FA(false);setIsLoggedIn(true);
       showT(apiOk?"Welcome back! (API connected)":"Welcome back! (offline mode)","success");
-      // Load data from API
-      loadInitialData();
+      if(apiOk) loadInitialData(true);
+      else{
+        inboxesHydratedRef.current=true;
+        restoreCachedInboxes();
+      }
     }catch(e){
       setLoginError(e.message||"Invalid code");
     }
@@ -154,7 +186,13 @@ export default function App(){
       }
     }).catch((err)=>{
       console.error('❌ Auth check failed:', err);
-      api.setToken(null);
+      if((err?.message==="Failed to fetch"||!_connected.current)&&restoreCachedInboxes()){
+        inboxesHydratedRef.current=true;
+        setIsLoggedIn(true);
+        setApiOk(false);
+      }else{
+        api.setToken(null);
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -200,11 +238,12 @@ export default function App(){
         else console.log('ctRes:', ctRes);
       }
       if(ok(cvRes)&&cvRes.value.conversations){
-        setConvs(cvRes.value.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
+        setConvs(cvRes.value.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
       }
       if(ok(lbRes)&&lbRes.value.labels)setLabels(lbRes.value.labels);
       if(ok(tmRes)&&tmRes.value.teams)setTeams(tmRes.value.teams.map(t=>({...t,members:typeof t.members==="string"?JSON.parse(t.members||"[]"):t.members||[]})));
-      if(ok(ibRes)&&ibRes.value.inboxes)setInboxes(ibRes.value.inboxes.map(ib=>{let cfg={};try{cfg=typeof ib.config==="string"?JSON.parse(ib.config):ib.config||{};}catch{}return{...ib,cfg};}));
+      if(ok(ibRes)&&Array.isArray(ibRes.value.inboxes))applyInboxes(ibRes.value.inboxes);
+      else restoreCachedInboxes();
       if(ok(cnRes)&&cnRes.value.canned)setCanned(cnRes.value.canned.map(c=>({...c,code:c.code||c.shortcode||""})));
       if(ok(coRes)&&coRes.value.companies)setComps(coRes.value.companies.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,tags,color:c.color||"#4c82fb"};}));
       if(ok(auRes)&&auRes.value.automations)setAutos(auRes.value.automations.map(a=>({...a,conditions:typeof a.conditions==="string"?JSON.parse(a.conditions||"[]"):a.conditions||[],actions:typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[]})));
@@ -221,6 +260,7 @@ export default function App(){
       if(Object.keys(msgMap).length)setMsgs(msgMap);
       showT("✓ Data loaded from API","success");
     }catch(e){
+      restoreCachedInboxes();
       showT("API load partial","info");
     }
     setDataLoading(false);
@@ -236,6 +276,31 @@ export default function App(){
   const [convs,setConvs]=useState([]);
   const [comps,setComps]=useState([]);
   const [msgs,setMsgs]=useState({});
+  const inboxesHydratedRef=useRef(false);
+  const cacheInboxes=useCallback((rows)=>{
+    try{
+      localStorage.setItem(INBOX_CACHE_KEY, JSON.stringify((rows||[]).map((ib,idx)=>normalizeInbox(ib,idx))));
+    }catch{}
+  },[]);
+  const applyInboxes=useCallback((rows)=>{
+    const normalized=(Array.isArray(rows)?rows:[]).map((ib,idx)=>normalizeInbox(ib,idx));
+    setInboxes(normalized);
+    inboxesHydratedRef.current=true;
+    cacheInboxes(normalized);
+    return normalized;
+  },[cacheInboxes]);
+  const restoreCachedInboxes=useCallback(()=>{
+    try{
+      const raw=localStorage.getItem(INBOX_CACHE_KEY);
+      if(!raw)return false;
+      const parsed=JSON.parse(raw);
+      if(!Array.isArray(parsed))return false;
+      applyInboxes(parsed);
+      return true;
+    }catch{
+      return false;
+    }
+  },[applyInboxes]);
   const [aid,setAid]=useState("cv1");
   const [fontKey,setFontKey]=useState("outfit");
   const [fontScale,setFontScale]=useState("md");
@@ -243,6 +308,10 @@ export default function App(){
   const applyFont=key=>{applyFontPair(key);setFontKey(key);};
   const applySize=key=>{setFS(FONT_SIZES[key]?.scale||1);setFontScale(key);};
   const applyTheme=key=>{applyThemeColors(key);setThemeKey(key);};
+  useEffect(()=>{
+    if(!isLoggedIn||!inboxesHydratedRef.current)return;
+    cacheInboxes(inboxes);
+  },[cacheInboxes,inboxes,isLoggedIn]);
   const navigate=useCallback(id=>{startTransition(()=>setScr(id));const r=ROUTES[id];if(r)window.location.hash=r.path?"/"+r.path:"/";},[]);
   useEffect(()=>{const handler=()=>setScr(hashToScr());window.addEventListener("hashchange",handler);return()=>window.removeEventListener("hashchange",handler);},[]);
   useEffect(()=>{if(!showProfileMenu)return;const h=(e)=>{if(!(e.target as Element).closest?.("[data-profile-menu]"))setShowProfileMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[showProfileMenu]);
@@ -338,13 +407,26 @@ export default function App(){
   const tcUnread=TC_CHANNELS.reduce((s,c)=>s+c.unread,0)+TC_DMS.reduce((s,d)=>s+d.unread,0);
   // ── Sound toggle ──
   const [soundOn,setSoundOn]=useState(true);
+  const normalizeWsAttachments=(value:any)=>{
+    if(Array.isArray(value))return value.filter(Boolean);
+    if(!value)return [];
+    try{
+      const parsed=typeof value==="string"?JSON.parse(value):value;
+      return Array.isArray(parsed)?parsed.filter(Boolean):[];
+    }catch{
+      return [];
+    }
+  };
   // ═══ WEBSOCKET — real-time messages, typing, presence ═══
   const wsRef=useRef(null);
   const wsConnect=useCallback(()=>{
     if(!apiOk||wsRef.current?.readyState===1)return;
     try{
-      const ws=new WebSocket("ws://localhost:3001/ws");
-      ws.onopen=()=>{ws.send(JSON.stringify({type:"auth",agent_id:"a1"}));showT("Live connected","success");};
+      const token=api.getToken()||_token.current;
+      if(!token)return;
+      const wsProto=window.location.protocol==="https:"?"wss":"ws";
+      const ws=new WebSocket(`${wsProto}://localhost:4002/ws?token=${encodeURIComponent(token)}`);
+      ws.onopen=()=>{showT("Live connected","success");};
       ws.onmessage=e=>{try{const m=JSON.parse(e.data);
         if(m.type==="chat_message"&&m.message){
           setNotifs(p=>[{id:"n"+uid(),text:m.message.author+" sent a message in "+m.channel,type:"message",read:false,time:"now"},...p.slice(0,19)]);
@@ -371,19 +453,148 @@ export default function App(){
           setNotifs(p=>[{id:"n"+uid(),text:"⚠ SLA breach: "+m.conversation_id,type:"error",read:false,time:"now"},...p.slice(0,19)]);
           showT("SLA breach warning!","error");
         }
-        if(m.type==="new_conversation"){
-          setNotifs(p=>[{id:"n"+uid(),text:"New conversation from "+(m.contact_name||"visitor"),type:"message",read:false,time:"now"},...p.slice(0,19)]);
+        // ── Real-time: new message posted (agent reply / customer widget msg) ──
+        if(m.type==="new_message"&&m.message){
+          const msg={...m.message,attachments:normalizeWsAttachments(m.message.attachments),aid:m.message.agent_id,t:m.message.created_at?.split?.("T")?.[1]?.slice(0,5)||m.message.created_at?.split?.(" ")?.[1]?.slice(0,5)||""};
+          // Always append the message
+          setMsgs((p:any)=>({...p,[m.conversationId]:[...(p[m.conversationId]||[]).filter((x:any)=>x.id!==msg.id),msg]}));
+          setConvs((p:any)=>{
+            const exists=p.find((c:any)=>c.id===m.conversationId);
+            if(exists){
+              // Update existing: bump unread + time
+              return p.map((c:any)=>c.id===m.conversationId?{...c,time:"now",updated_at:m.message.created_at||c.updated_at,unread:msg.role==="customer"||(msg.role==="contact"&&msg.role==="customer")?(c.unread||0)+1:c.unread}:c);
+            }
+            // Conversation not in list yet — add it from the broadcast payload
+            if(m.conversation){
+              const cv=m.conversation;
+              const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+              const newConv={...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:1,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")};
+              return [newConv,...p];
+            }
+            // Fallback: fetch from API
+            api.get(`/conversations/${m.conversationId}`).then((r:any)=>{
+              if(r?.conversation){
+                const cv=r.conversation;
+                const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+                setConvs((prev:any)=>{
+                  if(prev.find((c:any)=>c.id===cv.id))return prev;
+                  return [{...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:1,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")},...prev];
+                });
+              }
+            }).catch(()=>{});
+            return p;
+          });
+          // Sound + notification for customer messages
+          if(msg.role==="customer"||msg.role==="contact"){
+            setNotifs((p:any)=>[{id:"n"+uid(),text:"💬 New message in conversation",type:"message",read:false,time:"now"},...p.slice(0,19)]);
+            if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
+          }
+        }
+        // ── Real-time: inbound email received via IMAP polling ────────────
+        if(m.type==="new_email_message"){
+          const {conversation:cv}=m;
+          const msg={...m.message,attachments:normalizeWsAttachments(m.message?.attachments),aid:m.message?.agent_id,t:m.message?.created_at?.split?.("T")?.[1]?.slice(0,5)||m.message?.created_at?.split?.(" ")?.[1]?.slice(0,5)||""};
+          // Merge/add conversation in list
+          setConvs((p:any)=>{
+            const exists=p.find((c:any)=>c.id===cv.id);
+            if(exists){return p.map((c:any)=>c.id===cv.id?{...c,cid:cv.contact_id||c.cid,iid:cv.inbox_id||c.iid,ch:"email",contact_name:cv.contact_name||c.contact_name,contact_email:cv.contact_email||c.contact_email,color:cv.contact_color||c.color,unread:(c.unread||0)+1,time:"now",updated_at:cv.updated_at}:c);}
+            // New conversation — prepend with basic shape
+            return [{id:cv.id,subject:cv.subject,status:"open",priority:"normal",ch:"email",
+              cid:cv.contact_id,iid:cv.inbox_id,inbox_name:cv.inbox_name,contact_name:cv.contact_name,contact_email:cv.contact_email,
+              contact_color:cv.contact_color,color:cv.contact_color||chC("email"),unread:1,time:"now",labels:[]},...p];
+          });
+          // Append message
+          setMsgs((p:any)=>({...p,[cv.id]:[...(p[cv.id]||[]).filter((x:any)=>x.id!==msg.id),msg]}));
+          // Notification + sound
+          setNotifs((p:any)=>[{id:"n"+uid(),text:`📧 New email from ${cv.contact_name||cv.contact_email}`,type:"message",read:false,time:"now"},...p.slice(0,19)]);
           if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
-          // AI Auto-Tag (#7) — classify new conversation
-          if(m.conversation_id&&m.subject){(async()=>{try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:60,system:"Classify this support ticket into ONE category: Bug, Billing, Feature Request, Onboarding, Urgent, General. Reply with just the category name.",messages:[{role:"user",content:m.subject}]})});const d=await r.json();const tag=(d.content?.[0]?.text||"General").trim();setConvs(p=>p.map(c=>c.id===m.conversation_id?{...c,labels:[...new Set([...c.labels,tag])]}:c));}catch{const autoTags={"payment":"Billing","invoice":"Billing","bug":"Bug","error":"Bug","crash":"Bug","feature":"Feature Request","integrate":"Feature Request","setup":"Onboarding","start":"Onboarding"};const sub=(m.subject||"").toLowerCase();const matched=Object.entries(autoTags).find(([k])=>sub.includes(k));if(matched)setConvs(p=>p.map(c=>c.id===m.conversation_id?{...c,labels:[...new Set([...c.labels,matched[1]])]}:c));}})();}
+        }
+        if(m.type==="new_conversation"){
+          // ── Immediately add to conversation list ──
+          const cv=m.conversation||null;
+          if(cv){
+            const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+            const newConv={...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:0,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")};
+            setConvs((p:any)=>{
+              if(p.find((c:any)=>c.id===cv.id))return p; // already in list
+              return [newConv,...p];
+            });
+          }
+          // Also update contacts list if new contact
+          if(m.conversation?.contact_id){
+            const cid=m.conversation.contact_id;
+            setContacts((p:any)=>{
+              if(p.find((c:any)=>c.id===cid))return p;
+              const av=(m.contact_name||"?").split(" ").map((w:string)=>w[0]).join("").toUpperCase().slice(0,2);
+              return [...p,{id:cid,name:m.contact_name||"Customer",email:m.contact_email||"",av,color:m.contact_color||"#4c82fb",tags:[],convs:1}];
+            });
+          }
+          setNotifs((p:any)=>[{id:"n"+uid(),text:"💬 New conversation from "+(m.contact_name||"visitor"),type:"message",read:false,time:"now"},...p.slice(0,19)]);
+          if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
+          // AI Auto-Tag — classify new conversation
+          const convId=cv?.id||m.conversation_id;
+          const convSubject=cv?.subject||m.subject||"";
+          if(convId&&convSubject){(async()=>{try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:60,system:"Classify this support ticket into ONE category: Bug, Billing, Feature Request, Onboarding, Urgent, General. Reply with just the category name.",messages:[{role:"user",content:convSubject}]})});const d=await r.json();const tag=(d.content?.[0]?.text||"General").trim();setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,tag])]}:c));}catch{const autoTags:Record<string,string>={"payment":"Billing","invoice":"Billing","bug":"Bug","error":"Bug","crash":"Bug","feature":"Feature Request","integrate":"Feature Request","setup":"Onboarding","start":"Onboarding"};const sub=convSubject.toLowerCase();const matched=Object.entries(autoTags).find(([k])=>sub.includes(k));if(matched)setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,matched[1]])]}:c));}})();}
         }
       }catch{}};
-      ws.onclose=()=>{setTimeout(wsConnect,5000);}; // Auto-reconnect
+      ws.onclose=()=>{wsRef.current=null;setTimeout(wsConnect,5000);}; // Auto-reconnect
       ws.onerror=()=>{};
       wsRef.current=ws;
     }catch{}
-  },[apiOk]);
+  },[apiOk,soundOn]);
   useEffect(()=>{if(isLoggedIn&&apiOk)wsConnect();return()=>{wsRef.current?.close();};},[isLoggedIn,apiOk,wsConnect]);
+
+  // ══ Auto-refresh: silently sync conversations + contacts every 30 s ══
+  // Ensures new emails that arrive via IMAP polling appear in the UI
+  // even if the WebSocket event was missed (e.g. tab was in background).
+  const refreshConvsRef=useRef(false);
+  useEffect(()=>{
+    if(!isLoggedIn||!apiOk)return;
+    const doRefresh=async()=>{
+      if(refreshConvsRef.current)return; // skip if already running
+      refreshConvsRef.current=true;
+      try{
+        const [cvRes,ctRes]=await Promise.allSettled([
+          api.get("/conversations?limit=100"),
+          api.get("/contacts?limit=200"),
+        ]);
+        if(cvRes.status==="fulfilled"&&cvRes.value?.conversations){
+          setConvs(prev=>{
+            const newMap:Record<string,any>={};
+            cvRes.value.conversations.forEach((c:any)=>{
+              const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];
+              newMap[c.id]={...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
+            });
+            // Merge: keep existing state for open convs, add new ones on top
+            const prevMap:Record<string,any>={};
+            prev.forEach((c:any)=>{prevMap[c.id]=c;});
+            const merged:any[]=[];
+            // New ones first
+            Object.values(newMap).forEach((c:any)=>{
+              if(!prevMap[c.id]) merged.push(c);
+            });
+            // Then existing (update metadata but keep local unread count if higher)
+            prev.forEach((c:any)=>{
+              const fresh=newMap[c.id];
+              if(fresh) merged.push({...fresh,unread:Math.max(c.unread||0,fresh.unread||0)});
+              else merged.push(c);
+            });
+            return merged;
+          });
+        }
+        if(ctRes.status==="fulfilled"&&ctRes.value?.contacts){
+          setContacts(ctRes.value.contacts.map((c:any)=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,av:c.avatar||c.name?.split(" ").map((w:string)=>w[0]).join("")||"?",convs:c.conversation_count||0,tags,color:c.color||"#4c82fb"};}));
+        }
+      }catch{}
+      refreshConvsRef.current=false;
+    };
+    // Run every 30 s
+    const interval=setInterval(doRefresh,30000);
+    // Also run when the browser tab becomes visible again
+    const onVisible=()=>{if(document.visibilityState==="visible")doRefresh();};
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{clearInterval(interval);document.removeEventListener("visibilitychange",onVisible);};
+  },[isLoggedIn,apiOk]);
 
   // ═══ API SYNC — wraps write ops with optimistic update + API call ═══
   const syncApi=useCallback((method,path,body,opts={})=>{

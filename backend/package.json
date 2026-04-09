@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "setup": "npm install && npx prisma generate"
   },
   "dependencies": {
     "express": "^5.0.0",
@@ -16,6 +19,15 @@
     "ws": "^8.17.0",
     "mysql2": "^3.9.7",
     "dotenv": "^16.4.5",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "nodemailer": "^6.9.13",
+    "imapflow": "^1.0.166",
+    "mailparser": "^3.7.1",
+    "ioredis": "^5.3.2",
+    "node-cron": "^3.0.3",
+    "@prisma/client": "^5.14.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.14.0"
   }
 }

@@ -30,6 +30,7 @@ async function init() {
   console.log('Using MySQL database:', database);
 
   await createSchema();
+  await ensureSchemaColumns();
   await seed();
 }
 
@@ -578,6 +579,70 @@ CREATE TABLE IF NOT EXISTS bot_chats (
                        .replace(/TEXT DEFAULT '{}'/g, "TEXT")
                        .replace(/INTEGER DEFAULT 0/g, "TINYINT DEFAULT 0")
                        .replace(/INTEGER DEFAULT 1/g, "TINYINT DEFAULT 1"));
+}
+
+async function ensureSchemaColumns() {
+  try {
+    const inboxColumns = await query('SHOW COLUMNS FROM inboxes');
+    const columnNames = new Set(inboxColumns.map(col => col.Field));
+    const additions = [
+      { name: 'name', sql: "ALTER TABLE inboxes ADD COLUMN name VARCHAR(255) NOT NULL DEFAULT 'Inbox'" },
+      { name: 'type', sql: "ALTER TABLE inboxes ADD COLUMN type VARCHAR(50) NOT NULL DEFAULT 'live'" },
+      { name: 'color', sql: "ALTER TABLE inboxes ADD COLUMN color VARCHAR(50) DEFAULT '#4c82fb'" },
+      { name: 'greeting', sql: 'ALTER TABLE inboxes ADD COLUMN greeting TEXT' },
+      { name: 'active', sql: 'ALTER TABLE inboxes ADD COLUMN active TINYINT DEFAULT 1' },
+      { name: 'config', sql: 'ALTER TABLE inboxes ADD COLUMN config TEXT' },
+      { name: 'agent_id', sql: 'ALTER TABLE inboxes ADD COLUMN agent_id VARCHAR(255)' },
+      { name: 'created_at', sql: 'ALTER TABLE inboxes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP' },
+    ];
+
+    for (const addition of additions) {
+      if (!columnNames.has(addition.name)) {
+        await run(addition.sql);
+      }
+    }
+
+    await run("UPDATE inboxes SET type='live' WHERE type IS NULL OR type=''");
+    await run("UPDATE inboxes SET name=CONCAT('Inbox ', id) WHERE name IS NULL OR name=''");
+    await run("UPDATE inboxes SET color='#4c82fb' WHERE color IS NULL OR color=''");
+
+    await run('UPDATE inboxes SET active=1 WHERE active IS NULL');
+    await run("UPDATE inboxes SET greeting='' WHERE greeting IS NULL");
+    await run("UPDATE inboxes SET config='{}' WHERE config IS NULL OR config=''");
+    const firstAgent = await query('SELECT id FROM agents ORDER BY created_at ASC LIMIT 1', [], true);
+    if (firstAgent?.id) {
+      await run('UPDATE inboxes SET agent_id=? WHERE agent_id IS NULL', [firstAgent.id]);
+    }
+
+    // ── messages: email_message_id for IMAP dedup ────────────────────────
+    try {
+      const msgCols = new Set((await query('SHOW COLUMNS FROM messages')).map(c => c.Field));
+      if (!msgCols.has('email_message_id')) {
+        await run('ALTER TABLE messages ADD COLUMN email_message_id VARCHAR(512) NULL');
+        await run('ALTER TABLE messages ADD INDEX idx_email_message_id (email_message_id)');
+        console.log('✅ Added email_message_id to messages');
+      }
+    } catch (e) { console.error('email_message_id column:', e.message); }
+
+    // ── Add missing agent_id to all tables that need it ─────────────────
+    const agentIdTables = [
+      'contacts', 'conversations', 'canned_responses',
+      'automations', 'labels', 'teams',
+      'custom_fields', 'companies', 'deals', 'leads', 'campaigns', 'segments'
+    ];
+    for (const tbl of agentIdTables) {
+      try {
+        const cols = new Set((await query(`SHOW COLUMNS FROM ${tbl}`)).map(c => c.Field));
+        if (!cols.has('agent_id')) {
+          await run(`ALTER TABLE ${tbl} ADD COLUMN agent_id VARCHAR(255)`);
+          console.log(`✅ Added agent_id to ${tbl}`);
+        }
+      } catch (e) { console.error(`agent_id on ${tbl}:`, e.message); }
+    }
+
+  } catch (e) {
+    console.error('Failed to ensure schema columns:', e.message);
+  }
 }
 
 async function seed() {
