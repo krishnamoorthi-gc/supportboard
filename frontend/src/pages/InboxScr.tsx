@@ -203,7 +203,9 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const conv=convs.find(c=>c.id===aid);
   const contact=conv?contacts.find(c=>c.id===conv.cid):null;
   const isEmailCh=conv?.ch==="email";
+  const isWhatsAppCh=conv?.ch==="whatsapp";
   const contactEmail=(contact?.email||conv?.contact_email||"").trim();
+  const contactPhone=(contact?.phone||conv?.contact_phone||"").trim().replace(/^\+/,"");
   const contactName=contact?.name||conv?.contact_name||"Customer";
   const convMsgs=useMemo(()=>sortConversationMessages(msgs[aid]||[]),[aid,msgs]);
   const assignedAg=conv?agents.find(a=>a.id===conv.agent):null;
@@ -353,9 +355,14 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       showT("Customer email missing for this conversation","error");
       return;
     }
-    if(isEmailCh&&!isNote&&!api.isConnected()){
+    if(isWhatsAppCh&&!isNote&&!contactPhone){
       setInp(txt);
-      showT("API disconnected. Email was not sent","error");
+      showT("Customer phone number missing for this WhatsApp conversation","error");
+      return;
+    }
+    if((isEmailCh||isWhatsAppCh)&&!isNote&&!api.isConnected()){
+      setInp(txt);
+      showT("API disconnected — message not sent","error");
       return;
     }
     // Block send while any file is still uploading
@@ -381,6 +388,9 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         if(emailBcc.trim()) payload.bcc=emailBcc.trim();
         payload.emailSubject=(emailSubject.trim()||conv?.subject||"").trim();
       }
+      if(isWhatsAppCh&&!isNote){
+        payload.toPhone=contactPhone;
+      }
       try{
         const res=await api.post(`/conversations/${aid}/messages`,payload);
         const savedMsg=res?.message;
@@ -398,12 +408,13 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         setInp(txt);
         setReplyTo(prevReplyTo);
         setAttachments(prevAttachments);
-        showT(`${isEmailCh&&!isNote?"Email":"Message"} not sent: ${e?.message||"Delivery failed"}`,"error");
+        const chLabel=isEmailCh&&!isNote?"Email":isWhatsAppCh&&!isNote?"WhatsApp":"Message";
+        showT(`${chLabel} not sent: ${(e as any)?.message||"Delivery failed"}`,"error");
         return;
       }
     }
     if(isNote)return; // Notes don't trigger replies
-    if(isEmailCh)return; // Email waits for the real customer mailbox, not a fake demo reply
+    if(isEmailCh||isWhatsAppCh)return; // Real channels — wait for actual customer reply, no fake demo
     const pool=REPLY_POOL[aid]||["Thanks for the reply!"];
     setTimeout(()=>{
       setTyping(true);
@@ -788,7 +799,12 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                 </div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
                   {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}</span>}
-                  {isAg&&!isNt&&<span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>}
+                  {isAg&&!isNt&&(isWhatsAppCh?(
+                    // WhatsApp-style double-tick (blue = delivered)
+                    <span style={{fontSize:10,fontFamily:FM,color:"#53d391",letterSpacing:"-2px"}} title="Delivered">✓✓</span>
+                  ):(
+                    <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>
+                  ))}
                 </div>
                 {/* Hover action bar */}
                 <div className="msg-actions" style={{position:"absolute",top:-14,[isAg?"right":"left"]:8,display:"none",gap:2,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"2px",boxShadow:"0 4px 16px rgba(0,0,0,.4)",zIndex:10}}>
@@ -852,6 +868,15 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       {/* compose */}
       <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} style={{borderTop:`1px solid ${C.b1}`,background:dragOver?C.ad:isNote?C.yd:C.s1,padding:"10px 14px",transition:"background .2s",position:"relative"}}>
         {dragOver&&<div style={{position:"absolute",inset:0,background:C.a+"22",border:`2px dashed ${C.a}`,borderRadius:0,zIndex:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:C.a,fontWeight:700,fontFamily:FM}}>Drop files here</div>}
+        {/* WhatsApp header (only for whatsapp channel) */}
+        {isWhatsAppCh&&!isNote&&<div style={{marginBottom:8,display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#25d36611",border:"1px solid #25d36633",borderRadius:7}}>
+          <span style={{fontSize:14}}>💬</span>
+          <span style={{fontSize:10,color:"#128C7E",fontFamily:FM,fontWeight:600}}>WhatsApp</span>
+          <span style={{fontSize:10,color:C.t2,fontFamily:FB,flex:1}}>
+            To: {contact?.name||contactName}{contactPhone?" · +"+contactPhone:""}
+          </span>
+          {!contactPhone&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ No phone on contact</span>}
+        </div>}
         {/* Email fields (only for email channel) */}
         {isEmailCh&&!isNote&&<div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -910,12 +935,16 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         </div>}
         <div style={{display:"flex",gap:9,alignItems:"flex-end"}}>
           <textarea value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendMsg())}
-            placeholder={isNote?"Write an internal note (not visible to customer)…":isEmailCh?"Compose email reply…":"Type reply… (Enter to send, Shift+Enter for new line)"} rows={isEmailCh?5:3}
+            placeholder={isNote?"Write an internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message… (Enter to send)":"Type reply… (Enter to send, Shift+Enter for new line)"} rows={isEmailCh?5:isWhatsAppCh?3:3}
             style={{flex:1,background:isNote?"#fffbe6":C.bg,border:`1px solid ${isNote?C.y+"66":C.b2}`,borderRadius:10,padding:"10px 13px",fontSize:13,color:isNote?"#5a4e1a":C.t1,resize:"none",lineHeight:1.5,fontFamily:FB,transition:"all .15s"}}/>
-          <button onClick={sendMsg} style={{width:42,height:42,borderRadius:10,fontSize:18,background:isNote?C.y:C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .15s"}}>{editMsgId?"✓":"↑"}</button>
+          <button onClick={sendMsg} style={{width:42,height:42,borderRadius:10,fontSize:18,background:isNote?C.y:isWhatsAppCh?"#25d366":C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .15s"}} title={isWhatsAppCh?"Send via WhatsApp":"Send"}>{editMsgId?"✓":isWhatsAppCh?"📤":"↑"}</button>
         </div>
         {/* Email signature preview */}
         {isEmailCh&&!isNote&&<div style={{marginTop:6,padding:"6px 10px",borderTop:`1px solid ${C.b1}22`,fontSize:10,color:C.t3,fontFamily:FM,whiteSpace:"pre-line",lineHeight:1.4}}>— Priya Sharma · Head of Support · SupportDesk</div>}
+        {/* WhatsApp footer hint */}
+        {isWhatsAppCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,fontSize:9,color:"#25d366",fontFamily:FM}}>
+          <span>🔒</span><span>End-to-end encrypted · via WhatsApp Business API</span>
+        </div>}
       </div>
     </div>
 
