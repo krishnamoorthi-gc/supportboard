@@ -64,8 +64,8 @@ router.get('/kpis', auth, async (req, res) => {
   });
 });
 
-// GET /api/dashboard/activity
-router.get('/activity', auth, async (req, res) => {
+// GET /api/dashboard/activity-feed (alias: /activity)
+router.get('/activity-feed', auth, async (req, res) => {
   const recentConvs = await db.prepare(`
     SELECT c.*, ct.name as contact_name, ct.color as contact_color
     FROM conversations c
