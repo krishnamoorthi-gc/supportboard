@@ -538,6 +538,22 @@ CREATE TABLE IF NOT EXISTS contact_tags (
   tag VARCHAR(100),
   PRIMARY KEY (contact_id, tag)
 );
+
+-- Bot Builder
+CREATE TABLE IF NOT EXISTS bots (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  status VARCHAR(50) DEFAULT 'draft',
+  template VARCHAR(100),
+  nodes TEXT,
+  knowledge TEXT,
+  embed_token VARCHAR(255),
+  stats TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 `;
 
   await db.query(schema.replace(/TEXT DEFAULT \(datetime\('now'\)\)/g, "DATETIME DEFAULT CURRENT_TIMESTAMP")
