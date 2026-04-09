@@ -6,7 +6,7 @@ const { uid, paginate } = require('../utils/helpers');
 // ── DEALS ──
 router.get('/deals', auth, async (req, res) => {
   const { stage, owner, q } = req.query;
-  let where = '1=1'; const params = [];
+  let where = 'd.agent_id=?'; const params = [req.agent.id];
   if (stage) { where += ' AND stage=?'; params.push(stage); }
   if (owner) { where += ' AND owner_id=?'; params.push(owner); }
   if (q) { where += ' AND title LIKE ?'; params.push(`%${q}%`); }
@@ -30,8 +30,8 @@ router.post('/deals', auth, async (req, res) => {
   const { title, value=0, currency='USD', stage='Prospecting', probability=20, contact_id, company_id, owner_id, expected_close, notes } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
   const id = uid();
-  await db.prepare('INSERT INTO deals (id,title,value,currency,stage,probability,contact_id,company_id,owner_id,expected_close,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-    id, title, value, currency, stage, probability, contact_id||null, company_id||null, owner_id||req.agent.id, expected_close||null, notes||null
+  await db.prepare('INSERT INTO deals (id,title,value,currency,stage,probability,contact_id,company_id,owner_id,expected_close,notes,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, title, value, currency, stage, probability, contact_id||null, company_id||null, owner_id||req.agent.id, expected_close||null, notes||null, req.agent.id
   );
   const deal = await db.prepare('SELECT * FROM deals WHERE id=?').get(id);
   res.status(201).json({ deal });
@@ -58,7 +58,7 @@ router.delete('/deals/:id', auth, async (req, res) => {
 // ── LEADS ──
 router.get('/leads', auth, async (req, res) => {
   const { status, owner, q } = req.query;
-  let where = '1=1'; const params = [];
+  let where = 'l.agent_id=?'; const params = [req.agent.id];
   if (status) { where += ' AND status=?'; params.push(status); }
   if (owner) { where += ' AND owner_id=?'; params.push(owner); }
   if (q) { where += ' AND (name LIKE ? OR email LIKE ? OR company LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq); }
@@ -80,8 +80,8 @@ router.post('/leads', auth, async (req, res) => {
   const { name, email, phone, company, source, status='New', score=50, value=0, owner_id, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  await db.prepare('INSERT INTO leads (id,name,email,phone,company,source,status,score,value,owner_id,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-    id, name, email||null, phone||null, company||null, source||null, status, score, value, owner_id||req.agent.id, notes||null
+  await db.prepare('INSERT INTO leads (id,name,email,phone,company,source,status,score,value,owner_id,notes,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, name, email||null, phone||null, company||null, source||null, status, score, value, owner_id||req.agent.id, notes||null, req.agent.id
   );
   const lead = await db.prepare('SELECT * FROM leads WHERE id=?').get(id);
   res.status(201).json({ lead });
@@ -108,7 +108,7 @@ router.delete('/leads/:id', auth, async (req, res) => {
 // ── TASKS ──
 router.get('/tasks', auth, async (req, res) => {
   const { status, assignee, related_type, related_id } = req.query;
-  let where = '1=1'; const params = [];
+  let where = 't.agent_id=?'; const params = [req.agent.id];
   if (status) { where += ' AND t.status=?'; params.push(status); }
   if (assignee) { where += ' AND t.assignee_id=?'; params.push(assignee); }
   if (related_type) { where += ' AND t.related_type=?'; params.push(related_type); }
@@ -132,8 +132,8 @@ router.post('/tasks', auth, async (req, res) => {
   if (!title) return res.status(400).json({ error: 'title required' });
   const id = uid();
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  await db.prepare('INSERT INTO tasks (id,title,description,due_date,priority,status,assignee_id,related_type,related_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-    id, title, description||null, due_date||null, priority, status, assignee_id||req.agent.id, related_type||null, related_id||null, now, now
+  await db.prepare('INSERT INTO tasks (id,title,description,due_date,priority,status,assignee_id,related_type,related_id,created_at,updated_at,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, title, description||null, due_date||null, priority, status, assignee_id||req.agent.id, related_type||null, related_id||null, now, now, req.agent.id
   );
   const task = await db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
   res.status(201).json({ task });
@@ -159,7 +159,7 @@ router.delete('/tasks/:id', auth, async (req, res) => {
 
 // ── MEETINGS ──
 router.get('/meetings', auth, async (req, res) => {
-  const meetings = await db.prepare('SELECT * FROM meetings ORDER BY start_time DESC').all();
+  const meetings = await db.prepare('SELECT * FROM meetings WHERE agent_id=? ORDER BY start_time DESC').all(req.agent.id);
   for (const m of meetings) { try { m.attendees = JSON.parse(m.attendees||'[]'); } catch { m.attendees=[]; } }
   res.json({ meetings });
 });
@@ -175,8 +175,8 @@ router.post('/meetings', auth, async (req, res) => {
   const { title, description, start_time, end_time, location, meeting_link, attendees=[], status='scheduled', related_type, related_id } = req.body;
   if (!title || !start_time) return res.status(400).json({ error: 'title and start_time required' });
   const id = uid();
-  await db.prepare('INSERT INTO meetings (id,title,description,start_time,end_time,location,meeting_link,attendees,status,related_type,related_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-    id, title, description||null, start_time, end_time||null, location||null, meeting_link||null, JSON.stringify(attendees), status, related_type||null, related_id||null
+  await db.prepare('INSERT INTO meetings (id,title,description,start_time,end_time,location,meeting_link,attendees,status,related_type,related_id,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, title, description||null, start_time, end_time||null, location||null, meeting_link||null, JSON.stringify(attendees), status, related_type||null, related_id||null, req.agent.id
   );
   const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(id);
   if (m) { try { m.attendees = JSON.parse(m.attendees||'[]'); } catch { m.attendees=[]; } }

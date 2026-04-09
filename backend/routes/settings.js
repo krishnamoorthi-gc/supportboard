@@ -50,7 +50,7 @@ router.delete('/agents/:id', auth, (req, res) => {
 // ── TEAMS ──
 router.get('/teams', auth, async (req, res) => {
   try {
-    const teams = await db.prepare('SELECT * FROM teams').all();
+    const teams = await db.prepare('SELECT * FROM teams WHERE agent_id=?').all(req.agent.id);
     for (const t of teams) {
       t.members = (await db.prepare('SELECT agent_id FROM team_members WHERE team_id=?').all(t.id)).map(r=>r.agent_id);
     }
@@ -65,7 +65,7 @@ router.post('/teams', auth, (req, res) => {
   const { name, description, members=[] } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  db.prepare('INSERT INTO teams (id,name,description) VALUES (?,?,?)').run(id, name, description||null);
+  db.prepare('INSERT INTO teams (id,name,description,agent_id) VALUES (?,?,?,?)').run(id, name, description||null, req.agent.id);
   const insertMember = db.prepare('INSERT INTO team_members VALUES (?,?)');
   for (const m of members) insertMember.run(id, m);
   res.status(201).json({ team: { ...db.prepare('SELECT * FROM teams WHERE id=?').get(id), members } });
@@ -92,7 +92,7 @@ router.delete('/teams/:id', auth, (req, res) => {
 // ── LABELS ──
 router.get('/labels', auth, async (req, res) => {
   try {
-    res.json({ labels: await db.prepare('SELECT * FROM labels ORDER BY title ASC').all() });
+    res.json({ labels: await db.prepare('SELECT * FROM labels WHERE agent_id=? ORDER BY title ASC').all(req.agent.id) });
   } catch (e) {
     console.error('❌ GET /api/settings/labels error:', e.message);
     res.status(500).json({ error: e.message });
@@ -103,7 +103,7 @@ router.post('/labels', auth, (req, res) => {
   const { title, color='#4c82fb' } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
   const id = uid();
-  db.prepare('INSERT INTO labels (id,title,color) VALUES (?,?,?)').run(id, title.toLowerCase(), color);
+  db.prepare('INSERT INTO labels (id,title,color,agent_id) VALUES (?,?,?,?)').run(id, title.toLowerCase(), color, req.agent.id);
   res.status(201).json({ label: db.prepare('SELECT * FROM labels WHERE id=?').get(id) });
 });
 
@@ -127,7 +127,7 @@ router.delete('/labels/:id', auth, (req, res) => {
 router.get('/canned', auth, async (req, res) => {
   try {
     const { q } = req.query;
-    let rows = await db.prepare('SELECT * FROM canned_responses ORDER BY code ASC').all();
+    let rows = await db.prepare('SELECT * FROM canned_responses WHERE agent_id=? ORDER BY code ASC').all(req.agent.id);
     if (q) rows = rows.filter(r => r.code.includes(q.toLowerCase()) || r.content.toLowerCase().includes(q.toLowerCase()));
     res.json({ canned: rows });
   } catch (e) {
@@ -140,7 +140,7 @@ router.post('/canned', auth, (req, res) => {
   const { code, content } = req.body;
   if (!code || !content) return res.status(400).json({ error: 'code and content required' });
   const id = uid();
-  db.prepare('INSERT INTO canned_responses (id,code,content) VALUES (?,?,?)').run(id, code.toLowerCase(), content);
+  db.prepare('INSERT INTO canned_responses (id,code,content,agent_id) VALUES (?,?,?,?)').run(id, code.toLowerCase(), content, req.agent.id);
   res.status(201).json({ canned: db.prepare('SELECT * FROM canned_responses WHERE id=?').get(id) });
 });
 
@@ -163,7 +163,7 @@ router.delete('/canned/:id', auth, (req, res) => {
 // ── INBOXES ──
 router.get('/inboxes', auth, async (req, res) => {
   try {
-    res.json({ inboxes: await db.prepare('SELECT * FROM inboxes ORDER BY name ASC').all() });
+    res.json({ inboxes: await db.prepare('SELECT * FROM inboxes WHERE agent_id=? ORDER BY name ASC').all(req.agent.id) });
   } catch (e) {
     console.error('❌ GET /api/settings/inboxes error:', e.message);
     res.status(500).json({ error: e.message });
@@ -174,7 +174,7 @@ router.post('/inboxes', auth, (req, res) => {
   const { name, type, color, greeting, config={} } = req.body;
   if (!name || !type) return res.status(400).json({ error: 'name and type required' });
   const id = uid();
-  db.prepare('INSERT INTO inboxes (id,name,type,color,greeting,config) VALUES (?,?,?,?,?,?)').run(id, name, type, color||'#4c82fb', greeting||'', JSON.stringify(config));
+  db.prepare('INSERT INTO inboxes (id,name,type,color,greeting,config,agent_id) VALUES (?,?,?,?,?,?,?)').run(id, name, type, color||'#4c82fb', greeting||'', JSON.stringify(config), req.agent.id);
   res.status(201).json({ inbox: db.prepare('SELECT * FROM inboxes WHERE id=?').get(id) });
 });
 
@@ -200,7 +200,7 @@ router.delete('/inboxes/:id', auth, (req, res) => {
 router.get('/custom-fields', auth, async (req, res) => {
   try {
     const { entity } = req.query;
-    let rows = await db.prepare('SELECT * FROM custom_fields ORDER BY entity,name ASC').all();
+    let rows = await db.prepare('SELECT * FROM custom_fields WHERE agent_id=? ORDER BY entity,name ASC').all(req.agent.id);
     if (entity) rows = rows.filter(r => r.entity === entity);
     for (const r of rows) { try { r.options = JSON.parse(r.options||'[]'); } catch { r.options=[]; } }
     res.json({ fields: rows });
@@ -214,8 +214,8 @@ router.post('/custom-fields', auth, (req, res) => {
   const { name, type, entity, required=0, description, options=[], group_name } = req.body;
   if (!name || !type || !entity) return res.status(400).json({ error: 'name, type, entity required' });
   const id = uid();
-  db.prepare('INSERT INTO custom_fields (id,name,type,entity,required,description,options,group_name) VALUES (?,?,?,?,?,?,?,?)').run(
-    id, name, type, entity, required?1:0, description||null, JSON.stringify(options), group_name||null
+  db.prepare('INSERT INTO custom_fields (id,name,type,entity,required,description,options,group_name,agent_id) VALUES (?,?,?,?,?,?,?,?,?)').run(
+    id, name, type, entity, required?1:0, description||null, JSON.stringify(options), group_name||null, req.agent.id
   );
   res.status(201).json({ field: db.prepare('SELECT * FROM custom_fields WHERE id=?').get(id) });
 });
@@ -242,7 +242,7 @@ router.delete('/custom-fields/:id', auth, (req, res) => {
 // ── AUTOMATIONS ──
 router.get('/automations', auth, async (req, res) => {
   try {
-    const rows = await db.prepare('SELECT * FROM automations ORDER BY created_at DESC').all();
+    const rows = await db.prepare('SELECT * FROM automations WHERE agent_id=? ORDER BY created_at DESC').all(req.agent.id);
     for (const r of rows) {
       try { r.conditions = JSON.parse(r.conditions||'[]'); } catch { r.conditions=[]; }
       try { r.actions = JSON.parse(r.actions||'[]'); } catch { r.actions=[]; }
@@ -258,8 +258,8 @@ router.post('/automations', auth, (req, res) => {
   const { name, trigger_type, conditions=[], actions=[], active=1 } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  db.prepare('INSERT INTO automations (id,name,trigger_type,conditions,actions,active) VALUES (?,?,?,?,?,?)').run(
-    id, name, trigger_type||null, JSON.stringify(conditions), JSON.stringify(actions), active?1:0
+  db.prepare('INSERT INTO automations (id,name,trigger_type,conditions,actions,active,agent_id) VALUES (?,?,?,?,?,?,?)').run(
+    id, name, trigger_type||null, JSON.stringify(conditions), JSON.stringify(actions), active?1:0, req.agent.id
   );
   res.status(201).json({ automation: db.prepare('SELECT * FROM automations WHERE id=?').get(id) });
 });
@@ -421,7 +421,7 @@ router.delete('/brands/:id', auth, (req, res) => {
 
 // ── SIGNATURES ──
 router.get('/signatures', auth, (req, res) => {
-  const rows = db.prepare('SELECT * FROM signatures ORDER BY name ASC').all();
+  const rows = db.prepare('SELECT * FROM signatures WHERE agent_id=? ORDER BY name ASC').all(req.agent.id);
   for (const r of rows) { try { r.socials = JSON.parse(r.socials||'{}'); } catch { r.socials={}; } }
   res.json({ signatures: rows });
 });
@@ -457,7 +457,7 @@ router.delete('/signatures/:id', auth, (req, res) => {
 // ── CANNED RESPONSES ALIAS (frontend uses /canned-responses path) ──
 router.get('/canned-responses', auth, (req, res) => {
   const { q } = req.query;
-  let rows = db.prepare('SELECT * FROM canned_responses ORDER BY code ASC').all();
+  let rows = db.prepare('SELECT * FROM canned_responses WHERE agent_id=? ORDER BY code ASC').all(req.agent.id);
   if (q) rows = rows.filter(r => r.code.includes(q.toLowerCase()) || r.content.toLowerCase().includes(q.toLowerCase()));
   res.json({ canned: rows });
 });
@@ -465,7 +465,7 @@ router.post('/canned-responses', auth, (req, res) => {
   const { code, content } = req.body;
   if (!code || !content) return res.status(400).json({ error: 'code and content required' });
   const id = uid();
-  db.prepare('INSERT INTO canned_responses (id,code,content) VALUES (?,?,?)').run(id, code.toLowerCase(), content);
+  db.prepare('INSERT INTO canned_responses (id,code,content,agent_id) VALUES (?,?,?,?)').run(id, code.toLowerCase(), content, req.agent.id);
   res.status(201).json({ canned: db.prepare('SELECT * FROM canned_responses WHERE id=?').get(id) });
 });
 router.patch('/canned-responses/:id', auth, (req, res) => {

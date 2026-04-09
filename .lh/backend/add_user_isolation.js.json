@@ -1,0 +1,30 @@
+{
+    "sourceFile": "backend/add_user_isolation.js",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 3,
+            "patches": [
+                {
+                    "date": 1775653275501,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1775653334021,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,5 +1,5 @@\n- const db = require('./db');\r\n+  const db = require('./db');\r\n \r\n async function migrate() {\r\n   console.log('🔄 Starting user isolation migration...');\r\n   \r\n@@ -38,10 +38,10 @@\n         const hasAgentId = columns.some(c => c.Field === 'agent_id');\r\n         \r\n         if (!hasAgentId) {\r\n           console.log(`  ➕ Adding agent_id to ${table}...`);\r\n-          await db.query(`ALTER TABLE ${table} ADD COLUMN agent_id VARCHAR(50) DEFAULT '${defaultAgentId}'`);\r\n-          await db.query(`ALTER TABLE ${table} ADD INDEX idx_agent_id (agent_id)`);\r\n+          await db.prepare(`ALTER TABLE ${table} ADD COLUMN agent_id VARCHAR(50) DEFAULT '${defaultAgentId}'`).run();\r\n+          await db.prepare(`ALTER TABLE ${table} ADD INDEX idx_agent_id (agent_id)`).run();\r\n         } else {\r\n           console.log(`  ✅ ${table} already has agent_id`);\r\n         }\r\n       } catch (e) {\r\n"
+                },
+                {
+                    "date": 1775653411749,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -38,10 +38,14 @@\n         const hasAgentId = columns.some(c => c.Field === 'agent_id');\r\n         \r\n         if (!hasAgentId) {\r\n           console.log(`  ➕ Adding agent_id to ${table}...`);\r\n-          await db.prepare(`ALTER TABLE ${table} ADD COLUMN agent_id VARCHAR(50) DEFAULT '${defaultAgentId}'`).run();\r\n-          await db.prepare(`ALTER TABLE ${table} ADD INDEX idx_agent_id (agent_id)`).run();\r\n+          await db.run(`ALTER TABLE ${table} ADD COLUMN agent_id VARCHAR(50) DEFAULT '${defaultAgentId}'`);\r\n+          try {\r\n+            await db.run(`ALTER TABLE ${table} ADD INDEX idx_agent_id (agent_id)`);\r\n+          } catch(e) {\r\n+            // Index might already exist\r\n+          }\r\n         } else {\r\n           console.log(`  ✅ ${table} already has agent_id`);\r\n         }\r\n       } catch (e) {\r\n"
+                },
+                {
+                    "date": 1775653443868,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -3,8 +3,12 @@\n async function migrate() {\r\n   console.log('🔄 Starting user isolation migration...');\r\n   \r\n   try {\r\n+    // Initialize database connection\r\n+    await db.init();\r\n+    console.log('✅ Database connected');\r\n+    \r\n     // Get first agent ID to assign existing data\r\n     const firstAgent = await db.prepare('SELECT id FROM agents ORDER BY created_at ASC LIMIT 1').get();\r\n     const defaultAgentId = firstAgent?.id || 'system';\r\n     \r\n"
+                }
+            ],
+            "date": 1775653275501,
+            "name": "Commit-0",
+            "content": " const db = require('./db');\r\n\r\nasync function migrate() {\r\n  console.log('🔄 Starting user isolation migration...');\r\n  \r\n  try {\r\n    // Get first agent ID to assign existing data\r\n    const firstAgent = await db.prepare('SELECT id FROM agents ORDER BY created_at ASC LIMIT 1').get();\r\n    const defaultAgentId = firstAgent?.id || 'system';\r\n    \r\n    console.log('📋 Default agent ID:', defaultAgentId);\r\n    \r\n    // Add agent_id to tables that need user isolation\r\n    const tables = [\r\n      'contacts',\r\n      'conversations', \r\n      'messages',\r\n      'companies',\r\n      'campaigns',\r\n      'segments',\r\n      'campaign_templates',\r\n      'leads',\r\n      'deals',\r\n      'tasks',\r\n      'meetings',\r\n      'labels',\r\n      'inboxes',\r\n      'teams',\r\n      'canned_responses',\r\n      'automations',\r\n      'custom_fields'\r\n    ];\r\n    \r\n    for (const table of tables) {\r\n      try {\r\n        // Check if column exists\r\n        const columns = await db.prepare(`SHOW COLUMNS FROM ${table}`).all();\r\n        const hasAgentId = columns.some(c => c.Field === 'agent_id');\r\n        \r\n        if (!hasAgentId) {\r\n          console.log(`  ➕ Adding agent_id to ${table}...`);\r\n          await db.query(`ALTER TABLE ${table} ADD COLUMN agent_id VARCHAR(50) DEFAULT '${defaultAgentId}'`);\r\n          await db.query(`ALTER TABLE ${table} ADD INDEX idx_agent_id (agent_id)`);\r\n        } else {\r\n          console.log(`  ✅ ${table} already has agent_id`);\r\n        }\r\n      } catch (e) {\r\n        if (e.message.includes(\"doesn't exist\")) {\r\n          console.log(`  ⚠️  Table ${table} doesn't exist, skipping`);\r\n        } else {\r\n          console.error(`  ❌ Error with ${table}:`, e.message);\r\n        }\r\n      }\r\n    }\r\n    \r\n    console.log('✅ Migration complete!');\r\n    process.exit(0);\r\n  } catch (e) {\r\n    console.error('❌ Migration failed:', e.message);\r\n    process.exit(1);\r\n  }\r\n}\r\n\r\nmigrate();\r\n"
+        }
+    ]
+}

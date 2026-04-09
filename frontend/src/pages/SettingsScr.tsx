@@ -502,8 +502,8 @@ function InboxSet({inboxes,setInboxes}){
   const save=()=>{
     if(!form.name.trim()){showT("Name required","error");return;}
     const payload={...form,cfg:{...cfg}};
-    if(edit){setInboxes(p=>p.map(i=>i.id===edit.id?{...i,...payload}:i));if(api.isConnected())api.patch(`/settings/inboxes/${edit.id}`,{name:payload.name,type:payload.type,color:payload.color,greeting:payload.greeting,active:payload.active}).catch(()=>{});}
-    else{const nid="ib"+uid();setInboxes(p=>[...p,{id:nid,...payload,convs:0}]);if(api.isConnected())api.post("/settings/inboxes",{name:payload.name,type:payload.type||"live",color:payload.color,greeting:payload.greeting}).catch(()=>{});}
+    if(edit){setInboxes(p=>p.map(i=>i.id===edit.id?{...i,...payload}:i));if(api.isConnected())api.patch(`/settings/inboxes/${edit.id}`,{name:payload.name,type:payload.type,color:payload.color,greeting:payload.greeting,active:payload.active,config:payload.cfg}).then(r=>{if(r?.inbox){let c={};try{c=typeof r.inbox.config==="string"?JSON.parse(r.inbox.config):r.inbox.config||{};}catch{}setInboxes(p=>p.map(i=>i.id===edit.id?{...r.inbox,cfg:c}:i));}}).catch(()=>{});}
+    else{const nid="ib"+uid();setInboxes(p=>[...p,{id:nid,...payload,convs:0}]);if(api.isConnected())api.post("/settings/inboxes",{name:payload.name,type:payload.type||"live",color:payload.color,greeting:payload.greeting,config:payload.cfg}).then(r=>{if(r?.inbox){let c={};try{c=typeof r.inbox.config==="string"?JSON.parse(r.inbox.config):r.inbox.config||{};}catch{}setInboxes(p=>p.map(i=>i.id===nid?{...r.inbox,cfg:c}:i));}}).catch(()=>{});}
     showT(edit?"Inbox updated":"Inbox created!","success");setShowForm(false);setEdit(null);
   };
   const testConnection=()=>{showT("Testing connection…","info");setTimeout(()=>showT("Connection successful! ✓","success"),1500);};

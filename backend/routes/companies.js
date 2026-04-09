@@ -6,7 +6,7 @@ const { uid, paginate } = require('../utils/helpers');
 router.get('/', auth, async (req, res) => {
   const { offset, limit } = paginate(req);
   const { q } = req.query;
-  let where = '1=1'; const params = [];
+  let where = 'agent_id=?'; const params = [req.agent.id];
   if (q) { where += ' AND (name LIKE ? OR domain LIKE ? OR industry LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq); }
   const companies = await db.prepare(`SELECT * FROM companies WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, limit, offset);
   const totalRow = await db.prepare(`SELECT COUNT(*) as c FROM companies WHERE ${where}`).get(...params);
@@ -25,8 +25,8 @@ router.post('/', auth, async (req, res) => {
   const { name, domain, industry, size, revenue, website, phone, address, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  await db.prepare('INSERT INTO companies (id,name,domain,industry,size,revenue,website,phone,address,notes) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
-    id, name, domain||null, industry||null, size||null, revenue||null, website||null, phone||null, address||null, notes||null
+  await db.prepare('INSERT INTO companies (id,name,domain,industry,size,revenue,website,phone,address,notes,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, name, domain||null, industry||null, size||null, revenue||null, website||null, phone||null, address||null, notes||null, req.agent.id
   );
   const company = await db.prepare('SELECT * FROM companies WHERE id=?').get(id);
   res.status(201).json({ company });

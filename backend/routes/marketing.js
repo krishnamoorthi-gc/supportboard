@@ -6,7 +6,7 @@ const { uid } = require('../utils/helpers');
 // Campaigns
 router.get('/campaigns', auth, async (req, res) => {
   try {
-    const campaigns = await db.prepare('SELECT * FROM campaigns ORDER BY created_at DESC').all();
+    const campaigns = await db.prepare('SELECT * FROM campaigns WHERE agent_id=? ORDER BY created_at DESC').all(req.agent.id);
     for (const c of campaigns) { try { c.stats = JSON.parse(c.stats||'{}'); } catch { c.stats={}; } }
     res.json({ campaigns });
   } catch (e) {
@@ -32,8 +32,8 @@ router.post('/campaigns', auth, async (req, res) => {
     const { name, type='email', subject, body, segment_id, scheduled_at } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const id = uid();
-    await db.prepare('INSERT INTO campaigns (id,name,type,subject,body,segment_id,scheduled_at,stats) VALUES (?,?,?,?,?,?,?,?)').run(
-      id, name, type, subject||null, body||null, segment_id||null, scheduled_at||null, '{}'
+    await db.prepare('INSERT INTO campaigns (id,name,type,subject,body,segment_id,scheduled_at,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?)').run(
+      id, name, type, subject||null, body||null, segment_id||null, scheduled_at||null, '{}', req.agent.id
     );
     const campaign = await db.prepare('SELECT * FROM campaigns WHERE id=?').get(id);
     res.status(201).json({ campaign });
@@ -83,7 +83,7 @@ router.delete('/campaigns/:id', auth, async (req, res) => {
 // Segments
 router.get('/segments', auth, async (req, res) => {
   try {
-    const segments = await db.prepare('SELECT * FROM segments ORDER BY name ASC').all();
+    const segments = await db.prepare('SELECT * FROM segments WHERE agent_id=? ORDER BY name ASC').all(req.agent.id);
     res.json({ segments });
   } catch (e) {
     console.error('❌ GET /api/marketing/segments error:', e.message);
@@ -96,9 +96,9 @@ router.post('/segments', auth, async (req, res) => {
     const { name, conditions=[] } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const id = uid();
-    const countResult = await db.prepare('SELECT COUNT(*) as c FROM contacts').get();
+    const countResult = await db.prepare('SELECT COUNT(*) as c FROM contacts WHERE agent_id=?').get(req.agent.id);
     const count = countResult?.c || 0;
-    await db.prepare('INSERT INTO segments (id,name,conditions,contact_count) VALUES (?,?,?,?)').run(id, name, JSON.stringify(conditions), count);
+    await db.prepare('INSERT INTO segments (id,name,conditions,contact_count,agent_id) VALUES (?,?,?,?,?)').run(id, name, JSON.stringify(conditions), count, req.agent.id);
     const segment = await db.prepare('SELECT * FROM segments WHERE id=?').get(id);
     res.status(201).json({ segment });
   } catch (e) {
@@ -139,7 +139,7 @@ router.delete('/segments/:id', auth, async (req, res) => {
 // Templates
 router.get('/templates', auth, async (req, res) => {
   try {
-    const templates = await db.prepare('SELECT * FROM campaign_templates ORDER BY name ASC').all();
+    const templates = await db.prepare('SELECT * FROM campaign_templates WHERE agent_id=? ORDER BY name ASC').all(req.agent.id);
     res.json({ templates });
   } catch (e) {
     console.error('❌ GET /api/marketing/templates error:', e.message);
@@ -163,7 +163,7 @@ router.post('/templates', auth, async (req, res) => {
     const { name, type='email', subject, body } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const id = uid();
-    await db.prepare('INSERT INTO campaign_templates (id,name,type,subject,body) VALUES (?,?,?,?,?)').run(id, name, type, subject||null, body||null);
+    await db.prepare('INSERT INTO campaign_templates (id,name,type,subject,body,agent_id) VALUES (?,?,?,?,?,?)').run(id, name, type, subject||null, body||null, req.agent.id);
     const template = await db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(id);
     res.status(201).json({ template });
   } catch (e) {

@@ -7,7 +7,7 @@ router.get('/', auth, async (req, res) => {
   try {
     const { offset, limit } = paginate(req);
     const { q, tag } = req.query;
-    let where = '1=1'; const params = [];
+    let where = 'agent_id=?'; const params = [req.agent.id];
     if (q) { where += ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR company LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq,lq); }
     if (tag) { where += ' AND tags LIKE ?'; params.push(`%"${tag}"%`); }
     const contacts = await db.prepare(`SELECT * FROM contacts WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, limit, offset);
@@ -34,8 +34,8 @@ router.post('/', auth, async (req, res) => {
   const { name, email, phone, company, avatar, color, tags=[], notes, location } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  await db.prepare('INSERT INTO contacts (id,name,email,phone,company,avatar,color,tags,notes,location) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
-    id, name, email||null, phone||null, company||null, avatar||null, color||'#4c82fb', JSON.stringify(tags), notes||null, location||null
+  await db.prepare('INSERT INTO contacts (id,name,email,phone,company,avatar,color,tags,notes,location,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, name, email||null, phone||null, company||null, avatar||null, color||'#4c82fb', JSON.stringify(tags), notes||null, location||null, req.agent.id
   );
   const contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
   res.status(201).json({ contact });
