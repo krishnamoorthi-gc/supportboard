@@ -145,6 +145,17 @@ router.post('/:id/messages', auth, async (req, res) => {
     } else {
       await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, req.params.id);
     }
+    // Sync to linked bot_chat so visitor gets the reply via polling
+    try {
+      const botChat = await db.prepare('SELECT id, messages FROM bot_chats WHERE conversation_id=?').get(req.params.id);
+      if (botChat && botChat.id) {
+        const botMsgs = (() => { try { return JSON.parse(botChat.messages || '[]'); } catch { return []; } })();
+        botMsgs.push({ f: 'agent', t: text, agent_name: req.agent.name, ts: Date.now() });
+        await db.prepare('UPDATE bot_chats SET messages=?, status=?, updated_at=? WHERE id=?').run(
+          JSON.stringify(botMsgs), 'agent_connected', now, botChat.id
+        );
+      }
+    } catch {}
   }
   const msg = await db.prepare('SELECT * FROM messages WHERE id=?').get(id);
   res.status(201).json({ message: msg });
