@@ -73,6 +73,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   // ── Agent collision ──
   const [collisionAgents]=useState({"cv1":{id:"a2",name:"Dev Kumar",typing:false},"cv3":{id:"a3",name:"Meena Rao",typing:true}});
   // ── Email composer ──
+  const [emailTo,setEmailTo]=useState("");
   const [emailCc,setEmailCc]=useState("");
   const [emailBcc,setEmailBcc]=useState("");
   const [emailSubject,setEmailSubject]=useState("");
@@ -95,6 +96,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const conv=convs.find(c=>c.id===aid);
   const contact=conv?contacts.find(c=>c.id===conv.cid):null;
   const isEmailCh=conv?.ch==="email";
+  const contactEmail=(contact?.email||conv?.contact_email||"").trim();
+  const contactName=contact?.name||conv?.contact_name||"Customer";
   const convMsgs=msgs[aid]||[];
   const assignedAg=conv?agents.find(a=>a.id===conv.agent):null;
   const lc=t=>labels.find(l=>l.title===t)?.color||C.t2;
@@ -114,24 +117,49 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     unassigned:convs.filter(cv=>(fStatus==="all"||cv.status===fStatus)&&!cv.agent).length,
   };
 
+  useEffect(()=>{
+    setEmailTo(contactEmail||"");
+    setEmailCc("");
+    setEmailBcc("");
+    setEmailSubject("");
+    setShowCcBcc(false);
+  },[aid]);
+
+  useEffect(()=>{
+    if(isEmailCh&&contactEmail&&!emailTo){
+      setEmailTo(contactEmail);
+    }
+  },[contactEmail,emailTo,isEmailCh]);
+
   useEffect(()=>{msgEnd.current?.scrollIntoView({behavior:"smooth"});},[convMsgs.length,aid]);
 
   // ── Fetch messages from API when switching conversations ──
   const [msgsLoading,setMsgsLoading]=useState(false);
   useEffect(()=>{
     if(!api.isConnected()||!aid)return;
-    if(msgs[aid]?.length>0)return; // Already loaded
+    const shouldRefresh=!msgs[aid]?.length||conv?.ch==="email"||(conv?.unread||0)>0;
+    if(!shouldRefresh)return;
+    let cancelled=false;
     setMsgsLoading(true);
     (async()=>{
       try{
+        if(conv?.ch==="email"&&conv?.iid){
+          try{
+            await api.post("/email/poll-now",{ inboxId: conv.iid });
+          }catch{}
+        }
         const res=await api.get(`/conversations/${aid}/messages`);
+        if(cancelled)return;
         if(res?.messages?.length){
-          setMsgs(p=>({...p,[aid]:res.messages.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split("T")[1]?.slice(0,5)||""}))}));
+          setMsgs(p=>({...p,[aid]:res.messages.map(m=>({...m,aid:m.agent_id,t:m.created_at?.split?.("T")?.[1]?.slice(0,5)||m.created_at?.split?.(" ")?.[1]?.slice(0,5)||""}))}));
+        }else{
+          setMsgs(p=>({...p,[aid]:[]}));
         }
       }catch{}
-      setMsgsLoading(false);
+      if(!cancelled)setMsgsLoading(false);
     })();
-  },[aid]);
+    return()=>{cancelled=true;};
+  },[aid,conv?.ch,conv?.iid,conv?.unread]);
 
   const prevCounts=useRef({});
   useEffect(()=>{
@@ -141,7 +169,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       const cur=allM.length;
       if(cur>prev){
         const last=allM[cur-1];
-        if(last?.role==="contact"&&autoRef.current&&!replyingRef.current){
+        if((last?.role==="contact"||last?.role==="customer")&&autoRef.current&&!replyingRef.current){
           const cv=convs.find(c=>c.id===convId);
           if(cv&&aiChRef.current[cv.ch]!==false){
             doAiAutoReply(allM,convId);
@@ -201,23 +229,64 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     }
   },[aid]);
 
-  const sendMsg=()=>{
+  const sendMsg=async()=>{
     if(!inp.trim()&&!editMsgId)return;
+    if(!aid)return;
     const txt=inp.trim();setInp("");setShowCanned(false);setShowEmoji(false);
+    const recipientEmail=(emailTo||contactEmail).trim();
     // Edit existing message
     if(editMsgId){
       setMsgs(p=>({...p,[aid]:(p[aid]||[]).map(m=>m.id===editMsgId?{...m,text:txt,edited:true}:m)}));
       setEditMsgId(null);setEditMsgText("");showT("Message edited","success");return;
     }
+    if(isEmailCh&&!isNote&&!recipientEmail){
+      setInp(txt);
+      showT("Customer email missing for this conversation","error");
+      return;
+    }
+    if(isEmailCh&&!isNote&&!api.isConnected()){
+      setInp(txt);
+      showT("API disconnected. Email was not sent","error");
+      return;
+    }
     const newMsg={id:uid(),role:isNote?"note":"agent",aid:"a1",text:txt,t:now(),isNote:isNote,replyTo:replyTo?.id||null,replyText:replyTo?.text?.slice(0,60)||null,read:true};
+    const prevReplyTo=replyTo;
     setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),newMsg]}));
     setConvs(p=>p.map(c=>c.id===aid?{...c,unread:0,time:"now"}:c));
     setReplyTo(null);
     // ── Sync to API (background, non-blocking) ──
     if(api.isConnected()){
-      api.post(`/conversations/${aid}/messages`,{role:isNote?"note":"agent",text:txt}).catch(()=>{});
+      const payload:Record<string,unknown>={role:isNote?"note":"agent",text:txt};
+      if(isEmailCh&&!isNote){
+        payload.toEmail=recipientEmail;
+        payload.contactId=conv?.cid||null;
+        payload.contactName=contactName;
+        if(emailCc.trim()) payload.cc=emailCc.trim();
+        if(emailBcc.trim()) payload.bcc=emailBcc.trim();
+        payload.emailSubject=(emailSubject.trim()||conv?.subject||"").trim();
+      }
+      try{
+        const res=await api.post(`/conversations/${aid}/messages`,payload);
+        const savedMsg=res?.message;
+        if(savedMsg){
+          setMsgs(p=>{
+            const list=p[aid]||[];
+            if(list.some(m=>m.id===savedMsg.id)){
+              return {...p,[aid]:list.filter(m=>m.id!==newMsg.id)};
+            }
+            return {...p,[aid]:list.map(m=>m.id===newMsg.id?{...m,...savedMsg,aid:savedMsg.agent_id,t:savedMsg.created_at?.split?.("T")?.[1]?.slice(0,5)||m.t}:m)};
+          });
+        }
+      }catch(e){
+        setMsgs(p=>({...p,[aid]:(p[aid]||[]).filter(m=>m.id!==newMsg.id)}));
+        setInp(txt);
+        setReplyTo(prevReplyTo);
+        showT(`${isEmailCh&&!isNote?"Email":"Message"} not sent: ${e?.message||"Delivery failed"}`,"error");
+        return;
+      }
     }
     if(isNote)return; // Notes don't trigger replies
+    if(isEmailCh)return; // Email waits for the real customer mailbox, not a fake demo reply
     const pool=REPLY_POOL[aid]||["Thanks for the reply!"];
     setTimeout(()=>{
       setTyping(true);
@@ -644,7 +713,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         {isEmailCh&&!isNote&&<div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <span style={{fontSize:10,color:C.t3,fontFamily:FM,width:30}}>To:</span>
-            <span style={{fontSize:11,color:C.t1,flex:1}}>{contact?.email||"customer@email.com"}</span>
+            <input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="customer@email.com" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
             <button onClick={()=>setShowCcBcc(p=>!p)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer",fontFamily:FM}}>{showCcBcc?"Hide":"CC/BCC"}</button>
           </div>
           {showCcBcc&&<>
@@ -954,11 +1023,66 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     </Mdl>}
 
     {showNewConv&&<NewConvMdl contacts={contacts} inboxes={inboxes} agents={agents} onClose={()=>setShowNewConv(false)}
-      onCreate={data=>{
-        const id="cv"+uid();const ct=contacts.find(c=>c.id===data.cid);
-        setConvs(p=>[{id,cid:data.cid,iid:data.iid,ch:inboxes.find(i=>i.id===data.iid)?.type||"live",status:"open",priority:"normal",subject:data.subject||"New conversation",agent:data.agent||null,team:null,labels:[],unread:0,time:"now",color:ct?.color||C.a},...p]);
-        if(data.msg)setMsgs(p=>({...p,[id]:[{id:uid(),role:"agent",aid:"a1",text:data.msg,t:now()}]}));
-        setAid(id);setShowNewConv(false);showT("Conversation created!","success");
+      onCreate={async data=>{
+        const ct=contacts.find(c=>c.id===data.cid);
+        const ib=inboxes.find(i=>i.id===data.iid);
+        const subject=(data.subject||"New conversation").trim();
+        const firstMsg=(data.msg||"").trim();
+        const isEmailInbox=(ib?.type||"live")==="email";
+        if(!api.isConnected()){
+          showT("API disconnected. Conversation was not created","error");
+          return;
+        }
+        if(isEmailInbox&&firstMsg&&!ct?.email){
+          showT("Selected contact has no email address","error");
+          return;
+        }
+        try{
+          const created=await api.post("/conversations",{
+            subject,
+            contact_id:data.cid,
+            inbox_id:data.iid,
+            assignee_id:data.agent||null,
+          });
+          const savedConv=created?.conversation;
+          if(!savedConv?.id){
+            throw new Error("Conversation create failed");
+          }
+          const convRow={
+            ...savedConv,
+            cid:savedConv.contact_id||data.cid,
+            iid:savedConv.inbox_id||data.iid,
+            ch:ib?.type||savedConv.inbox_type||"live",
+            agent:savedConv.assignee_id??data.agent??null,
+            team:savedConv.team_id??null,
+            labels:typeof savedConv.labels==="string"?JSON.parse(savedConv.labels||"[]"):savedConv.labels||[],
+            unread:0,
+            time:savedConv.updated_at||savedConv.created_at||"now",
+            color:ct?.color||savedConv.color||C.a,
+            contact_name:ct?.name||savedConv.contact_name,
+            contact_email:ct?.email||savedConv.contact_email,
+            inbox_name:ib?.name||savedConv.inbox_name,
+          };
+          setConvs(p=>[convRow,...p.filter(c=>c.id!==savedConv.id)]);
+          if(firstMsg){
+            const msgRes=await api.post(`/conversations/${savedConv.id}/messages`,{
+              role:"agent",
+              text:firstMsg,
+              ...(isEmailInbox?{
+                toEmail:ct?.email||"",
+                contactId:ct?.id||data.cid,
+                contactName:ct?.name||"Customer",
+                emailSubject:subject,
+              }:{})
+            });
+            if(msgRes?.message){
+              setMsgs(p=>({...p,[savedConv.id]:[{...msgRes.message,aid:msgRes.message.agent_id,t:msgRes.message.created_at?.split?.("T")?.[1]?.slice(0,5)||""}]}));
+            }
+          }
+          setAid(savedConv.id);setShowNewConv(false);showT(isEmailInbox&&firstMsg?"Conversation created and email sent!":"Conversation created!","success");
+        }catch(e){
+          showT(e?.message||"Failed to create conversation","error");
+        }
       }}/>}
   </div>;
 }
@@ -969,6 +1093,7 @@ function NewConvMdl({contacts,inboxes,agents,onClose,onCreate}){
   const [subject,setSubject]=useState("");
   const [msg,setMsg]=useState("");
   const [agent,setAgent]=useState("");
+  const [creating,setCreating]=useState(false);
   return <Mdl title="New Conversation" onClose={onClose}>
     <Fld label="Contact"><Sel val={cid} set={setCid} opts={contacts.map(c=>({v:c.id,l:c.name}))}/></Fld>
     <Fld label="Inbox"><Sel val={iid} set={setIid} opts={inboxes.map(i=>({v:i.id,l:i.name}))}/></Fld>
@@ -976,10 +1101,8 @@ function NewConvMdl({contacts,inboxes,agents,onClose,onCreate}){
     <Fld label="First Message (optional)"><textarea value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Type a first message…" rows={3} style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"none",outline:"none"}}/></Fld>
     <Fld label="Assign To (optional)"><Sel val={agent} set={setAgent} opts={[{v:"",l:"Unassigned"},...agents.map(a=>({v:a.id,l:a.name}))]}/></Fld>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
-      <Btn ch="Cancel" v="ghost" onClick={onClose}/>
-      <Btn ch="Create Conversation" v="primary" onClick={()=>onCreate({cid,iid,subject,msg,agent:agent||null})}/>
+      <Btn ch="Cancel" v="ghost" onClick={()=>{if(!creating)onClose();}}/>
+      <Btn ch={creating?"Creating...":"Create Conversation"} v="primary" onClick={async()=>{if(creating)return;setCreating(true);try{await onCreate({cid,iid,subject,msg,agent:agent||null});}finally{setCreating(false);}}}/>
     </div>
   </Mdl>;
 }
-
-

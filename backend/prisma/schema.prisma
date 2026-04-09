@@ -1,0 +1,109 @@
+// ─────────────────────────────────────────────────────────
+//  SupportDesk – Prisma Schema  (MySQL)
+//  Used by the email service layer (IMAP polling + SMTP send)
+// ─────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Agents ───────────────────────────────────────────────
+model Agent {
+  id         String   @id
+  name       String
+  email      String   @unique
+  role       String   @default("agent")
+  avatar     String?
+  color      String?  @default("#4c82fb")
+  status     String?  @default("online")
+  created_at DateTime @default(now())
+
+  @@map("agents")
+}
+
+// ── Inboxes ───────────────────────────────────────────────
+model Inbox {
+  id         String         @id
+  name       String
+  type       String
+  color      String?
+  greeting   String?        @db.Text
+  active     Int?           @default(1)
+  config     String?        @db.Text
+  agent_id   String?
+  created_at DateTime       @default(now())
+
+  conversations Conversation[]
+
+  @@map("inboxes")
+}
+
+// ── Contacts ─────────────────────────────────────────────
+model Contact {
+  id         String         @id
+  name       String
+  email      String?
+  phone      String?
+  company    String?
+  avatar     String?
+  color      String?
+  tags       String?        @db.Text
+  agent_id   String?
+  created_at DateTime       @default(now())
+  updated_at DateTime       @updatedAt
+
+  conversations Conversation[]
+
+  @@map("contacts")
+}
+
+// ── Conversations ─────────────────────────────────────────
+model Conversation {
+  id             String    @id
+  subject        String?
+  status         String    @default("open")
+  priority       String    @default("normal")
+  contact_id     String?
+  inbox_id       String?
+  assignee_id    String?
+  team_id        String?
+  agent_id       String?
+  labels         String?   @db.Text
+  first_reply_at DateTime?
+  resolved_at    DateTime?
+  snoozed_until  DateTime?
+  csat_score     Int?
+  csat_comment   String?   @db.Text
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  inbox    Inbox?   @relation(fields: [inbox_id],   references: [id])
+  contact  Contact? @relation(fields: [contact_id], references: [id])
+  messages Message[]
+
+  @@map("conversations")
+}
+
+// ── Messages ──────────────────────────────────────────────
+model Message {
+  id               String       @id
+  conversation_id  String
+  role             String       @default("agent")
+  text             String?      @db.Text
+  attachments      String?      @db.Text
+  agent_id         String?
+  is_read          Int          @default(0)
+  // IMAP de-duplication — stores the RFC2822 Message-Id header
+  email_message_id String?      @db.VarChar(512)
+  created_at       DateTime     @default(now())
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id])
+
+  @@index([email_message_id])
+  @@map("messages")
+}

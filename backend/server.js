@@ -1,4 +1,13 @@
 require('dotenv').config();
+
+// ── Prevent unhandled rejections from crashing the server ──
+process.on('unhandledRejection', (err) => {
+  console.error('⚠️  Unhandled rejection (server kept alive):', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️  Uncaught exception (server kept alive):', err?.message || err);
+});
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -15,6 +24,8 @@ const db = require('./db');
     console.error('Failed to initialize database:', err);
   }
 })();
+
+// ── Email workers loaded lazily after server starts (see server.listen callback) ──
 
 const app = express();
 const server = http.createServer(app);
@@ -68,6 +79,7 @@ app.use('/api/kb', require('./routes/kb'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/email', require('./routes/email'));
 
 // Live monitor - visitor sessions
 app.use('/api/monitor', require('./middleware/auth'), (req, res) => {
@@ -138,7 +150,7 @@ app.use((err, req, res, next) => {
 
 // ── Start ──
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`
 ╔══════════════════════════════════════════╗
 ║  SupportDesk Backend                    ║
@@ -147,4 +159,14 @@ server.listen(PORT, () => {
 ║  → Health: http://localhost:${PORT}/health║
 ╚══════════════════════════════════════════╝
   `);
+
+  // ── Start email system (send worker + IMAP polling) after DB is ready ────
+  setTimeout(async () => {
+    try {
+      const { startEmailSystem } = require('./workers/emailWorker');
+      await startEmailSystem();
+    } catch (err) {
+      console.warn('⚠️  Email system failed to start (is Redis running?):', err.message);
+    }
+  }, 3000); // 3 s delay lets DB init + seed complete first
 });

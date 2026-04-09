@@ -2,6 +2,29 @@ const router = require('express').Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid, paginate } = require('../utils/helpers');
+const { sendEmail } = require('../services/emailService');
+const { broadcastToAll } = require('../ws');
+
+async function findOrCreateContactByEmail({ email, name, agentId, preferredId }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  let contact = await db.prepare('SELECT * FROM contacts WHERE agent_id=? AND email=? LIMIT 1').get(agentId, normalizedEmail);
+  if (contact) return contact;
+
+  const id = preferredId || uid();
+  const displayName = String(name || normalizedEmail.split('@')[0] || 'Email Contact').trim() || 'Email Contact';
+
+  await db.prepare('INSERT INTO contacts (id,name,email,color,agent_id) VALUES (?,?,?,?,?)').run(
+    id,
+    displayName,
+    normalizedEmail,
+    '#4c82fb',
+    agentId
+  );
+
+  return db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
+}
 
 // GET /api/conversations
 router.get('/', auth, async (req, res) => {
@@ -37,7 +60,6 @@ router.get('/', auth, async (req, res) => {
   `).get(...params);
   const total = totalRow ? totalRow.c : 0;
 
-  // Attach last message
   for (const cv of convs) {
     const last = await db.prepare('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 1').get(cv.id);
     cv.lastMessage = last || null;
@@ -86,7 +108,7 @@ router.patch('/:id', auth, async (req, res) => {
   if (!cv) return res.status(404).json({ error: 'Not found' });
 
   const updates = {};
-  if (status !== undefined) { updates.status = status; if (status==='resolved') updates.resolved_at = new Date().toISOString().slice(0, 19).replace('T', ' '); }
+  if (status !== undefined) { updates.status = status; if (status === 'resolved') updates.resolved_at = new Date().toISOString().slice(0, 19).replace('T', ' '); }
   if (priority !== undefined) updates.priority = priority;
   if (assignee_id !== undefined) updates.assignee_id = assignee_id;
   if (team_id !== undefined) updates.team_id = team_id;
@@ -114,7 +136,6 @@ router.delete('/:id', auth, async (req, res) => {
 
 // GET /api/conversations/:id/messages
 router.get('/:id/messages', auth, async (req, res) => {
-  // Mark as read
   await db.prepare("UPDATE messages SET is_read=1 WHERE conversation_id=? AND role='customer'").run(req.params.id);
   const msgs = await db.prepare(`
     SELECT m.*, a.name as agent_name, a.avatar as agent_avatar, a.color as agent_color
@@ -128,26 +149,108 @@ router.get('/:id/messages', auth, async (req, res) => {
 
 // POST /api/conversations/:id/messages
 router.post('/:id/messages', auth, async (req, res) => {
-  const { text, role='agent', attachments=[] } = req.body;
+  const { text, role='agent', attachments=[], cc, bcc, emailSubject, inReplyTo, toEmail, contactId, contactName } = req.body;
   if (!text && attachments.length === 0) return res.status(400).json({ error: 'text required' });
+
+  const conv = await db.prepare(`
+    SELECT c.*, ct.email AS contact_email, ct.name AS contact_name,
+           i.type AS inbox_type, i.id AS inbox_id_val
+    FROM conversations c
+    LEFT JOIN contacts ct ON c.contact_id = ct.id
+    LEFT JOIN inboxes i ON c.inbox_id = i.id
+    WHERE c.id = ?
+  `).get(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+  let smtpResult = null;
+  let resolvedRecipient = null;
+
+  if (role === 'agent' && conv.inbox_type === 'email') {
+    resolvedRecipient = String(toEmail || conv.contact_email || '').split(',')[0].trim().toLowerCase();
+    if (!resolvedRecipient) {
+      return res.status(400).json({ error: 'Customer email missing for this conversation' });
+    }
+
+    const repairedContact = await findOrCreateContactByEmail({
+      email: resolvedRecipient,
+      name: contactName || conv.contact_name,
+      agentId: req.agent.id,
+      preferredId: contactId || conv.contact_id || undefined,
+    });
+
+    if (repairedContact && conv.contact_id !== repairedContact.id) {
+      await db.prepare('UPDATE conversations SET contact_id=?, updated_at=? WHERE id=?').run(
+        repairedContact.id,
+        new Date().toISOString().slice(0, 19).replace('T', ' '),
+        req.params.id
+      );
+    }
+
+    let replyHeader = inReplyTo || null;
+    if (!replyHeader) {
+      const lastEmailMsg = await db.prepare(`
+        SELECT email_message_id
+        FROM messages
+        WHERE conversation_id=? AND email_message_id IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(req.params.id);
+      replyHeader = lastEmailMsg?.email_message_id || null;
+    }
+
+    try {
+      smtpResult = await sendEmail({
+        inboxId: conv.inbox_id_val,
+        to: resolvedRecipient,
+        cc: cc || null,
+        bcc: bcc || null,
+        subject: emailSubject || conv.subject || '(No Subject)',
+        text: text || '',
+        inReplyTo: replyHeader,
+      });
+    } catch (mailErr) {
+      console.error('[conversations] SMTP send failed:', mailErr.message);
+      return res.status(502).json({ error: `Email delivery failed: ${mailErr.message}` });
+    }
+  }
+
   const id = uid();
-  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments) VALUES (?,?,?,?,?,?)').run(
-    id, req.params.id, role, text, role==='agent' ? req.agent.id : null, JSON.stringify(attachments)
+  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id) VALUES (?,?,?,?,?,?,?)').run(
+    id,
+    req.params.id,
+    role,
+    text,
+    role === 'agent' ? req.agent.id : null,
+    JSON.stringify(attachments),
+    smtpResult?.smtpMessageId || null
   );
-  // Update first_reply_at if agent
+
   if (role === 'agent') {
     const cv = await db.prepare('SELECT first_reply_at FROM conversations WHERE id=?').get(req.params.id);
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     if (!cv.first_reply_at) {
-      await db.prepare('UPDATE conversations SET first_reply_at=?,updated_at=? WHERE id=?').run(
-        now, now, req.params.id
-      );
+      await db.prepare('UPDATE conversations SET first_reply_at=?,updated_at=? WHERE id=?').run(now, now, req.params.id);
     } else {
       await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, req.params.id);
     }
   }
+
   const msg = await db.prepare('SELECT * FROM messages WHERE id=?').get(id);
-  res.status(201).json({ message: msg });
+
+  try {
+    broadcastToAll({ type: 'new_message', conversationId: req.params.id, message: msg });
+  } catch (_) {}
+
+  res.status(201).json({
+    message: msg,
+    email: smtpResult ? {
+      delivered: true,
+      to: resolvedRecipient,
+      messageId: smtpResult.smtpMessageId,
+      accepted: smtpResult.accepted,
+      rejected: smtpResult.rejected,
+    } : null,
+  });
 });
 
 // POST /api/conversations/:id/merge
