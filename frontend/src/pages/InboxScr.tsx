@@ -167,12 +167,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
 
   const handleFilePick=()=>fileInputRef.current?.click();
   const msgEnd=useRef(null);
-  const autoRef=useRef(false);
   const replyingRef=useRef(false);
-  const aiChRef=useRef(aiChannels);
-  autoRef.current=aiAutoReply;
   replyingRef.current=aiReplying;
-  aiChRef.current=aiChannels;
 
   // ── Manual inbox refresh ──────────────────────────────────────────────────
   const refreshInbox=async()=>{
@@ -270,23 +266,6 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   },[aid,conv?.ch,conv?.iid,conv?.unread]);
 
   const prevCounts=useRef({});
-  useEffect(()=>{
-    Object.keys(msgs).forEach(convId=>{
-      const allM=msgs[convId]||[];
-      const prev=prevCounts.current[convId]||0;
-      const cur=allM.length;
-      if(cur>prev){
-        const last=allM[cur-1];
-        if((last?.role==="contact"||last?.role==="customer")&&autoRef.current&&!replyingRef.current){
-          const cv=convs.find(c=>c.id===convId);
-          if(cv&&aiChRef.current[cv.ch]!==false){
-            doAiAutoReply(allM,convId);
-          }
-        }
-      }
-      prevCounts.current[convId]=cur;
-    });
-  },[msgs]);
 
   const doAiAutoReply=async(allMsgs,convId)=>{
     const cv=convs.find(c=>c.id===convId);
@@ -410,7 +389,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       setTimeout(()=>{
         setTyping(false);
         setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),{id:uid(),role:"contact",text:pool[Math.floor(Math.random()*pool.length)],t:now(),read:false}]}));
-        setConvs(p=>p.map(c=>c.id===aid?{...c,unread:autoRef.current?0:1,time:"now"}:c));
+        setConvs(p=>p.map(c=>c.id===aid?{...c,unread:1,time:"now"}:c));
         if(soundOn)playNotifSound();
       },2000);
     },800);
@@ -546,101 +525,126 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   };
 
   return <div style={{display:"flex",flex:1,minWidth:0}}>
-    {/* LIST */}
-    <aside style={{width:282,background:C.s1,borderRight:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
-      <div style={{padding:"12px 12px 10px",borderBottom:`1px solid ${C.b1}`}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <span style={{fontSize:16,fontWeight:700,fontFamily:FD}}>Inbox</span>
-          <div style={{display:"flex",gap:4}}>
-            <button onClick={refreshInbox} title="Sync email inbox" disabled={refreshing} style={{background:refreshing?C.s2:C.gd,border:`1px solid ${C.g}44`,borderRadius:7,padding:"4px 8px",fontSize:11,color:refreshing?C.t3:C.g,cursor:refreshing?"not-allowed":"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:3}}>
-              <span style={{display:"inline-block",animation:refreshing?"spin 1s linear infinite":"none"}}>↻</span>
-              {refreshing?"Syncing…":"Sync"}
+    {showConfetti&&<Confetti/>}
+
+    {/* ══════════════ LEFT SIDEBAR ══════════════ */}
+    <aside style={{width:272,background:C.s1,borderRight:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+
+      {/* Header */}
+      <div style={{padding:"11px 12px 10px",borderBottom:`1px solid ${C.b1}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+          <span style={{fontSize:15,fontWeight:800,fontFamily:FD,letterSpacing:"-.3px",color:C.t1}}>Inbox</span>
+          <div style={{display:"flex",gap:5}}>
+            <button onClick={refreshInbox} disabled={refreshing} title="Sync email" style={{height:27,padding:"0 9px",borderRadius:7,fontSize:11,fontWeight:600,fontFamily:FM,cursor:refreshing?"not-allowed":"pointer",background:refreshing?C.s2:C.gd,color:refreshing?C.t3:C.g,border:`1px solid ${C.g}44`,display:"flex",alignItems:"center",gap:3}}>
+              <span style={{display:"inline-block",animation:refreshing?"spin 1s linear infinite":"none",fontSize:12}}>↻</span>{refreshing?"Syncing":"Sync"}
             </button>
-            <button onClick={()=>setShowNewConv(true)} style={{background:C.ad,border:`1px solid ${C.a}44`,borderRadius:7,padding:"4px 10px",fontSize:11,color:C.a,cursor:"pointer",fontWeight:600}}>+ New</button>
+            <button onClick={()=>setShowNewConv(true)} style={{height:27,padding:"0 10px",borderRadius:7,fontSize:11,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.a,color:"#fff",border:"none"}}>+ New</button>
           </div>
         </div>
-        <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:8}}>
-          <div style={{display:"flex",gap:2,background:C.s2,borderRadius:6,padding:2,border:`1px solid ${C.b1}`}}>
-            <button onClick={()=>setViewMode("list")} title="List view" style={{width:26,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:viewMode==="list"?C.ad:"transparent",color:viewMode==="list"?C.a:C.t3,border:"none",cursor:"pointer"}}>☰</button>
-            <button onClick={()=>setViewMode("kanban")} title="Kanban view" style={{width:26,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:viewMode==="kanban"?C.ad:"transparent",color:viewMode==="kanban"?C.a:C.t3,border:"none",cursor:"pointer"}}>▥</button>
-          </div>
-          <button onClick={()=>setBulkMode(p=>!p)} title="Bulk select" style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:bulkMode?C.yd:"transparent",color:bulkMode?C.y:C.t3,border:`1px solid ${bulkMode?C.y+"55":C.b1}`}}>{bulkMode?"✓ Bulk":"☐"}</button>
-          <div style={{flex:1}}/>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:8,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"7px 10px"}}>
-          <span style={{color:C.t3}}>⌕</span>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{background:"none",border:"none",fontSize:12,color:C.t1,flex:1,outline:"none",fontFamily:FB}}/>
-          {search&&<span onClick={()=>setSearch("")} style={{color:C.t3,cursor:"pointer"}}>×</span>}
+        {/* Search */}
+        <div style={{display:"flex",alignItems:"center",gap:7,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"7px 10px"}}>
+          <span style={{color:C.t3,fontSize:13}}>⌕</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search conversations…" style={{background:"none",border:"none",fontSize:12,color:C.t1,flex:1,outline:"none",fontFamily:FB}}/>
+          {search&&<span onClick={()=>setSearch("")} style={{color:C.t3,cursor:"pointer",fontSize:14,lineHeight:1}}>×</span>}
         </div>
       </div>
 
-      {/* ALL / MINE / UNASSIGNED tabs */}
+      {/* Status tabs */}
       <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`}}>
-        {[["all","All"],["mine","Mine"],["unassigned","Unassigned"]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setFOwner(id)} style={{flex:1,padding:"9px 4px",fontSize:11,fontWeight:700,fontFamily:FM,letterSpacing:"0.3px",color:fOwner===id?C.a:C.t3,background:fOwner===id?C.ad:"transparent",borderBottom:`2px solid ${fOwner===id?C.a:"transparent"}`,border:"none",cursor:"pointer",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-            {lbl}
-            <span style={{minWidth:18,height:16,borderRadius:10,background:fOwner===id?C.a+"22":C.b1,color:fOwner===id?C.a:C.t3,fontSize:9,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 5px",fontFamily:FM,transition:"all .15s"}}>{ownerCounts[id]}</span>
-          </button>
-        ))}
+        {([["open","Open",C.a],["snoozed","Snoozed",C.y],["resolved","Done",C.g],["all","All",C.t2]] as [string,string,string][]).map(([s,lbl,col])=>{
+          const cnt=convs.filter(cv=>s==="all"||cv.status===s).length;
+          const active=fStatus===s;
+          return <button key={s} onClick={()=>setFStatus(s)} style={{flex:1,padding:"8px 4px 6px",border:"none",borderBottom:`2.5px solid ${active?col:"transparent"}`,background:"transparent",cursor:"pointer",transition:"all .15s",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+            <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:active?col:C.t3,textTransform:"uppercase",letterSpacing:"0.3px"}}>{lbl}</span>
+            <span style={{fontSize:11,fontWeight:800,fontFamily:FM,color:active?col:C.t3}}>{cnt}</span>
+          </button>;
+        })}
       </div>
 
-      <div style={{display:"flex",padding:"7px 10px",gap:3,borderBottom:`1px solid ${C.b1}`,flexWrap:"wrap",alignItems:"center"}}>
-        {savedViews.map(sv=><button key={sv.id} onClick={()=>applyView(sv)} onContextMenu={e=>{e.preventDefault();delView(sv.id);}} title="Right-click to remove" style={{padding:"3px 8px",borderRadius:16,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.pd,color:C.p,border:`1px solid ${C.p}33`}}>{sv.icon} {sv.name}</button>)}
-        <button onClick={()=>setShowSaveView(true)} style={{padding:"3px 6px",borderRadius:16,fontSize:9,color:C.t3,background:"transparent",border:`1px dashed ${C.b2}`,cursor:"pointer"}}>+ Save View</button>
+      {/* Owner + view controls */}
+      <div style={{display:"flex",gap:5,padding:"7px 10px",borderBottom:`1px solid ${C.b1}`,alignItems:"center"}}>
+        <div style={{display:"flex",flex:1,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:7,overflow:"hidden"}}>
+          {([["all","All"],["mine","Mine"],["unassigned","Unassign"]] as [string,string][]).map(([id,lbl])=>(
+            <button key={id} onClick={()=>setFOwner(id)} style={{flex:1,padding:"5px 2px",fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:fOwner===id?C.ad:"transparent",color:fOwner===id?C.a:C.t3,border:"none",transition:"all .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:3}}>
+              {lbl}
+              <span style={{fontSize:9,fontWeight:800,background:fOwner===id?C.a+"22":C.b1+"88",color:fOwner===id?C.a:C.t3,borderRadius:8,padding:"0 4px",fontFamily:FM}}>{ownerCounts[id]}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:1,background:C.s2,borderRadius:6,padding:"2px",border:`1px solid ${C.b1}`,flexShrink:0}}>
+          <button onClick={()=>setViewMode("list")} title="List" style={{width:23,height:21,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:viewMode==="list"?C.ad:"transparent",color:viewMode==="list"?C.a:C.t3,border:"none",cursor:"pointer"}}>☰</button>
+          <button onClick={()=>setViewMode("kanban")} title="Kanban" style={{width:23,height:21,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:viewMode==="kanban"?C.ad:"transparent",color:viewMode==="kanban"?C.a:C.t3,border:"none",cursor:"pointer"}}>▥</button>
+          <button onClick={()=>setBulkMode(p=>!p)} title="Bulk select" style={{width:23,height:21,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:bulkMode?C.yd:"transparent",color:bulkMode?C.y:C.t3,border:"none",cursor:"pointer"}}>☐</button>
+        </div>
       </div>
-      <div style={{display:"flex",padding:"7px 10px",gap:3,borderBottom:`1px solid ${C.b1}`,flexWrap:"wrap"}}>
-        {["open","resolved","snoozed","all"].map(s=>(
-          <button key={s} onClick={()=>setFStatus(s)} style={{padding:"3px 8px",borderRadius:20,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:fStatus===s?C.ad:"transparent",color:fStatus===s?C.a:C.t3,border:`1px solid ${fStatus===s?C.a+"50":C.b1}`,textTransform:"uppercase"}}>{s}</button>
-        ))}
+
+      {/* Channel filter */}
+      <div style={{display:"flex",gap:4,padding:"6px 10px",borderBottom:`1px solid ${C.b1}`,overflowX:"auto"}}>
+        {([["all","All",null],["live","Live","#1fd07a"],["email","Email",C.a],["whatsapp","WA","#25d366"],["facebook","FB","#1877f2"],["instagram","IG","#e1306c"],["sms","SMS",C.y]] as [string,string,string|null][]).map(([ch,lbl,col])=>{
+          const active=fCh===ch;
+          const c2=col||C.a;
+          return <button key={ch} onClick={()=>setFCh(ch)} style={{padding:"3px 8px",borderRadius:14,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:active?c2+"22":"transparent",color:active?c2:C.t3,border:`1px solid ${active?c2+"55":"transparent"}`,flexShrink:0,whiteSpace:"nowrap",transition:"all .15s",display:"flex",alignItems:"center",gap:3}}>
+            {ch!=="all"&&<span style={{fontSize:11}}>{chI(ch)}</span>}
+            {lbl}
+          </button>;
+        })}
       </div>
-      <div style={{display:"flex",padding:"4px 10px",gap:3,borderBottom:`1px solid ${C.b1}`,overflowX:"auto"}}>
-        {["all","live","email","whatsapp","facebook","instagram","sms"].map(ch=>(
-          <button key={ch} onClick={()=>setFCh(ch)} style={{padding:"3px 7px",borderRadius:6,fontSize:10,cursor:"pointer",background:fCh===ch?C.s3:"transparent",color:fCh===ch?chC(ch):C.t3,border:`1px solid ${fCh===ch?C.b2:"transparent"}`,fontFamily:FM,flexShrink:0,whiteSpace:"nowrap"}}>
-            {ch==="all"?"All":<><span style={{color:chC(ch)}}>{chI(ch)}</span> {ch}</>}
-          </button>
-        ))}
-      </div>
-      {/* Bulk action bar */}
-      {bulkMode&&bulkSel.length>0&&<div style={{padding:"7px 10px",background:C.ad,borderBottom:`1px solid ${C.a}44`,display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",animation:"fadeUp .15s ease"}}>
-        <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.a}}>{bulkSel.length} selected</span>
-        <div style={{flex:1}}/>
-        <button onClick={bulkResolve} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.gd,color:C.g,border:`1px solid ${C.g}44`}}>✓ Resolve</button>
-        <button onClick={()=>bulkAssign("a1")} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.s3,color:C.t2,border:`1px solid ${C.b1}`}}>Assign to me</button>
-        <button onClick={()=>bulkLabel("urgent")} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.rd,color:C.r,border:`1px solid ${C.r}44`}}>+ urgent</button>
-        <button onClick={()=>{setBulkSel([]);}} style={{padding:"3px 6px",borderRadius:5,fontSize:10,cursor:"pointer",background:"none",color:C.t3,border:"none"}}>✕</button>
+
+      {/* Saved views */}
+      {savedViews.length>0&&<div style={{display:"flex",padding:"5px 10px",gap:3,borderBottom:`1px solid ${C.b1}`,flexWrap:"wrap",alignItems:"center"}}>
+        {savedViews.map(sv=><button key={sv.id} onClick={()=>applyView(sv)} onContextMenu={e=>{e.preventDefault();delView(sv.id);}} title="Right-click to remove" style={{padding:"2px 8px",borderRadius:12,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.pd,color:C.p,border:`1px solid ${C.p}33`}}>{sv.icon} {sv.name}</button>)}
+        <button onClick={()=>setShowSaveView(true)} style={{padding:"2px 6px",borderRadius:12,fontSize:9,color:C.t3,background:"transparent",border:`1px dashed ${C.b2}`,cursor:"pointer"}}>+ View</button>
       </div>}
+
+      {/* Bulk bar */}
+      {bulkMode&&bulkSel.length>0&&<div style={{padding:"6px 10px",background:C.ad,borderBottom:`1px solid ${C.a}44`,display:"flex",gap:4,alignItems:"center",animation:"fadeUp .15s ease"}}>
+        <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.a}}>{bulkSel.length} selected</span>
+        <button onClick={bulkResolve} style={{padding:"2px 7px",borderRadius:5,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.gd,color:C.g,border:`1px solid ${C.g}44`}}>✓ Resolve</button>
+        <button onClick={()=>bulkAssign("a1")} style={{padding:"2px 7px",borderRadius:5,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.s3,color:C.t2,border:`1px solid ${C.b1}`}}>Assign me</button>
+        <button onClick={()=>setBulkSel([])} style={{marginLeft:"auto",padding:"2px 5px",borderRadius:5,fontSize:10,cursor:"pointer",background:"none",color:C.t3,border:"none"}}>✕</button>
+      </div>}
+
+      {/* Conversation list */}
       <div style={{flex:1,overflowY:"auto"}}>
-        {filtered.length===0&&<EmptyState icon="💬" title="No conversations" desc="No conversations match your current filters. Try adjusting your filters or start a new conversation." action="+ New Conversation" onAction={()=>setShowNewConv(true)}/>}
+        {filtered.length===0&&<EmptyState icon="💬" title="No conversations" desc="No conversations match your filters." action="+ New Conversation" onAction={()=>setShowNewConv(true)}/>}
         {filtered.map(cv=>{
           const ct=contacts.find(c=>c.id===cv.cid);
-          const viewingAg=viewingAgents[cv.id]?agents.find(a=>a.id===viewingAgents[cv.id][0]):null;
+          const agAv=cv.agent?agents.find(a=>a.id===cv.agent):null;
           const lastMsg=(msgs[cv.id]||[]).filter(m=>m.role!=="sys").slice(-1)[0];
-          return <div key={cv.id} className="hov" title={lastMsg?`Last: ${lastMsg.text?.slice(0,80)}…`:""} onClick={()=>{if(bulkMode){toggleBulk(cv.id);return;}setAid(cv.id);setConvs(p=>p.map(c=>c.id===cv.id?{...c,unread:0}:c));setSumData(null);setAiSugs([]);}}
-            style={{padding:"11px 12px",borderBottom:`1px solid ${C.b1}`,cursor:"pointer",transition:"background .12s",background:bulkSel.includes(cv.id)?C.yd:aid===cv.id?C.ad:"transparent",borderLeft:`2.5px solid ${aid===cv.id?C.a:"transparent"}`}}>
-            <div style={{display:"flex",gap:9}}>
-              {bulkMode&&<input type="checkbox" checked={bulkSel.includes(cv.id)} onChange={()=>toggleBulk(cv.id)} style={{accentColor:C.a,marginTop:4,flexShrink:0}} onClick={e=>e.stopPropagation()}/>}
-              <Av i={ct?.av||"?"} c={cv.color} s={34}/>
+          const sla=slaTimers[cv.id];
+          const isAct=aid===cv.id;
+          const priColor=cv.priority==="urgent"?C.r:cv.priority==="high"?C.y:"transparent";
+          return <div key={cv.id} className="hov" onClick={()=>{if(bulkMode){toggleBulk(cv.id);return;}setAid(cv.id);setConvs(p=>p.map(c=>c.id===cv.id?{...c,unread:0}:c));setSumData(null);setAiSugs([]);}}
+            style={{padding:"10px 11px",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",transition:"background .1s",background:bulkSel.includes(cv.id)?C.yd:isAct?C.ad:"transparent",borderLeft:`3px solid ${isAct?C.a:priColor}`}}>
+            <div style={{display:"flex",gap:8}}>
+              {bulkMode&&<input type="checkbox" checked={bulkSel.includes(cv.id)} onChange={()=>toggleBulk(cv.id)} style={{accentColor:C.a,marginTop:5,flexShrink:0}} onClick={e=>e.stopPropagation()}/>}
+              {/* Avatar with channel badge */}
+              <div style={{position:"relative",flexShrink:0,alignSelf:"flex-start",marginTop:1}}>
+                <Av i={ct?.av||"?"} c={cv.color} s={32}/>
+                <span style={{position:"absolute",bottom:-2,right:-3,fontSize:9,lineHeight:"12px",background:C.s1,borderRadius:"50%",width:14,height:14,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${C.b1}`}}>{chI(cv.ch)}</span>
+              </div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <span style={{fontSize:12.5,fontWeight:600}}>{ct?.name||"Unknown"}</span>
-                    <span style={{fontSize:10,color:chC(cv.ch)}}>{chI(cv.ch)}</span>
-                    {cv.priority==="urgent"&&<span style={{width:6,height:6,borderRadius:"50%",background:C.r,animation:"pulse 1.4s infinite"}}/>}
-                    {cv.priority==="high"&&<span style={{width:6,height:6,borderRadius:"50%",background:C.y}}/>}
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:4}}>
-                    {cv.unread>0&&<span style={{background:C.a,color:"#fff",fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:10,fontFamily:FM}}>{cv.unread}</span>}
-                    <span style={{fontSize:9.5,color:C.t3,fontFamily:FM}}>{cv.time}</span>
+                {/* Row 1: name + time + unread */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:1}}>
+                  <span style={{fontSize:12,fontWeight:cv.unread>0?700:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"68%"}}>{ct?.name||"Unknown"}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
+                    {cv.unread>0&&<span style={{background:C.a,color:"#fff",fontSize:9,fontWeight:700,padding:"0 5px",lineHeight:"15px",borderRadius:8,fontFamily:FM}}>{cv.unread}</span>}
+                    <span style={{fontSize:9,color:C.t3,fontFamily:FM}}>{cv.time}</span>
                   </div>
                 </div>
-                <div style={{fontSize:11.5,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{cv.subject}</div>
-                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {cv.status==="resolved"&&<Tag text="resolved" color={C.g}/>}
+                {/* Row 2: subject */}
+                <div style={{fontSize:11,fontWeight:500,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:2}}>{cv.subject}</div>
+                {/* Row 3: last message preview */}
+                {lastMsg&&<div style={{fontSize:10,color:C.t3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3,fontStyle:"italic"}}>{lastMsg.role==="agent"?"You: ":""}{lastMsg.text?.slice(0,52)}</div>}
+                {/* Row 4: tags + sla + assigned agent */}
+                <div style={{display:"flex",gap:3,alignItems:"center",flexWrap:"wrap"}}>
+                  {cv.priority!=="normal"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:prC(cv.priority),background:prC(cv.priority)+"18",padding:"1px 5px",borderRadius:3,textTransform:"uppercase"}}>{cv.priority}</span>}
+                  {cv.status==="resolved"&&<Tag text="done" color={C.g}/>}
                   {cv.status==="snoozed"&&<Tag text="snoozed" color={C.y}/>}
-                  {(cv.labels||[]).includes("bot-handoff")&&<Tag text="🤖 Bot Handoff" color="#ef4444"/>}
-                  {cv.labels.filter((l:string)=>l!=="bot-handoff").slice(0,2).map((l:string)=><Tag key={l} text={l} color={lc(l)}/>)}
-                  {viewingAg&&viewingAg.id!=="a1"&&<span style={{fontSize:9,color:C.p,fontFamily:FM,display:"flex",alignItems:"center",gap:3}}>👁 {viewingAg.name.split(" ")[0]}</span>}
-                  {slaTimers[cv.id]&&cv.status==="open"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:getSlaColor(slaTimers[cv.id].firstReply,slaTimers[cv.id].target),background:getSlaColor(slaTimers[cv.id].firstReply,slaTimers[cv.id].target)+"18",padding:"1px 5px",borderRadius:4}}>{getSlaText(slaTimers[cv.id].firstReply,slaTimers[cv.id].target)}</span>}
+                  {(cv.labels||[]).includes("bot-handoff")&&<Tag text="🤖 bot" color="#ef4444"/>}
+                  {cv.labels.filter((l:string)=>l!=="bot-handoff").slice(0,1).map((l:string)=><Tag key={l} text={l} color={lc(l)}/>)}
+                  {sla&&cv.status==="open"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:getSlaColor(sla.firstReply,sla.target),background:getSlaColor(sla.firstReply,sla.target)+"18",padding:"1px 5px",borderRadius:3}}>{getSlaText(sla.firstReply,sla.target)}</span>}
+                  {agAv&&<div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:3}} title={agAv.name}><Av i={agAv.av} c={agAv.color} s={14}/></div>}
                 </div>
               </div>
             </div>
@@ -649,12 +653,12 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       </div>
     </aside>
 
-    {/* ═══ KANBAN BOARD ═══ */}
+    {/* ══════════════ KANBAN ══════════════ */}
     {viewMode==="kanban"&&<div style={{flex:1,display:"flex",gap:12,padding:14,overflowX:"auto",background:C.bg}}>
-      {[{id:"new",label:"New",color:C.a,filter:cv=>cv.status==="open"&&!cv.agent},{id:"inprogress",label:"In Progress",color:C.cy,filter:cv=>cv.status==="open"&&cv.agent},{id:"waiting",label:"Waiting on Customer",color:C.y,filter:cv=>cv.status==="snoozed"},{id:"resolved",label:"Resolved",color:C.g,filter:cv=>cv.status==="resolved"}].map(col=>{
+      {([{id:"new",label:"New",color:C.a,filter:(cv:any)=>cv.status==="open"&&!cv.agent},{id:"inprogress",label:"In Progress",color:C.cy,filter:(cv:any)=>cv.status==="open"&&cv.agent},{id:"waiting",label:"Waiting",color:C.y,filter:(cv:any)=>cv.status==="snoozed"},{id:"resolved",label:"Resolved",color:C.g,filter:(cv:any)=>cv.status==="resolved"}]).map(col=>{
         const cards=convs.filter(col.filter);
         return <div key={col.id} style={{minWidth:220,flex:1,background:C.s1,borderRadius:14,border:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-          <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:8}}>
+          <div style={{padding:"11px 14px",borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:col.color}}/>
             <span style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t1}}>{col.label}</span>
             <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:col.color,background:col.color+"18",borderRadius:10,padding:"1px 7px",marginLeft:"auto"}}>{cards.length}</span>
@@ -684,52 +688,58 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       })}
     </div>}
 
-    {/* ═══ CHAT + RIGHT PANEL (list mode) ═══ */}
+    {/* ══════════════ CHAT + RIGHT PANEL ══════════════ */}
     {viewMode==="list"&&<>
     {/* CHAT */}
     <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,position:"relative"}}>
-      {showConfetti&&<Confetti/>}
-      {/* header */}
-      <div style={{padding:"11px 16px",borderBottom:`1px solid ${C.b1}`,background:C.s1,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        {contact&&<Av i={contact.av} c={conv.color} s={36}/>}
-        <div style={{flex:1,minWidth:120}}>
-          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2,flexWrap:"wrap"}}>
-            <span style={{fontSize:14.5,fontWeight:700,fontFamily:FD}}>{contact?.name}</span>
-            <Tag text={conv?.status||"open"} color={conv?.status==="resolved"?C.g:conv?.status==="snoozed"?C.y:C.a}/>
-            {conv?.priority!=="normal"&&<Tag text={conv?.priority||""} color={prC(conv?.priority)}/>}
+
+      {/* ── Conversation Header ── */}
+      <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s1,display:"flex",alignItems:"center",gap:10,position:"relative"}}>
+        {contact&&<Av i={contact.av} c={conv?.color||C.a} s={36}/>}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+            <span style={{fontSize:14,fontWeight:700,fontFamily:FD,color:C.t1}}>{contact?.name||"Select a conversation"}</span>
+            {conv&&<><Tag text={conv.status||"open"} color={conv.status==="resolved"?C.g:conv.status==="snoozed"?C.y:C.a}/>
+            {conv.priority!=="normal"&&<Tag text={conv.priority||""} color={prC(conv.priority)}/>}
+            <span style={{fontSize:11,color:chC(conv.ch)}}>{chI(conv.ch)}</span></>}
           </div>
-          <div style={{fontSize:10.5,color:C.t3,fontFamily:FM}}>#{aid} · <span style={{color:assignedAg?C.a:C.y,cursor:"pointer"}} onClick={()=>setShowAssign(true)}>{assignedAg?assignedAg.name:"⚠ Unassigned"}</span></div>
+          {conv&&<div style={{fontSize:10.5,color:C.t3,fontFamily:FM,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{conv.subject}</span>
+            <span style={{color:C.b1}}>·</span>
+            <span style={{color:assignedAg?C.a:C.y,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:3}} onClick={()=>setShowAssign(true)}>
+              {assignedAg?<><Av i={assignedAg.av} c={assignedAg.color} s={12}/>{assignedAg.name}</>:<>⚠ Unassigned</>}
+            </span>
+            {inboxes.find((ib:any)=>ib.id===conv.iid)&&<><span style={{color:C.b1}}>·</span><span>{inboxes.find((ib:any)=>ib.id===conv.iid)?.name}</span></>}
+          </div>}
         </div>
-        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-          {(()=>{const ch=conv?.ch||"live";const chOn=aiAutoReply&&aiChannels[ch];const chLabel={live:"Live Chat",email:"Email",whatsapp:"WhatsApp",telegram:"Telegram",facebook:"Facebook",instagram:"Instagram",viber:"Viber",apple:"Apple",line:"LINE",tiktok:"TikTok",x:"X",sms:"SMS",voice:"Voice",video:"Video",api:"API"}[ch]||ch;return <button onClick={()=>{if(!aiAutoReply){setAiAutoReply(true);setAiChannels(p=>({...p,[ch]:true}));showT("✦ AI enabled — "+chLabel+" channel active","success");}else{const next=!aiChannels[ch];setAiChannels(p=>({...p,[ch]:next}));showT(next?"✦ AI enabled for "+chLabel:"AI disabled for "+chLabel+" — other channels unchanged",next?"success":"info");}}} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,fontFamily:FM,cursor:"pointer",background:chOn?"linear-gradient(135deg,#9b6dff22,#4c82fb22)":C.s3,color:chOn?C.p:aiAutoReply?C.y:C.t3,border:`1.5px solid ${chOn?C.p+"66":aiAutoReply?C.y+"44":C.b1}`,transition:"all .2s",letterSpacing:"0.3px"}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:chOn?C.p:C.t3,boxShadow:chOn?`0 0 8px ${C.p}`:"none",transition:"all .3s",animation:chOn?"pulse 1.5s infinite":"none"}}/>
-            {aiReplying?<><Spin/> Replying…</>:chOn?<>✦ AI ON</>:aiAutoReply?<>✦ {chLabel} OFF</>:<>✦ AI OFF</>}
-          </button>;})()}
+        {/* Action buttons */}
+        {conv&&<div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
           <Btn ch="✦ Summarize" v="ai" sm onClick={genSum}/>
           <Btn ch="✦ Classify" v="ai" sm onClick={classifyAI}/>
-          {conv?.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}
+          <div style={{width:1,height:18,background:C.b1,margin:"0 2px"}}/>
+          {conv.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}
           <Btn ch="↗ Transfer" v="ghost" sm onClick={()=>setShowTransfer(true)}/>
           <Btn ch="⊖ Snooze" v="ghost" sm onClick={()=>setShowSnooze(true)}/>
+          <div style={{width:1,height:18,background:C.b1,margin:"0 2px"}}/>
           <button onClick={()=>setShowMsgSearch(p=>!p)} title="Search messages" style={{width:28,height:28,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,background:showMsgSearch?C.ad:C.s3,color:showMsgSearch?C.a:C.t3,border:`1px solid ${showMsgSearch?C.a+"44":C.b1}`,cursor:"pointer"}} className="hov">⌕</button>
-          <button onClick={()=>setShowConvConfig(p=>!p)} title="More options" style={{width:28,height:28,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,background:C.s3,color:C.t3,border:`1px solid ${C.b1}`,cursor:"pointer"}} className="hov">⋯</button>
-        </div>
-        {/* Config dropdown */}
-        {showConvConfig&&<div style={{position:"absolute",top:50,right:270,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",zIndex:60,boxShadow:"0 10px 40px rgba(0,0,0,.6)",animation:"fadeUp .15s ease",minWidth:180}}>
-          {[{l:"Export Chat",navId:"download",fn:exportChat},{l:"Merge Conversations",navId:"merge",fn:()=>setShowMerge(true)},{l:"Mark as Spam",navId:"spam",fn:markSpam,c:C.y},{l:"Block Contact",navId:"block",fn:blockContact,c:C.r}].map(opt=>(
-            <button key={opt.l} onClick={()=>{opt.fn();setShowConvConfig(false);}} className="hov" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",color:opt.c||C.t2,fontSize:12,fontFamily:FB,textAlign:"left",transition:"background .12s"}}>
-              <span style={{width:18,display:"flex",alignItems:"center",justifyContent:"center"}}><NavIcon id={opt.navId} s={14} col={opt.c||C.t2}/></span>{opt.l}
-            </button>
-          ))}
+          <button onClick={()=>setShowConvConfig(p=>!p)} title="More options" style={{width:28,height:28,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,background:showConvConfig?C.s3:C.s3,color:C.t3,border:`1px solid ${C.b1}`,cursor:"pointer"}} className="hov">⋯</button>
+          {showConvConfig&&<div style={{position:"absolute",top:52,right:14,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",zIndex:60,boxShadow:"0 10px 40px rgba(0,0,0,.5)",animation:"fadeUp .15s ease",minWidth:190}}>
+            {[{l:"Export Chat",navId:"download",fn:exportChat},{l:"Merge Conversations",navId:"merge",fn:()=>setShowMerge(true)},{l:"Mark as Spam",navId:"spam",fn:markSpam,c:C.y},{l:"Block Contact",navId:"block",fn:blockContact,c:C.r}].map(opt=>(
+              <button key={opt.l} onClick={()=>{opt.fn();setShowConvConfig(false);}} className="hov" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",color:opt.c||C.t2,fontSize:12,fontFamily:FB,textAlign:"left"}}>
+                <NavIcon id={opt.navId} s={14} col={opt.c||C.t2}/>{opt.l}
+              </button>
+            ))}
+          </div>}
         </div>}
       </div>
 
-      {/* Agent collision banner (inline) */}
-      {collisionAgents[aid]&&collisionAgents[aid].id!=="a1"&&<div style={{padding:"5px 16px",background:C.pd,borderBottom:`1px solid ${C.p}33`,display:"flex",alignItems:"center",gap:8,animation:"fadeUp .15s ease"}}>
+      {/* Collision banner */}
+      {aid&&collisionAgents[aid]&&collisionAgents[aid].id!=="a1"&&<div style={{padding:"5px 16px",background:C.pd,borderBottom:`1px solid ${C.p}33`,display:"flex",alignItems:"center",gap:8}}>
         <span style={{width:6,height:6,borderRadius:"50%",background:C.p,animation:"pulse 1.5s infinite"}}/>
-        <span style={{fontSize:11,color:C.p,fontFamily:FM,fontWeight:600}}>{collisionAgents[aid].name} is {collisionAgents[aid].typing?"typing in":"also viewing"} this conversation</span>
+        <span style={{fontSize:11,color:C.p,fontFamily:FM,fontWeight:600}}>{collisionAgents[aid].name} is {collisionAgents[aid].typing?"typing in":"viewing"} this conversation</span>
       </div>}
 
-      {/* summary bar */}
+      {/* AI Summary bar */}
       {(sumLoad||sumData)&&<div style={{margin:"10px 14px 0",padding:"11px 14px",background:`linear-gradient(135deg,${C.pd},${C.ad})`,border:`1px solid ${C.p}44`,borderRadius:12,animation:"fadeUp .25s ease"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <Tag text="✦ AI SUMMARY" color={C.p}/>
@@ -738,10 +748,10 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         </div>
         {sumLoad?<div style={{display:"flex",gap:8,alignItems:"center"}}><Spin/><span style={{fontSize:12,color:C.t2}}>Analyzing conversation…</span></div>:
         <><p style={{fontSize:12.5,color:C.t2,lineHeight:1.6,marginBottom:7}}>{sumData.text}</p>
-        <div style={{display:"flex",gap:5}}>{sumData.topics.map(t=><Tag key={t} text={t} color={C.p}/>)}</div></>}
+        <div style={{display:"flex",gap:5}}>{sumData.topics.map((tp:string)=><Tag key={tp} text={tp} color={C.p}/>)}</div></>}
       </div>}
 
-      {/* message search */}
+      {/* Message search bar */}
       {showMsgSearch&&<div style={{padding:"8px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s1,display:"flex",gap:8,alignItems:"center",animation:"fadeUp .15s ease"}}>
         <span style={{color:C.t3,fontSize:12}}>⌕</span>
         <input value={msgSearchQ} onChange={e=>setMsgSearchQ(e.target.value)} placeholder="Search in this conversation…" autoFocus style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none"}}/>
@@ -749,48 +759,41 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         <button onClick={()=>{setShowMsgSearch(false);setMsgSearchQ("");}} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:14}}>×</button>
       </div>}
 
-      {/* messages */}
+      {/* Messages */}
       <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
-        {msgsLoading?<SkelMsgs n={5}/>:convMsgs.length===0?<EmptyState icon="💬" title="No messages yet" desc="Start the conversation by sending a message below"/>:
+        {!aid?<EmptyState icon="💬" title="Select a conversation" desc="Choose a conversation from the left to start messaging"/>:
+        msgsLoading?<SkelMsgs n={5}/>:convMsgs.length===0?<EmptyState icon="💬" title="No messages yet" desc="Start the conversation by sending a message below"/>:
         convMsgs.filter(m=>!msgSearchQ||m.text?.toLowerCase().includes(msgSearchQ.toLowerCase())).map((m,i)=>{
           if(m.role==="sys")return <div key={m.id||i} style={{textAlign:"center",fontSize:10.5,color:C.t3,fontFamily:FM,letterSpacing:"0.3px",animation:"fadeUp .2s ease"}}>── {m.text} ──</div>;
           const isAg=m.role==="agent";
           const ag=isAg?agents.find(a=>a.id===m.aid):null;
           const isAuto=!!(m.auto);
           const isNt=!!(m.isNote);
-          const highlight=msgSearchQ&&m.text?.toLowerCase().includes(msgSearchQ.toLowerCase());
+          const highlight=!!(msgSearchQ&&m.text?.toLowerCase().includes(msgSearchQ.toLowerCase()));
           return <div key={m.id||i} style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",animation:"fadeUp .2s ease",flexDirection:"column",alignItems:isAg?"flex-end":"flex-start"}}>
             <div style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",width:"100%",position:"relative"}} className="msg-row">
-              {!isAg&&contact&&<div style={{marginRight:8,flexShrink:0}}><Av i={contact.av} c={conv.color} s={26}/></div>}
+              {!isAg&&contact&&<div style={{marginRight:8,flexShrink:0}}><Av i={contact.av} c={conv?.color||C.a} s={26}/></div>}
               <div style={{maxWidth:"72%",background:isNt?C.yd:isAg?(isAuto?`linear-gradient(135deg,${C.p},#6b3fc0)`:`linear-gradient(135deg,${C.a},#2a5de8)`):C.s3,border:isNt?`1px solid ${C.y}44`:isAg?"none":`1px solid ${C.b1}`,borderRadius:isAg?"14px 14px 4px 14px":"4px 14px 14px 14px",padding:"10px 13px",position:"relative",outline:highlight?`2px solid ${C.y}`:"none"}}>
                 {isNt&&<div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.y,letterSpacing:"0.4px",marginBottom:4}}>📝 INTERNAL NOTE</div>}
                 {isAg&&ag&&<div style={{fontSize:10,color:isNt?"#8b7a2e":"rgba(255,255,255,.6)",marginBottom:4,fontFamily:FM,display:"flex",alignItems:"center",gap:5}}>{ag.name}{isAuto&&<span style={{background:"rgba(255,255,255,.18)",borderRadius:4,padding:"1px 5px",fontSize:9,letterSpacing:"0.3px"}}>✦ AI</span>}</div>}
                 {m.replyTo&&<div style={{fontSize:10,color:isNt?C.t2:isAg?"rgba(255,255,255,.5)":C.t3,padding:"4px 8px",borderLeft:`2px solid ${isAg?"rgba(255,255,255,.3)":C.b1}`,marginBottom:6,fontStyle:"italic"}}>↩ {m.replyText||"…"}</div>}
                 {m.text&&<p style={{fontSize:13.5,lineHeight:1.55,color:isNt?"#5a4e1a":isAg?"#fff":C.t1,margin:0}}>{highlight?(()=>{const re=new RegExp(`(${msgSearchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');return m.text.split(re).map((p:string,k:number)=>re.test(p)?<mark key={k} style={{background:C.y+"88",color:isAg?"#fff":C.t1,borderRadius:2,padding:"0 1px"}}>{p}</mark>:p);})():m.text}</p>}
-                {/* ── Attachments ── */}
                 {normalizeAttachmentList(m.attachments||[]).length>0&&<div style={{marginTop:m.text?6:0,display:"flex",flexWrap:"wrap",gap:4}}>
                   {normalizeAttachmentList(m.attachments||[]).map((att:any,ai:number)=>{
                     const isImg=/\.(png|jpe?g|gif|webp|svg)$/i.test(att.name||att.url||"");
                     const href=attachmentHref(att)||"#";
-                    return isImg?(
-                      <a key={ai} href={href} target="_blank" rel="noreferrer" style={{display:"block"}}>
-                        <img src={href} alt={att.name} style={{maxWidth:200,maxHeight:160,borderRadius:8,border:`1px solid ${isAg?"rgba(255,255,255,.2)":C.b1}`,objectFit:"cover"}}
-                          onError={(e:any)=>{e.target.style.display="none";}}/>
-                      </a>
-                    ):(
-                      <a key={ai} href={href} target="_blank" rel="noreferrer" download={att.name} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:7,background:isAg?"rgba(255,255,255,.15)":"rgba(0,0,0,.07)",border:`1px solid ${isAg?"rgba(255,255,255,.2)":C.b1}`,textDecoration:"none",maxWidth:220}}>
-                        <span style={{fontSize:14}}>{/\.pdf$/i.test(att.name||"")?"📄":/\.(doc|docx)$/i.test(att.name||"")?"📝":/\.(xls|xlsx|csv)$/i.test(att.name||"")?"📊":/\.(zip|rar|gz)$/i.test(att.name||"")?"🗜️":"📎"}</span>
-                        <span style={{fontSize:10.5,color:isAg?"rgba(255,255,255,.85)":C.t2,fontFamily:FB,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:150}}>{att.name||"Attachment"}</span>
-                        {(att.size||att.sizeLabel)&&<span style={{fontSize:9,color:isAg?"rgba(255,255,255,.5)":C.t3,flexShrink:0}}>{att.sizeLabel||formatAttachmentSize(att.size)}</span>}
-                      </a>
-                    );
+                    return isImg?(<a key={ai} href={href} target="_blank" rel="noreferrer" style={{display:"block"}}><img src={href} alt={att.name} style={{maxWidth:200,maxHeight:160,borderRadius:8,border:`1px solid ${isAg?"rgba(255,255,255,.2)":C.b1}`,objectFit:"cover"}} onError={(e:any)=>{e.target.style.display="none";}}/></a>):
+                    (<a key={ai} href={href} target="_blank" rel="noreferrer" download={att.name} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:7,background:isAg?"rgba(255,255,255,.15)":"rgba(0,0,0,.07)",border:`1px solid ${isAg?"rgba(255,255,255,.2)":C.b1}`,textDecoration:"none",maxWidth:220}}>
+                      <span style={{fontSize:14}}>{/\.pdf$/i.test(att.name||"")?"📄":/\.(doc|docx)$/i.test(att.name||"")?"📝":/\.(xls|xlsx|csv)$/i.test(att.name||"")?"📊":/\.(zip|rar|gz)$/i.test(att.name||"")?"🗜️":"📎"}</span>
+                      <span style={{fontSize:10.5,color:isAg?"rgba(255,255,255,.85)":C.t2,fontFamily:FB,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:150}}>{att.name||"Attachment"}</span>
+                      {(att.size||att.sizeLabel)&&<span style={{fontSize:9,color:isAg?"rgba(255,255,255,.5)":C.t3,flexShrink:0}}>{att.sizeLabel||formatAttachmentSize(att.size)}</span>}
+                    </a>);
                   })}
                 </div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
                   {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}</span>}
                   {isAg&&!isNt&&<span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>}
                 </div>
-                {/* Hover action bar */}
                 <div className="msg-actions" style={{position:"absolute",top:-14,[isAg?"right":"left"]:8,display:"none",gap:2,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"2px",boxShadow:"0 4px 16px rgba(0,0,0,.4)",zIndex:10}}>
                   <button onClick={()=>setReplyTo(m)} title="Reply" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">↩</button>
                   <button onClick={()=>copyMsg(m.text)} title="Copy" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">⎘</button>
@@ -803,22 +806,22 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           </div>;
         })}
         {typing&&<div style={{display:"flex",justifyContent:"flex-start",animation:"fadeUp .2s ease"}}>
-          {contact&&<div style={{marginRight:8}}><Av i={contact.av} c={conv.color} s={26}/></div>}
+          {contact&&<div style={{marginRight:8}}><Av i={contact.av} c={conv?.color||C.a} s={26}/></div>}
           <div style={{background:C.s3,border:`1px solid ${C.b1}`,borderRadius:"4px 14px 14px 14px",padding:"12px 16px",display:"flex",gap:4}}>
             {[0,1,2].map(i=><span key={i} style={{width:7,height:7,borderRadius:"50%",background:C.t3,display:"block",animation:`blink 1.2s infinite ${i*.2}s`}}/>)}
           </div>
         </div>}
         {aiReplying&&<div style={{display:"flex",justifyContent:"flex-end",animation:"fadeUp .2s ease"}}>
           <div style={{background:`linear-gradient(135deg,${C.p}33,${C.a}22)`,border:`1px solid ${C.p}44`,borderRadius:"14px 14px 4px 14px",padding:"10px 16px",display:"flex",gap:6,alignItems:"center"}}>
-            <span style={{fontSize:10,color:C.p,fontFamily:FM,fontWeight:700,letterSpacing:"0.4px"}}>✦ AI</span>
+            <span style={{fontSize:10,color:C.p,fontFamily:FM,fontWeight:700}}>✦ AI</span>
             {[0,1,2].map(i=><span key={i} style={{width:6,height:6,borderRadius:"50%",background:C.p,display:"block",animation:`blink 1.2s infinite ${i*.2}s`}}/>)}
-            <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>composing reply…</span>
+            <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>composing…</span>
           </div>
         </div>}
         <div ref={msgEnd}/>
       </div>
 
-      {/* AI panel */}
+      {/* AI suggestion panel */}
       {showAI&&<div style={{borderTop:`1px solid ${C.b1}`,padding:"10px 14px",background:C.s1}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
           <span style={{fontSize:10,color:C.t3,fontFamily:FM,letterSpacing:"0.5px"}}>✦ AI COPILOT</span>
@@ -919,42 +922,54 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       </div>
     </div>
 
-    {/* RIGHT PANEL */}
-    {!rpCollapsed&&<aside style={{width:310,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0,animation:"slideIn .2s ease"}}>
+    {/* ══ RIGHT PANEL ══ */}
+    {!rpCollapsed&&<aside style={{width:300,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+      {/* Tabs */}
       <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`}}>
-        {[["conv","Conv"],["contact","Contact"],["history","History"]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setRtab(id)} style={{flex:1,padding:"13px 0",fontSize:10,fontWeight:700,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase",color:rtab===id?C.a:C.t3,background:"transparent",border:"none",borderBottom:`2px solid ${rtab===id?C.a:"transparent"}`,cursor:"pointer"}}>{lbl}</button>
+        {([["conv","Conv"],["contact","Contact"],["history","History"]] as [string,string][]).map(([id,lbl])=>(
+          <button key={id} onClick={()=>setRtab(id)} style={{flex:1,padding:"12px 0",fontSize:10,fontWeight:700,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase",color:rtab===id?C.a:C.t3,background:"transparent",border:"none",borderBottom:`2.5px solid ${rtab===id?C.a:"transparent"}`,cursor:"pointer",transition:"all .15s"}}>{lbl}</button>
         ))}
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:14}}>
-        {rtab==="conv"&&conv&&<div style={{display:"flex",flexDirection:"column",gap:14,animation:"fadeUp .2s ease"}}>
-          {/* assignee */}
+      <div style={{flex:1,overflowY:"auto",padding:12}}>
+
+        {/* ── CONV TAB ── */}
+        {rtab==="conv"&&conv&&<div style={{display:"flex",flexDirection:"column",gap:12,animation:"fadeUp .2s ease"}}>
+
+          {/* Assignee */}
           <div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:7}}>ASSIGNEE</div>
-            <div className="hov" onClick={()=>setShowAssign(true)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`,cursor:"pointer",transition:"background .12s"}}>
-              {assignedAg?<><Av i={assignedAg.av} c={assignedAg.color} s={28} dot={assignedAg.status==="online"}/><div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{assignedAg.name}</div><div style={{fontSize:10,color:C.t3}}>{assignedAg.role}</div></div></>:<div style={{fontSize:12,color:C.y,flex:1}}>⚠ Unassigned</div>}
-              <span style={{fontSize:10,color:C.a}}>✎</span>
+            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:6}}>ASSIGNEE</div>
+            <div className="hov" onClick={()=>setShowAssign(true)} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`,cursor:"pointer"}}>
+              {assignedAg?<>
+                <Av i={assignedAg.av} c={assignedAg.color} s={30} dot={assignedAg.status==="online"}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12.5,fontWeight:600,color:C.t1}}>{assignedAg.name}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{assignedAg.role} · <span style={{color:assignedAg.status==="online"?C.g:C.y}}>{assignedAg.status}</span></div>
+                </div>
+              </>:<div style={{fontSize:12,color:C.y,flex:1,display:"flex",alignItems:"center",gap:5}}><span>⚠</span><span>Unassigned</span></div>}
+              <span style={{fontSize:10,color:C.a,fontFamily:FM}}>✎</span>
             </div>
           </div>
-          {/* priority */}
+
+          {/* Priority */}
           <div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:7}}>PRIORITY</div>
+            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:6}}>PRIORITY</div>
             <div style={{display:"flex",gap:5}}>
-              {["urgent","high","normal"].map(p=>{
+              {(["urgent","high","normal"] as string[]).map(p=>{
                 const c2=prC(p)||C.t3;const active=conv.priority===p;
-                return <button key={p} onClick={()=>setPrio(p)} style={{flex:1,padding:"6px 0",borderRadius:7,fontSize:9,fontWeight:700,fontFamily:FM,letterSpacing:"0.3px",background:active?c2+"25":"transparent",color:active?c2:C.t3,border:`1px solid ${active?c2+"55":C.b1}`,textTransform:"uppercase",cursor:"pointer",transition:"all .15s"}}>{p}</button>;
+                return <button key={p} onClick={()=>setPrio(p)} style={{flex:1,padding:"7px 0",borderRadius:8,fontSize:9,fontWeight:700,fontFamily:FM,letterSpacing:"0.3px",background:active?c2+"25":"transparent",color:active?c2:C.t3,border:`1.5px solid ${active?c2+"66":C.b1}`,textTransform:"uppercase",cursor:"pointer",transition:"all .15s"}}>{p}</button>;
               })}
             </div>
           </div>
-          {/* labels */}
+
+          {/* Labels */}
           <div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:7}}>LABELS</div>
+            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:6}}>LABELS</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
-              {conv.labels.map(l=><Tag key={l} text={l} color={lc(l)} onRemove={()=>toggleLbl(l)}/>)}
+              {conv.labels.map((l:string)=><Tag key={l} text={l} color={lc(l)} onRemove={()=>toggleLbl(l)}/>)}
               <button onClick={()=>setShowLblPick(p=>!p)} style={{padding:"2px 8px",borderRadius:5,fontSize:10,color:C.t3,border:`1px dashed ${C.b1}`,background:"transparent",cursor:"pointer",fontFamily:FM}}>+ add</button>
             </div>
             {showLblPick&&<div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:8,display:"flex",flexWrap:"wrap",gap:5}}>
-              {labels.map(l=>(
+              {labels.map((l:any)=>(
                 <button key={l.id} onClick={()=>toggleLbl(l.title)} style={{padding:"3px 8px",borderRadius:5,fontSize:10,fontWeight:700,fontFamily:FM,textTransform:"uppercase",background:conv.labels.includes(l.title)?l.color+"25":"transparent",color:conv.labels.includes(l.title)?l.color:C.t3,border:`1px solid ${conv.labels.includes(l.title)?l.color+"44":C.b1}`,cursor:"pointer"}}>
                   {conv.labels.includes(l.title)?"✓ ":""}{l.title}
                 </button>
@@ -962,9 +977,10 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
               <button onClick={()=>setShowLblPick(false)} style={{width:"100%",marginTop:4,padding:"4px",fontSize:11,color:C.t3,background:"none",border:"none",cursor:"pointer"}}>Done</button>
             </div>}
           </div>
-          {/* actions */}
+
+          {/* Quick Actions */}
           <div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:7}}>QUICK ACTIONS</div>
+            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:6}}>QUICK ACTIONS</div>
             <div style={{display:"flex",flexDirection:"column",gap:5}}>
               {conv.status==="open"?<Btn ch="⊘ Resolve Conversation" v="success" full onClick={resolve}/>:<Btn ch="↺ Reopen Conversation" v="warn" full onClick={reopen}/>}
               <Btn ch="↗ Transfer to Team" v="ghost" full onClick={()=>setShowTransfer(true)}/>
@@ -972,117 +988,122 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
               <Btn ch="✦ AI Classify + Label" v="ai" full onClick={classifyAI}/>
             </div>
           </div>
-          {/* SLA / Metrics */}
+
+          {/* Metrics */}
           <div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:7}}>METRICS</div>
+            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:6}}>METRICS</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              {[{l:"First Reply",v:"3.2m",c:C.g},{l:"Avg Response",v:"4.8m",c:C.a},{l:"Messages",v:String(convMsgs.filter(m=>m.role!=="sys").length),c:C.cy},{l:"Duration",v:conv.time,c:C.t2}].map(m=>(
-                <div key={m.l} style={{padding:"8px",background:C.s2,borderRadius:8,textAlign:"center"}}>
-                  <div style={{fontSize:8,color:C.t3,fontFamily:FM,letterSpacing:"0.3px"}}>{m.l}</div>
-                  <div style={{fontSize:14,fontWeight:800,fontFamily:FM,color:m.c}}>{m.v}</div>
+              {([{l:"First Reply",v:"3.2m",c:C.g},{l:"Avg Response",v:"4.8m",c:C.a},{l:"Messages",v:String(convMsgs.filter((m:any)=>m.role!=="sys").length),c:C.cy},{l:"Duration",v:conv.time,c:C.t2}]).map((m:any)=>(
+                <div key={m.l} style={{padding:"8px",background:C.s2,borderRadius:8,textAlign:"center",border:`1px solid ${C.b1}`}}>
+                  <div style={{fontSize:8,color:C.t3,fontFamily:FM,letterSpacing:"0.3px",marginBottom:3}}>{m.l}</div>
+                  <div style={{fontSize:15,fontWeight:800,fontFamily:FM,color:m.c}}>{m.v}</div>
                 </div>
               ))}
             </div>
           </div>
-          {/* Channel & Inbox */}
-          <div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:7}}>DETAILS</div>
-            {[{l:"Channel",v:<span style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={conv.ch} s={12}/> {conv.ch}</span>},{l:"Inbox",v:inboxes.find(ib=>ib.id===conv.iid)?.name||"Default"},{l:"ID",v:aid},{l:"Created",v:conv.time+" ago"}].map(d=>(
-              <div key={d.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.b1}22`}}>
-                <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{d.l}</span>
-                <span style={{fontSize:11,color:C.t1}}>{d.v}</span>
-              </div>
-            ))}
-          </div>
-        </div>}
-        {/* Custom Fields for conversation */}
-        {rtab==="conv"&&conv&&customFields&&<CfPanel entity="conversation" recordId={conv.id} fields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} compact/>}
 
-        {rtab==="contact"&&contact&&<div style={{animation:"fadeUp .2s ease"}}>
-          {/* Rich header matching Contacts screen */}
-          <div style={{textAlign:"center",paddingBottom:12,borderBottom:`1px solid ${C.b1}`,marginBottom:10}}>
-            <Av i={contact.av} c={conv.color} s={48}/>
-            <div style={{fontSize:15,fontWeight:700,fontFamily:FD,marginTop:8}}>{contact.name}</div>
-            <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{contact.uid} · {contact.userType||"User"}</div>
-            <div style={{display:"flex",justifyContent:"center",gap:4,marginTop:6,flexWrap:"wrap"}}>
-              <Tag text={contact.plan} color={contact.plan==="Enterprise"?C.p:contact.plan==="Pro"?C.a:C.t3}/>
-              {(contact.tags||[]).slice(0,3).map(t=><Tag key={t} text={t} color={C.t3}/>)}
+          {/* Details */}
+          <div>
+            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.7px",textTransform:"uppercase",marginBottom:6}}>DETAILS</div>
+            <div style={{background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`,overflow:"hidden"}}>
+              {([
+                {l:"Channel",v:<span style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={conv.ch} s={12}/>{conv.ch}</span>},
+                {l:"Inbox",v:(inboxes as any[]).find((ib:any)=>ib.id===conv.iid)?.name||"Default"},
+                {l:"ID",v:aid?.slice(0,18)+"…"},
+                {l:"Created",v:conv.time}
+              ]).map((d:any,i:number)=>(
+                <div key={d.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 11px",borderBottom:i<3?`1px solid ${C.b1}22`:"none"}}>
+                  <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{d.l}</span>
+                  <span style={{fontSize:11,color:C.t1,fontFamily:FM}}>{d.v}</span>
+                </div>
+              ))}
             </div>
           </div>
-          {/* Stats row */}
+
+          {customFields&&<CfPanel entity="conversation" recordId={conv.id} fields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} compact/>}
+        </div>}
+
+        {/* ── CONTACT TAB ── */}
+        {rtab==="contact"&&contact&&<div style={{animation:"fadeUp .2s ease"}}>
+          {/* Contact header */}
+          <div style={{textAlign:"center",padding:"4px 0 14px",borderBottom:`1px solid ${C.b1}`,marginBottom:12}}>
+            <Av i={contact.av} c={conv?.color||C.a} s={52}/>
+            <div style={{fontSize:15,fontWeight:700,fontFamily:FD,marginTop:8,color:C.t1}}>{contact.name}</div>
+            {contact.email&&<div style={{fontSize:11,color:C.a,marginTop:3,cursor:"pointer",fontFamily:FM}} onClick={()=>navigator.clipboard?.writeText(contact.email)}>{contact.email}</div>}
+            {contact.phone&&<div style={{fontSize:11,color:C.t3,marginTop:2,fontFamily:FM}}>{contact.phone}</div>}
+            <div style={{display:"flex",justifyContent:"center",gap:4,marginTop:8,flexWrap:"wrap"}}>
+              {contact.plan&&<Tag text={contact.plan} color={contact.plan==="Enterprise"?C.p:contact.plan==="Pro"?C.a:C.t3}/>}
+              {(contact.tags||[]).slice(0,3).map((tg:string)=><Tag key={tg} text={tg} color={C.t3}/>)}
+            </div>
+          </div>
+
+          {/* Stats */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:12}}>
-            {[{l:"Convs",v:contact.convs,c:C.a},{l:"Spend",v:contact.totalSpend||"—",c:C.g},{l:"CSAT",v:contact.csat?contact.csat+"★":"—",c:contact.csat>=4.5?C.g:contact.csat>=3.5?C.y:contact.csat?C.r:C.t3}].map(s=>(
-              <div key={s.l} style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:7,padding:"6px",textAlign:"center"}}>
+            {([{l:"Convs",v:contact.convs||"—",c:C.a},{l:"Spend",v:contact.totalSpend||"—",c:C.g},{l:"CSAT",v:contact.csat?contact.csat+"★":"—",c:contact.csat>=4.5?C.g:contact.csat>=3.5?C.y:contact.csat?C.r:C.t3}]).map((s:any)=>(
+              <div key={s.l} style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,padding:"7px 4px",textAlign:"center"}}>
                 <div style={{fontSize:14,fontWeight:800,fontFamily:FD,color:s.c}}>{s.v}</div>
-                <div style={{fontSize:8,color:C.t3,fontFamily:FM}}>{s.l}</div>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{s.l}</div>
               </div>
             ))}
           </div>
-          {/* Contact detail sub-tabs */}
-          {(()=>{const [cstab,setCstab]=[contactSubTab,setContactSubTab];return <>
-          <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.b1}`,marginBottom:10}}>
-            {[["info","Info"],["session","Session"],["timeline","Timeline"]].map(([id,lbl])=>(
-              <button key={id} onClick={()=>setCstab(id)} style={{flex:1,padding:"7px 0",fontSize:9,fontWeight:700,fontFamily:FM,color:cstab===id?C.a:C.t3,borderBottom:`2px solid ${cstab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",letterSpacing:"0.3px",textTransform:"uppercase"}}>{lbl}</button>
+
+          {/* Sub-tabs */}
+          <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`,marginBottom:10}}>
+            {([["info","Info"],["session","Session"],["timeline","Timeline"]] as [string,string][]).map(([id,lbl])=>(
+              <button key={id} onClick={()=>setContactSubTab(id)} style={{flex:1,padding:"7px 0",fontSize:9,fontWeight:700,fontFamily:FM,color:contactSubTab===id?C.a:C.t3,borderBottom:`2px solid ${contactSubTab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",letterSpacing:"0.3px",textTransform:"uppercase"}}>{lbl}</button>
             ))}
           </div>
-          {/* Info sub-tab */}
-          {cstab==="info"&&<div>
-            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",marginBottom:6}}>CONTACT INFO</div>
-            <InfoRow label="Email" value={contact.email} copy/>
-            <InfoRow label="Phone" value={contact.phone} copy/>
-            <InfoRow label="Company" value={contact.company}/>
-            <InfoRow label="Location" value={contact.location}/>
-            <InfoRow label="Language" value={contact.language} mono/>
-            <InfoRow label="Currency" value={contact.currency} mono/>
-            <InfoRow label="Timezone" value={contact.timezone} mono/>
-            <div style={{marginTop:10,marginBottom:6,fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px"}}>ACCOUNT</div>
-            <InfoRow label="User ID" value={contact.uid} copy color={C.a} mono/>
-            <InfoRow label="User Type" value={contact.userType}/>
-            <InfoRow label="Created" value={contact.createdAt} mono/>
-            <InfoRow label="Last Active" value={contact.lastActivity} mono/>
-            {contact.notes&&<>
-              <div style={{marginTop:10,marginBottom:6,fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px"}}>NOTES</div>
-              <div style={{background:C.yd,border:`1px solid ${C.y}33`,borderRadius:7,padding:"7px 10px",fontSize:11,color:C.t1,lineHeight:1.5}}>{contact.notes}</div>
-            </>}
-            {(contact.tags||[]).length>0&&<>
-              <div style={{marginTop:10,marginBottom:6,fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px"}}>TAGS</div>
-              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{(contact.tags||[]).map(t=><Tag key={t} text={t} color={C.t2}/>)}</div>
-            </>}
+
+          {contactSubTab==="info"&&<div>
+            <div style={{background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`,overflow:"hidden",marginBottom:10}}>
+              <InfoRow label="Email" value={contact.email} copy/>
+              <InfoRow label="Phone" value={contact.phone} copy/>
+              <InfoRow label="Company" value={contact.company}/>
+              <InfoRow label="Location" value={contact.location}/>
+              <InfoRow label="Timezone" value={contact.timezone} mono/>
+            </div>
+            <div style={{background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`,overflow:"hidden"}}>
+              <InfoRow label="User ID" value={contact.uid} copy color={C.a} mono/>
+              <InfoRow label="User Type" value={contact.userType}/>
+              <InfoRow label="Last Active" value={contact.lastActivity} mono/>
+            </div>
+            {contact.notes&&<div style={{marginTop:10,background:C.yd,border:`1px solid ${C.y}33`,borderRadius:8,padding:"9px 11px",fontSize:11,color:C.t1,lineHeight:1.55}}>{contact.notes}</div>}
+            {(contact.tags||[]).length>0&&<div style={{marginTop:10}}>
+              <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",marginBottom:5}}>TAGS</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{(contact.tags||[]).map((tg:string)=><Tag key={tg} text={tg} color={C.t2}/>)}</div>
+            </div>}
+            {customFields&&<CfPanel entity="contact" recordId={contact.id} fields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} compact/>}
           </div>}
-          {/* Session sub-tab */}
-          {cstab==="session"&&<div>
-            <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+
+          {contactSubTab==="session"&&<div>
+            <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
               <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:8}}>
                 <span style={{width:6,height:6,borderRadius:"50%",background:C.g,boxShadow:`0 0 6px ${C.g}`}}/>
-                <span style={{fontSize:10,color:C.g,fontWeight:700,fontFamily:FM}}>LIVE</span>
+                <span style={{fontSize:10,color:C.g,fontWeight:700,fontFamily:FM}}>LIVE SESSION</span>
               </div>
               <InfoRow label="URL" value={contact.currentUrl||conv?.subject||"—"} copy color={C.a} mono/>
               <InfoRow label="IP" value={contact.ip||"192.168.1.42"} copy mono/>
               <InfoRow label="Browser" value={contact.browser||"Chrome 124"}/>
               <InfoRow label="OS" value={contact.os||"macOS 15"}/>
             </div>
-            <div style={{fontSize:8.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",marginBottom:6}}>LOCATION</div>
-            <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px"}}>
+            <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"10px 12px"}}>
               <div style={{fontSize:20,marginBottom:4}}>{contact.location?.includes("India")?"🇮🇳":contact.location?.includes("US")?"🇺🇸":contact.location?.includes("UK")?"🇬🇧":contact.location?.includes("Japan")?"🇯🇵":"🌍"}</div>
-              <div style={{fontSize:12,fontWeight:600}}>{contact.location||"Unknown"}</div>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:6}}>{contact.location||"Unknown"}</div>
               <InfoRow label="Language" value={contact.language} mono/>
               <InfoRow label="Currency" value={contact.currency} mono/>
             </div>
           </div>}
-          {/* Timeline sub-tab */}
-          {cstab==="timeline"&&<div>
-            {[{t:"2m",icon:"💬",text:"Sent message",sub:conv?.subject||"Support",c:C.a},{t:"1h",icon:"📧",text:"Email received",sub:"Re: Invoice",c:C.a},{t:"3h",icon:"🏷",text:"Tag: "+((contact.tags||[])[0]||"vip"),sub:"By agent",c:C.y},{t:"1d",icon:"✅",text:"Resolved conv",sub:"Fixed",c:C.g},{t:"2d",icon:"👤",text:"Assigned",sub:assignedAg?.name||"Agent",c:C.p},{t:"5d",icon:"🤖",text:"AI replied",sub:"FAQ",c:C.p},{t:"1w",icon:"📋",text:"CSAT: "+(contact.csat||"4.2")+"★",sub:"Feedback",c:C.g},{t:"2w",icon:"🆕",text:"Created",sub:"Signup",c:C.a}].map((ev,i)=>(
-              <div key={i} style={{display:"flex",gap:8,padding:"6px 0",borderBottom:`1px solid ${C.b1}22`,position:"relative"}}>
-                {i<7&&<div style={{position:"absolute",left:11,top:28,width:1,height:"calc(100% - 12px)",background:C.b1}}/>}
+
+          {contactSubTab==="timeline"&&<div>
+            {([{t:"2m",icon:"💬",text:"Sent message",sub:conv?.subject||"Support",c:C.a},{t:"1h",icon:"📧",text:"Email received",sub:"Re: Invoice",c:C.a},{t:"3h",icon:"🏷",text:"Tag added",sub:(contact.tags||[])[0]||"vip",c:C.y},{t:"1d",icon:"✅",text:"Resolved conv",sub:"Fixed",c:C.g},{t:"2d",icon:"👤",text:"Assigned",sub:assignedAg?.name||"Agent",c:C.p},{t:"1w",icon:"📋",text:"CSAT: "+(contact.csat||"4.2")+"★",sub:"Feedback",c:C.g},{t:"2w",icon:"🆕",text:"Created",sub:"Signup",c:C.a}]).map((ev:any,i:number,arr:any[])=>(
+              <div key={i} style={{display:"flex",gap:8,padding:"7px 0",borderBottom:`1px solid ${C.b1}22`,position:"relative"}}>
+                {i<arr.length-1&&<div style={{position:"absolute",left:11,top:26,width:1,height:"calc(100% - 10px)",background:C.b1}}/>}
                 <div style={{width:22,height:22,borderRadius:"50%",background:ev.c+"18",border:`1px solid ${ev.c}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,flexShrink:0,zIndex:1}}>{ev.icon}</div>
-                <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:600,color:C.t1}}>{ev.text}</div><div style={{fontSize:9,color:C.t3}}>{ev.sub}</div></div>
+                <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:600,color:C.t1}}>{ev.text}</div><div style={{fontSize:9,color:C.t3,marginTop:1}}>{ev.sub}</div></div>
                 <span style={{fontSize:8,color:C.t3,fontFamily:FM,flexShrink:0}}>{ev.t}</span>
               </div>
             ))}
           </div>}
-          </>;})()}
-          {/* Custom fields for this contact */}
-          {customFields&&<CfPanel entity="contact" recordId={contact.id} fields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} compact/>}
         </div>}
 
         {rtab==="history"&&<div style={{animation:"fadeUp .2s ease"}}>
@@ -1105,7 +1126,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       </div>
     </aside>}
     {/* Panel toggle */}
-    <button onClick={()=>setRpCollapsed(p=>!p)} style={{position:"absolute",right:rpCollapsed?4:256,top:"50%",transform:"translateY(-50%)",width:20,height:40,borderRadius:rpCollapsed?"0 6px 6px 0":"6px 0 0 6px",background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.t3,zIndex:10,transition:"right .2s"}}>{rpCollapsed?"◂":"▸"}</button>
+    <button onClick={()=>setRpCollapsed(p=>!p)} style={{position:"absolute",right:rpCollapsed?4:300,top:"50%",transform:"translateY(-50%)",width:20,height:40,borderRadius:rpCollapsed?"0 6px 6px 0":"6px 0 0 6px",background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.t3,zIndex:10,transition:"right .2s"}}>{rpCollapsed?"◂":"▸"}</button>
     </>}
 
     {/* MODALS */}
@@ -1168,6 +1189,19 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         </div>
       </Fld>
       <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>setShowMerge(false)}/><Btn ch="Merge Conversations" v="primary" onClick={mergeConvs}/></div>
+    </Mdl>}
+
+    {showSaveView&&<Mdl title="Save Current View" onClose={()=>setShowSaveView(false)} w={360}>
+      <Fld label="View Name"><Inp val={svName} set={setSvName} ph="e.g. My Open Chats"/></Fld>
+      <Fld label="Icon">
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {["📌","⭐","🔥","✅","💬","📧","🚀","🏷","👤","⚡"].map(ic=>(
+            <button key={ic} onClick={()=>setSvIcon(ic)} style={{width:32,height:32,borderRadius:7,fontSize:16,background:svIcon===ic?C.ad:"transparent",border:`1.5px solid ${svIcon===ic?C.a:C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{ic}</button>
+          ))}
+        </div>
+      </Fld>
+      <div style={{fontSize:11,color:C.t3,marginBottom:14}}>Saves: status=<strong>{fStatus}</strong>, channel=<strong>{fCh}</strong>, owner=<strong>{fOwner}</strong></div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>setShowSaveView(false)}/><Btn ch="Save View" v="primary" onClick={saveCurrentView}/></div>
     </Mdl>}
 
     {showNewConv&&<NewConvMdl contacts={contacts} inboxes={inboxes} agents={agents} onClose={()=>setShowNewConv(false)}
