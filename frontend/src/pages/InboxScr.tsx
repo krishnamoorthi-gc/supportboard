@@ -167,12 +167,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
 
   const handleFilePick=()=>fileInputRef.current?.click();
   const msgEnd=useRef(null);
-  const autoRef=useRef(false);
   const replyingRef=useRef(false);
-  const aiChRef=useRef(aiChannels);
-  autoRef.current=aiAutoReply;
   replyingRef.current=aiReplying;
-  aiChRef.current=aiChannels;
 
   // ── Manual inbox refresh ──────────────────────────────────────────────────
   const refreshInbox=async()=>{
@@ -270,23 +266,6 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   },[aid,conv?.ch,conv?.iid,conv?.unread]);
 
   const prevCounts=useRef({});
-  useEffect(()=>{
-    Object.keys(msgs).forEach(convId=>{
-      const allM=msgs[convId]||[];
-      const prev=prevCounts.current[convId]||0;
-      const cur=allM.length;
-      if(cur>prev){
-        const last=allM[cur-1];
-        if((last?.role==="contact"||last?.role==="customer")&&autoRef.current&&!replyingRef.current){
-          const cv=convs.find(c=>c.id===convId);
-          if(cv&&aiChRef.current[cv.ch]!==false){
-            doAiAutoReply(allM,convId);
-          }
-        }
-      }
-      prevCounts.current[convId]=cur;
-    });
-  },[msgs]);
 
   const doAiAutoReply=async(allMsgs,convId)=>{
     const cv=convs.find(c=>c.id===convId);
@@ -410,7 +389,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       setTimeout(()=>{
         setTyping(false);
         setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),{id:uid(),role:"contact",text:pool[Math.floor(Math.random()*pool.length)],t:now(),read:false}]}));
-        setConvs(p=>p.map(c=>c.id===aid?{...c,unread:autoRef.current?0:1,time:"now"}:c));
+        setConvs(p=>p.map(c=>c.id===aid?{...c,unread:1,time:"now"}:c));
         if(soundOn)playNotifSound();
       },2000);
     },800);
@@ -701,10 +680,6 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           <div style={{fontSize:10.5,color:C.t3,fontFamily:FM}}>#{aid} · <span style={{color:assignedAg?C.a:C.y,cursor:"pointer"}} onClick={()=>setShowAssign(true)}>{assignedAg?assignedAg.name:"⚠ Unassigned"}</span></div>
         </div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-          {(()=>{const ch=conv?.ch||"live";const chOn=aiAutoReply&&aiChannels[ch];const chLabel={live:"Live Chat",email:"Email",whatsapp:"WhatsApp",telegram:"Telegram",facebook:"Facebook",instagram:"Instagram",viber:"Viber",apple:"Apple",line:"LINE",tiktok:"TikTok",x:"X",sms:"SMS",voice:"Voice",video:"Video",api:"API"}[ch]||ch;return <button onClick={()=>{if(!aiAutoReply){setAiAutoReply(true);setAiChannels(p=>({...p,[ch]:true}));showT("✦ AI enabled — "+chLabel+" channel active","success");}else{const next=!aiChannels[ch];setAiChannels(p=>({...p,[ch]:next}));showT(next?"✦ AI enabled for "+chLabel:"AI disabled for "+chLabel+" — other channels unchanged",next?"success":"info");}}} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:700,fontFamily:FM,cursor:"pointer",background:chOn?"linear-gradient(135deg,#9b6dff22,#4c82fb22)":C.s3,color:chOn?C.p:aiAutoReply?C.y:C.t3,border:`1.5px solid ${chOn?C.p+"66":aiAutoReply?C.y+"44":C.b1}`,transition:"all .2s",letterSpacing:"0.3px"}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:chOn?C.p:C.t3,boxShadow:chOn?`0 0 8px ${C.p}`:"none",transition:"all .3s",animation:chOn?"pulse 1.5s infinite":"none"}}/>
-            {aiReplying?<><Spin/> Replying…</>:chOn?<>✦ AI ON</>:aiAutoReply?<>✦ {chLabel} OFF</>:<>✦ AI OFF</>}
-          </button>;})()}
           <Btn ch="✦ Summarize" v="ai" sm onClick={genSum}/>
           <Btn ch="✦ Classify" v="ai" sm onClick={classifyAI}/>
           {conv?.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}

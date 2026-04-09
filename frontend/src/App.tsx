@@ -318,7 +318,7 @@ export default function App(){
   // ── Dark/Light mode ──
   const [isDark,setIsDark]=useState(false);
   const [autoTheme,setAutoTheme]=useState(false);
-  const [aiAutoReply,setAiAutoReply]=useState(true); // Shared AI auto-reply state — syncs Settings ↔ Inbox
+  const [aiAutoReply,setAiAutoReply]=useState(false); // AI auto-reply — off by default, enabled only from Settings
   const [aiChannels,setAiChannels]=useState({live:true,email:false,whatsapp:true,telegram:false,facebook:true,instagram:true,viber:false,apple:false,line:false,tiktok:false,x:true,sms:true,voice:false,video:false,api:false}); // Per-channel AI toggle
   const toggleDark=()=>{const next=!isDark;setIsDark(next);applyTheme(next?"midnight":"light");showT(next?"Dark mode":"Light mode","info");};
   // Auto-switch based on system preference
