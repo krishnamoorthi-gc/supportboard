@@ -59,6 +59,7 @@ export default function BotBuilderScr(){
   const [testStep,setTestStep]=useState(0);
   const [testInput,setTestInput]=useState("");
   const [testMsgs,setTestMsgs]=useState([]);
+  const [lastButtonClick,setLastButtonClick]=useState("");
   const [viewTab,setViewTab]=useState("flow");
   // Knowledge
   const [newKbTitle,setNewKbTitle]=useState("");
@@ -181,20 +182,74 @@ export default function BotBuilderScr(){
   }));
 
   // ── Test mode ──
+  const evalCond=(condition:string,lastInput:string,lastBtn:string):boolean=>{
+    if(!condition)return true;
+    const c=condition.toLowerCase().trim();
+    const bm=c.match(/button\s*==\s*(.+)/);
+    if(bm)return lastBtn.toLowerCase().trim()===bm[1].toLowerCase().trim();
+    const tm=c.match(/(?:text|input)\s+(?:contains|==)\s*(.+)/);
+    if(tm)return lastInput.toLowerCase().includes(tm[1].toLowerCase().trim());
+    return true;
+  };
+  const runFlow=(fromIdx:number,msgs:any[],lastBtn:string,lastInput:string)=>{
+    if(!bot)return;
+    let ms=[...msgs];
+    for(let i=fromIdx;i<bot.nodes.length;i++){
+      const n=bot.nodes[i];
+      if(n.type==="trigger"||n.type==="delay"){continue;}
+      if(n.type==="condition"){
+        const met=evalCond(n.config?.condition||"",lastInput,lastBtn);
+        ms=[...ms,{from:"system",text:`🔀 ${n.label} → ${met?(n.config?.yes_label||"Yes"):(n.config?.no_label||"No")}`}];
+        setTestMsgs(ms);setTestStep(i);
+        if(!met){setTimeout(()=>runFlow(i+2,ms,lastBtn,lastInput),300);return;}
+        continue;
+      }
+      if(n.type==="message"){
+        ms=[...ms,{from:"bot",text:n.config?.text||n.label}];
+        setTestMsgs(ms);setTestStep(i);continue;
+      }
+      if(n.type==="ai"){
+        ms=[...ms,{from:"bot-ai",text:n.config?.prompt||n.label}];
+        setTestMsgs(ms);setTestStep(i);continue;
+      }
+      if(n.type==="assign"){
+        ms=[...ms,{from:"bot",text:`👤 ${n.label}${n.config?.team?` → ${n.config.team}`:""}`}];
+        setTestMsgs(ms);setTestStep(i);continue;
+      }
+      if(n.type==="tag"){
+        ms=[...ms,{from:"system",text:`🏷 Tag: ${n.config?.tag||n.label}`}];
+        setTestMsgs(ms);setTestStep(i);continue;
+      }
+      if(n.type==="close"){
+        ms=[...ms,{from:"bot",text:n.config?.message||n.label},{from:"system",text:"✅ Flow complete!"}];
+        setTestMsgs(ms);setTestStep(i);return;
+      }
+      if(n.type==="buttons"){
+        ms=[...ms,{from:"bot",text:n.config?.text||n.label,buttons:n.config?.buttons}];
+        setTestMsgs(ms);setTestStep(i);return;
+      }
+      if(n.type==="collect"){
+        ms=[...ms,{from:"bot-ask",text:`Please enter your ${n.config?.field||"response"}`}];
+        setTestMsgs(ms);setTestStep(i);return;
+      }
+      ms=[...ms,{from:"bot",text:n.label}];setTestMsgs(ms);setTestStep(i);
+    }
+    setTestMsgs([...ms,{from:"system",text:"✅ Flow complete! Bot handled this conversation."}]);
+  };
   const startTest=()=>{
-    setTestStep(0);setTestInput("");
-    setTestMsgs(bot?.nodes[0]?[{from:"bot",text:bot.nodes[0].config?.text||bot.nodes[0].label}]:[{from:"system",text:"Bot test started…"}]);
+    setTestStep(0);setTestInput("");setLastButtonClick("");
+    setTestMsgs([]);
+    setTimeout(()=>runFlow(0,[],"",""),300);
   };
-  const testNext=()=>{
-    const next=testStep+1;
-    if(!bot||next>=bot.nodes.length){setTestMsgs(p=>[...p,{from:"system",text:"✅ Flow complete! Bot handled this conversation."}]);return;}
-    const n=bot.nodes[next];setTestStep(next);
-    setTestMsgs(p=>[...p,{from:n.type==="collect"?"bot-ask":n.type==="ai"?"bot-ai":"bot",text:n.config?.text||n.config?.prompt||n.label,buttons:n.config?.buttons}]);
-  };
-  const testReply=(txt?)=>{
+  const testReply=(txt?:string)=>{
     const msg=txt||testInput;if(!msg.trim())return;
-    setTestMsgs(p=>[...p,{from:"user",text:msg}]);
-    setTestInput("");setTimeout(testNext,400);
+    const curNode=bot?.nodes[testStep];
+    const isBtn=curNode?.type==="buttons";
+    const newBtn=isBtn?msg:lastButtonClick;
+    if(isBtn)setLastButtonClick(msg);
+    const newMsgs=[...testMsgs,{from:"user",text:msg}];
+    setTestMsgs(newMsgs);setTestInput("");
+    setTimeout(()=>runFlow(testStep+1,newMsgs,newBtn,msg),400);
   };
 
   // ── Knowledge ──
@@ -262,6 +317,7 @@ export default function BotBuilderScr(){
     navigator.clipboard.writeText(text).then(()=>{setCopied(key);setTimeout(()=>setCopied(""),2500);});
   };
   const origin=window.location.origin;
+  const backendOrigin="http://localhost:3001";
 
   const selNode=bot?.nodes.find(n=>n.id===sel);
   const kbFileTypes="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,text/plain";
@@ -713,9 +769,15 @@ export default function BotBuilderScr(){
           </div>
 
           {/* Direct Link */}
-          <EmbedBlock title="Direct Link" desc="Share this URL to open your bot in a chat window." copied={copied} copyKey="link" onCopy={copyText}>
-            <code style={{fontSize:11,color:C.t2,fontFamily:FM,wordBreak:"break-all"}}>{origin}/chat?bot={bot.embed_token}</code>
-          </EmbedBlock>
+          <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:18,marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:4}}>Direct Link</div>
+            <div style={{fontSize:12,color:C.t3,marginBottom:10}}>Share this URL to open your bot in a standalone chat window.</div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <code style={{flex:1,fontSize:11,color:C.t2,fontFamily:FM,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"9px 12px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{backendOrigin}/chat?bot={bot.embed_token}</code>
+              <Btn ch={copied==="link"?"✓ Copied":"Copy"} v={copied==="link"?"primary":"ghost"} sm onClick={()=>copyText(`${backendOrigin}/chat?bot=${bot.embed_token}`,"link")}/>
+              <Btn ch="Open ↗" v="primary" sm onClick={()=>window.open(`${backendOrigin}/chat?bot=${bot.embed_token}`,"_blank")}/>
+            </div>
+          </div>
 
           {/* Script Embed */}
           <EmbedBlock title="Website Widget Script" desc={`Paste before </body> on any website to show the chat widget.`} copied={copied} copyKey="script" onCopy={()=>copyText(
@@ -725,7 +787,7 @@ export default function BotBuilderScr(){
     var js,fjs=d.getElementsByTagName(s)[0];
     if(d.getElementById(id))return;
     js=d.createElement(s);js.id=id;
-    js.src='${origin}/widget/bot.js';
+    js.src='${backendOrigin}/widget/bot.js';
     js.setAttribute('data-bot-id','${bot.embed_token}');
     js.setAttribute('data-name','${bot.name}');
     fjs.parentNode.insertBefore(js,fjs);
@@ -738,7 +800,7 @@ export default function BotBuilderScr(){
     var js,fjs=d.getElementsByTagName(s)[0];
     if(d.getElementById(id))return;
     js=d.createElement(s);js.id=id;
-    js.src='${origin}/widget/bot.js';
+    js.src='${backendOrigin}/widget/bot.js';
     js.setAttribute('data-bot-id','${bot.embed_token}');
     js.setAttribute('data-name','${bot.name}');
     fjs.parentNode.insertBefore(js,fjs);
@@ -750,14 +812,14 @@ export default function BotBuilderScr(){
           {/* iFrame */}
           <EmbedBlock title="iFrame Embed" desc="Embed the chat window directly inside a page section." copied={copied} copyKey="iframe" onCopy={()=>copyText(
 `<iframe
-  src="${origin}/chat?bot=${bot.embed_token}&embed=1"
+  src="${backendOrigin}/chat?bot=${bot.embed_token}"
   width="400" height="600"
   style="border:none;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);"
   title="${bot.name}">
 </iframe>`,"iframe")}>
             <pre style={{fontSize:11,color:C.t2,fontFamily:FM,margin:0,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
 {`<iframe
-  src="${origin}/chat?bot=${bot.embed_token}&embed=1"
+  src="${backendOrigin}/chat?bot=${bot.embed_token}"
   width="400" height="600"
   style="border:none;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);"
   title="${bot.name}">
@@ -772,7 +834,7 @@ export default function BotBuilderScr(){
 export function SupportBot() {
   useEffect(() => {
     const script = document.createElement('script');
-    script.src = '${origin}/widget/bot.js';
+    script.src = '${backendOrigin}/widget/bot.js';
     script.setAttribute('data-bot-id', '${bot.embed_token}');
     document.body.appendChild(script);
     return () => document.body.removeChild(script);
@@ -785,7 +847,7 @@ export function SupportBot() {
 export function SupportBot() {
   useEffect(() => {
     const script = document.createElement('script');
-    script.src = '${origin}/widget/bot.js';
+    script.src = '${backendOrigin}/widget/bot.js';
     script.setAttribute('data-bot-id', '${bot.embed_token}');
     document.body.appendChild(script);
     return () => document.body.removeChild(script);
