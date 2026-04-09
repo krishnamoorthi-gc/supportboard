@@ -548,6 +548,7 @@ CREATE TABLE IF NOT EXISTS bots (
   template VARCHAR(100),
   nodes TEXT,
   knowledge TEXT,
+  setup TEXT,
   embed_token VARCHAR(255),
   stats TEXT,
   agent_id VARCHAR(255),

@@ -498,11 +498,13 @@ router.get('/audit-log', auth, (req, res) => {
 // ── BOTS ──
 function parseBot(b) {
   if (!b) return null;
+  const p = (val, fb) => { try { return typeof val === 'string' ? JSON.parse(val) : val || fb; } catch { return fb; } };
   return {
     ...b,
-    nodes: (() => { try { return typeof b.nodes === 'string' ? JSON.parse(b.nodes) : b.nodes || []; } catch { return []; } })(),
-    knowledge: (() => { try { return typeof b.knowledge === 'string' ? JSON.parse(b.knowledge) : b.knowledge || []; } catch { return []; } })(),
-    stats: (() => { try { return typeof b.stats === 'string' ? JSON.parse(b.stats) : b.stats || { triggered: 0, completed: 0, handoff: 0, avgTime: '—' }; } catch { return { triggered: 0, completed: 0, handoff: 0, avgTime: '—' }; } })(),
+    nodes:     p(b.nodes, []),
+    knowledge: p(b.knowledge, []),
+    setup:     p(b.setup, { greeting: 'Hi! How can I help?', tone: 'friendly', fallback: 'Let me connect you to a human agent.', collect_email: true, show_branding: true, human_handoff: true, typing_delay: true, read_receipts: true }),
+    stats:     p(b.stats, { triggered: 0, completed: 0, handoff: 0, avgTime: '—' }),
   };
 }
 
@@ -524,8 +526,8 @@ router.post('/bots', auth, async (req, res) => {
     const embed_token = uid().replace(/-/g, '');
     const defaultStats = JSON.stringify({ triggered: 0, completed: 0, handoff: 0, avgTime: '—' });
     await db.prepare(
-      'INSERT INTO bots (id,name,description,status,template,nodes,knowledge,embed_token,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).run(id, name, desc || null, status, template || null, JSON.stringify(nodes), JSON.stringify(knowledge), embed_token, defaultStats, req.agent.id);
+      'INSERT INTO bots (id,name,description,status,template,nodes,knowledge,setup,embed_token,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(id, name, desc || null, status, template || null, JSON.stringify(nodes), JSON.stringify(knowledge), JSON.stringify({ greeting: 'Hi! How can I help?', tone: 'friendly', fallback: 'Let me connect you to a human agent.', collect_email: true, show_branding: true, human_handoff: true, typing_delay: true, read_receipts: true, ...(req.body.setup || {}) }), embed_token, defaultStats, req.agent.id);
     const bot = await db.prepare('SELECT * FROM bots WHERE id=?').get(id);
     res.status(201).json({ bot: parseBot(bot) });
   } catch (e) {
@@ -543,9 +545,10 @@ router.patch('/bots/:id', auth, async (req, res) => {
     for (const f of allowed) if (req.body[f] !== undefined) updates[f] = req.body[f];
     if (req.body.nodes !== undefined) updates.nodes = JSON.stringify(req.body.nodes);
     if (req.body.knowledge !== undefined) updates.knowledge = JSON.stringify(req.body.knowledge);
-    if (req.body.stats !== undefined) updates.stats = JSON.stringify(req.body.stats);
+    if (req.body.setup     !== undefined) updates.setup     = JSON.stringify(req.body.setup);
+    if (req.body.stats     !== undefined) updates.stats     = JSON.stringify(req.body.stats);
     updates.updated_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    if (!Object.keys(updates).length) return res.json({ bot: parseBot(bot) });
+    if (Object.keys(updates).length <= 1) return res.json({ bot: parseBot(bot) }); // only updated_at
     const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
     await db.prepare(`UPDATE bots SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
     const updated = await db.prepare('SELECT * FROM bots WHERE id=?').get(req.params.id);
