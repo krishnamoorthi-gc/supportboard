@@ -1,6 +1,101 @@
 import { useState, useEffect, useRef } from "react";
 import { C, FD, FB, FM, api, uid, showT, Btn, Inp, Sel, Mdl, Fld, Tag, Toggle, Spin } from "../shared";
 
+// ─── CHAT DETAIL (agent can reply) ──────────────────────────────────────
+function ChatDetail({chat,setViewChat,api,backendOrigin,bot}:any){
+  const [msgs,setMsgs]=useState(chat.messages||[]);
+  const [reply,setReply]=useState("");
+  const [sending,setSending]=useState(false);
+  const [status,setStatus]=useState(chat.status||"active");
+  const scrollRef=useRef<HTMLDivElement>(null);
+  const pollRef=useRef<any>(null);
+
+  const scrollDown=()=>{if(scrollRef.current)scrollRef.current.scrollTop=scrollRef.current.scrollHeight;};
+  useEffect(()=>{scrollDown();},[msgs]);
+
+  // Poll for new messages every 3s
+  useEffect(()=>{
+    const poll=async()=>{
+      try{
+        const r=await api.get(`/settings/bot-chats/${chat.id}`);
+        if(r?.chat){
+          setMsgs(r.chat.messages||[]);
+          setStatus(r.chat.status||"active");
+        }
+      }catch{}
+    };
+    pollRef.current=setInterval(poll,3000);
+    return()=>{if(pollRef.current)clearInterval(pollRef.current);};
+  },[chat.id]);
+
+  const sendReply=async()=>{
+    if(!reply.trim()||sending)return;
+    setSending(true);
+    try{
+      const r=await api.post(`/settings/bot-chats/${chat.id}/reply`,{message:reply.trim()});
+      if(r?.messages){setMsgs(r.messages);setStatus("agent_connected");}
+      setReply("");
+    }catch{showT("Failed to send","error");}
+    setSending(false);
+  };
+
+  const statusLabel:any={"active":"Bot Active","waiting_agent":"Waiting for Agent","agent_connected":"Agent Connected","closed":"Closed"};
+  const statusColor:any={"active":C.g,"waiting_agent":C.y,"agent_connected":C.a,"closed":C.t3};
+
+  return(<div>
+    <button onClick={()=>setViewChat(null)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",color:C.a,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:FM,marginBottom:12,padding:0}}>← Back to all chats</button>
+    <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,overflow:"hidden",display:"flex",flexDirection:"column",height:"calc(100vh - 200px)",maxHeight:620}}>
+      {/* Header */}
+      <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <div style={{width:32,height:32,borderRadius:8,background:statusColor[status]+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+          {status==="waiting_agent"?"🔔":status==="agent_connected"?"👤":"💬"}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:700}}>{chat.visitor_name||"Visitor"}</div>
+          <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{chat.visitor_email||"No email"} · {new Date(chat.created_at).toLocaleString()}</div>
+        </div>
+        <Tag text={statusLabel[status]||status} color={statusColor[status]||C.t3}/>
+      </div>
+      {/* Messages */}
+      <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:16,background:"#f9f9fb"}}>
+        {msgs.map((m:any,i:number)=>(
+          <div key={i} style={{marginBottom:8}}>
+            {m.f==="sys"&&<div style={{textAlign:"center",fontSize:10,color:C.t3,fontFamily:FM,padding:"3px 0"}}>{m.t}</div>}
+            {m.f==="user"&&<div style={{display:"flex",justifyContent:"flex-end"}}>
+              <div style={{maxWidth:"80%"}}>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM,textAlign:"right",marginBottom:2}}>{chat.visitor_name||"Visitor"}</div>
+                <div style={{padding:"8px 12px",borderRadius:"12px 12px 2px 12px",background:C.a,color:"#fff",fontSize:12,lineHeight:1.5}}>{m.t}</div>
+              </div>
+            </div>}
+            {m.f==="agent"&&<div style={{display:"flex",justifyContent:"flex-start"}}>
+              <div style={{maxWidth:"80%"}}>
+                <div style={{fontSize:9,color:C.p,fontFamily:FM,marginBottom:2}}>👤 {m.agent_name||"Agent"}</div>
+                <div style={{padding:"8px 12px",borderRadius:"12px 12px 12px 2px",background:"#ede9fe",border:`1px solid #c4b5fd`,fontSize:12,lineHeight:1.5,color:"#1e1b4b"}}>{m.t}</div>
+              </div>
+            </div>}
+            {(m.f==="bot"||m.f==="ai"||m.f==="kb"||m.f==="ask")&&<div style={{display:"flex",justifyContent:"flex-start"}}>
+              <div style={{maxWidth:"80%"}}>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginBottom:2}}>
+                  {m.f==="ai"?"✦ AI":m.f==="kb"?"📚 KB":"🤖 Bot"}
+                </div>
+                <div style={{padding:"8px 12px",borderRadius:"12px 12px 12px 2px",background:"#fff",border:`1px solid ${C.b1}`,fontSize:12,lineHeight:1.5}}>{m.t}</div>
+              </div>
+            </div>}
+          </div>
+        ))}
+        {msgs.length===0&&<div style={{textAlign:"center",padding:20,color:C.t3,fontSize:12}}>No messages yet.</div>}
+      </div>
+      {/* Reply input */}
+      <div style={{padding:"12px 14px",borderTop:`1px solid ${C.b1}`,display:"flex",gap:8,background:"#fff",flexShrink:0}}>
+        <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey)sendReply();}} placeholder="Type a reply as agent…" style={{flex:1,border:`1.5px solid ${C.b1}`,borderRadius:10,padding:"9px 13px",fontSize:13,outline:"none",fontFamily:FB,color:C.t1}}/>
+        <button onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"0 16px",borderRadius:10,background:C.a,border:"none",color:"#fff",fontSize:13,fontWeight:600,cursor:sending?"default":"pointer",opacity:sending||!reply.trim()?0.5:1}}>
+          {sending?"…":"Send"}
+        </button>
+      </div>
+    </div>
+  </div>);
+}
+
 // ─── AI CHATBOT FLOW BUILDER ──────────────────────────────────────────────
 export default function BotBuilderScr(){
   const NODE_TYPES=[
@@ -73,6 +168,16 @@ export default function BotBuilderScr(){
   const [setupDirty,setSetupDirty]=useState(false);
   // Publish
   const [copied,setCopied]=useState("");
+  // Chat history
+  const [botChats,setBotChats]=useState([]);
+  const [chatLoading,setChatLoading]=useState(false);
+  const [viewChat,setViewChat]=useState(null);
+  const loadBotChats=async()=>{
+    if(!activeBot)return;
+    setChatLoading(true);
+    try{const r=await api.get(`/settings/bot-chats?bot_id=${activeBot}`);setBotChats(r.chats||[]);}catch{}
+    setChatLoading(false);
+  };
   // Live sessions
   const [liveSessions,setLiveSessions]=useState([]);
   const liveTimer=useRef(null);
@@ -103,13 +208,26 @@ export default function BotBuilderScr(){
   };
 
   const pollLive=async()=>{
-    // Simulated live sessions — replace with real ws/api when backend streams events
-    const mockSessions=[
-      {id:"s1",user:"Visitor #2841",page:"/pricing",step:"buttons",status:"active",time:"0:32",msg:"What plans do you have?"},
-      {id:"s2",user:"alice@techcorp.com",page:"/docs",step:"collect",status:"active",time:"1:15",msg:"collecting: email"},
-      {id:"s3",user:"Visitor #2839",page:"/",step:"completed",status:"done",time:"3:42",msg:"Flow completed"},
-    ];
-    setLiveSessions(mockSessions.slice(0,Math.floor(Math.random()*3)+1));
+    if(!activeBot)return;
+    try{
+      const r=await api.get(`/settings/bot-chats?bot_id=${activeBot}`);
+      const chats=(r.chats||[]).map((ch:any)=>{
+        const msgs=ch.messages||[];
+        const lastMsg=msgs.length>0?msgs[msgs.length-1]:null;
+        const elapsed=ch.created_at?Math.floor((Date.now()-new Date(ch.created_at).getTime())/1000):0;
+        const mins=Math.floor(elapsed/60);const secs=elapsed%60;
+        return{
+          id:ch.id,
+          user:ch.visitor_name||ch.visitor_email||"Visitor",
+          page:ch.visitor_email||"—",
+          step:msgs.length+" msgs",
+          status:ch.status||"active",
+          time:`${mins}:${String(secs).padStart(2,"0")}`,
+          msg:lastMsg?lastMsg.t:"No messages yet"
+        };
+      });
+      setLiveSessions(chats);
+    }catch{setLiveSessions([]);}
   };
 
   // ── CRUD ──
@@ -439,7 +557,7 @@ export default function BotBuilderScr(){
   // ════════════════════════════════════════════════════════
   // EDITOR VIEW
   // ════════════════════════════════════════════════════════
-  const tabs=[["setup","Setup"],["flow","Flow"],["test","Preview"],["analytics","Stats"],["knowledge","Knowledge"],["publish","Publish"],["live","Live"]];
+  const tabs=[["setup","Setup"],["flow","Flow"],["test","Preview"],["analytics","Stats"],["knowledge","Knowledge"],["publish","Publish"],["chats","Chats"],["live","Live"]];
 
   return(
     <div style={{flex:1,display:"flex",minWidth:0,height:"100%"}}>
@@ -458,8 +576,8 @@ export default function BotBuilderScr(){
         {/* Nav tabs */}
         <div style={{padding:"6px 8px",borderBottom:`1px solid ${C.b1}`}}>
           {tabs.map(([id,l])=>(
-            <button key={id} onClick={()=>{setViewTab(id);if(id==="test")startTest();if(id==="live")pollLive();}} style={{display:"flex",alignItems:"center",width:"100%",padding:"7px 10px",borderRadius:7,background:viewTab===id?C.ad:"transparent",color:viewTab===id?C.a:C.t2,border:"none",cursor:"pointer",fontSize:12,fontWeight:viewTab===id?700:500,fontFamily:FM,marginBottom:2,textAlign:"left",gap:8}}>
-              <span style={{fontSize:14}}>{{"setup":"⚙️","flow":"🔀","test":"👁️","analytics":"📊","knowledge":"📚","publish":"🚀","live":"🟢"}[id]}</span>
+            <button key={id} onClick={()=>{setViewTab(id);if(id==="test")startTest();if(id==="live")pollLive();if(id==="chats")loadBotChats();}} style={{display:"flex",alignItems:"center",width:"100%",padding:"7px 10px",borderRadius:7,background:viewTab===id?C.ad:"transparent",color:viewTab===id?C.a:C.t2,border:"none",cursor:"pointer",fontSize:12,fontWeight:viewTab===id?700:500,fontFamily:FM,marginBottom:2,textAlign:"left",gap:8}}>
+              <span style={{fontSize:14}}>{{"setup":"⚙️","flow":"🔀","test":"👁️","analytics":"📊","knowledge":"📚","publish":"🚀","chats":"💬","live":"🟢"}[id]}</span>
               {l}
               {id==="knowledge"&&(bot.knowledge||[]).length>0&&<span style={{marginLeft:"auto",fontSize:9,background:C.p+"22",color:C.p,borderRadius:10,padding:"1px 6px",fontFamily:FM}}>{bot.knowledge.length}</span>}
               {id==="live"&&liveSessions.length>0&&<span style={{marginLeft:"auto",fontSize:9,background:C.g+"22",color:C.g,borderRadius:10,padding:"1px 6px",fontFamily:FM}}>{liveSessions.length}</span>}
@@ -535,6 +653,62 @@ export default function BotBuilderScr(){
                 <Toggle val={bot.setup?.[opt.k]!==false} set={()=>updateSetup({[opt.k]:bot.setup?.[opt.k]===false})}/>
               </div>
             ))}
+          </div>
+
+          {/* ── PRE-CHAT FORM ── */}
+          <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:20,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,fontFamily:FD}}>Pre-Chat Form</div>
+                <div style={{fontSize:11,color:C.t3}}>Collect visitor info before starting the conversation. Data saved to Contacts.</div>
+              </div>
+              <Toggle val={!!bot.setup?.pre_chat_enabled} set={()=>updateSetup({pre_chat_enabled:!bot.setup?.pre_chat_enabled})}/>
+            </div>
+
+            {bot.setup?.pre_chat_enabled&&<>
+              <Fld label="Form Title">
+                <Inp val={bot.setup?.pre_chat_title||"Before we start…"} set={v=>updateSetup({pre_chat_title:v})} ph="Form heading"/>
+              </Fld>
+              <Fld label="Form Description">
+                <Inp val={bot.setup?.pre_chat_desc||"Please share some details so we can help you better."} set={v=>updateSetup({pre_chat_desc:v})} ph="Short description"/>
+              </Fld>
+
+              <div style={{fontSize:12,fontWeight:700,fontFamily:FD,marginBottom:8,marginTop:8}}>Form Fields</div>
+              {(bot.setup?.pre_chat_fields||[
+                {id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},
+                {id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},
+                {id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"},
+              ]).map((f,i)=>(
+                <div key={f.id} style={{display:"flex",gap:6,alignItems:"center",padding:"8px 10px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,marginBottom:6}}>
+                  <span style={{fontSize:14,cursor:"grab",color:C.t3}}>⠿</span>
+                  <div style={{flex:1,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                    <input value={f.label} onChange={e=>{const fields=[...(bot.setup?.pre_chat_fields||[{id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},{id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},{id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"}])];fields[i]={...fields[i],label:e.target.value};updateSetup({pre_chat_fields:fields});}} placeholder="Label" style={{flex:1,minWidth:80,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"5px 8px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none"}}/>
+                    <select value={f.type} onChange={e=>{const fields=[...(bot.setup?.pre_chat_fields||[{id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},{id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},{id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"}])];fields[i]={...fields[i],type:e.target.value};updateSetup({pre_chat_fields:fields});}} style={{width:72,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"5px 6px",fontSize:11,color:C.t2,outline:"none"}}>
+                      {["text","email","tel","number","select","textarea"].map(t=><option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <select value={f.map_to||""} onChange={e=>{const fields=[...(bot.setup?.pre_chat_fields||[{id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},{id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},{id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"}])];fields[i]={...fields[i],map_to:e.target.value};updateSetup({pre_chat_fields:fields});}} style={{width:90,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"5px 6px",fontSize:11,color:C.t2,outline:"none"}}>
+                      <option value="">No mapping</option>
+                      {["name","email","phone","company","location","notes"].map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <label style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:C.t3,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      <input type="checkbox" checked={!!f.required} onChange={()=>{const fields=[...(bot.setup?.pre_chat_fields||[{id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},{id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},{id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"}])];fields[i]={...fields[i],required:!fields[i].required};updateSetup({pre_chat_fields:fields});}} style={{accentColor:C.a}}/> Required
+                    </label>
+                  </div>
+                  <button onClick={()=>{const fields=[...(bot.setup?.pre_chat_fields||[{id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},{id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},{id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"}])];fields.splice(i,1);updateSetup({pre_chat_fields:fields});}} style={{width:22,height:22,borderRadius:6,background:C.rd,border:"none",color:C.r,cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
+                </div>
+              ))}
+              <button onClick={()=>{const fields=[...(bot.setup?.pre_chat_fields||[{id:"pf1",name:"name",label:"Full Name",type:"text",required:true,map_to:"name"},{id:"pf2",name:"email",label:"Email",type:"email",required:true,map_to:"email"},{id:"pf3",name:"phone",label:"Phone",type:"tel",required:false,map_to:"phone"}])];fields.push({id:"pf"+uid(),name:"field_"+fields.length,label:"",type:"text",required:false,map_to:""});updateSetup({pre_chat_fields:fields});}} style={{padding:"6px 14px",borderRadius:8,border:`1.5px dashed ${C.a}44`,background:"transparent",color:C.a,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FD,marginTop:4}}>+ Add Field</button>
+
+              <div style={{marginTop:12,padding:"10px 12px",background:C.ad,borderRadius:8,border:`1px solid ${C.a}22`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:C.t1}}>Auto-capture IP & Location</div>
+                    <div style={{fontSize:10,color:C.t3}}>Automatically detect visitor's IP address and geo-location</div>
+                  </div>
+                  <Toggle val={bot.setup?.pre_chat_geo!==false} set={()=>updateSetup({pre_chat_geo:bot.setup?.pre_chat_geo===false})}/>
+                </div>
+              </div>
+            </>}
           </div>
 
           <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
@@ -857,15 +1031,186 @@ export function SupportBot() {
             </pre>
           </EmbedBlock>
 
+          {/* Vue / Angular */}
+          <EmbedBlock title="Vue.js / Nuxt" desc="Add to any Vue component's onMounted lifecycle." copied={copied} copyKey="vue" onCopy={()=>copyText(
+`<script setup>
+import { onMounted, onUnmounted } from 'vue';
+let script;
+onMounted(() => {
+  script = document.createElement('script');
+  script.src = '${backendOrigin}/widget/bot.js';
+  script.setAttribute('data-bot-id', '${bot.embed_token}');
+  document.body.appendChild(script);
+});
+onUnmounted(() => { if(script) document.body.removeChild(script); });
+</script>
+<template><div /></template>`,"vue")}>
+            <pre style={{fontSize:11,color:C.t2,fontFamily:FM,margin:0,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+{`<script setup>
+import { onMounted, onUnmounted } from 'vue';
+let script;
+onMounted(() => {
+  script = document.createElement('script');
+  script.src = '${backendOrigin}/widget/bot.js';
+  script.setAttribute('data-bot-id', '${bot.embed_token}');
+  document.body.appendChild(script);
+});
+onUnmounted(() => { if(script) document.body.removeChild(script); });
+</script>`}
+            </pre>
+          </EmbedBlock>
+
+          {/* Mobile App - React Native / Flutter */}
+          <EmbedBlock title="Mobile App (React Native)" desc="Use a WebView to embed the chat in iOS/Android." copied={copied} copyKey="mobile" onCopy={()=>copyText(
+`import React from 'react';
+import { WebView } from 'react-native-webview';
+
+export function SupportChat() {
+  return (
+    <WebView
+      source={{ uri: '${backendOrigin}/chat?bot=${bot.embed_token}' }}
+      style={{ flex: 1 }}
+      javaScriptEnabled={true}
+    />
+  );
+}`,"mobile")}>
+            <pre style={{fontSize:11,color:C.t2,fontFamily:FM,margin:0,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+{`import React from 'react';
+import { WebView } from 'react-native-webview';
+
+export function SupportChat() {
+  return (
+    <WebView
+      source={{ uri: '${backendOrigin}/chat?bot=${bot.embed_token}' }}
+      style={{ flex: 1 }}
+      javaScriptEnabled={true}
+    />
+  );
+}`}
+            </pre>
+          </EmbedBlock>
+
+          <EmbedBlock title="Flutter (Mobile App)" desc="Use webview_flutter package to embed in Flutter." copied={copied} copyKey="flutter" onCopy={()=>copyText(
+`import 'package:webview_flutter/webview_flutter.dart';
+
+class SupportChatView extends StatefulWidget {
+  @override
+  _SupportChatViewState createState() => _SupportChatViewState();
+}
+
+class _SupportChatViewState extends State<SupportChatView> {
+  late final WebViewController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..loadRequest(Uri.parse(
+        '${backendOrigin}/chat?bot=${bot.embed_token}'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WebViewWidget(controller: controller);
+  }
+}`,"flutter")}>
+            <pre style={{fontSize:11,color:C.t2,fontFamily:FM,margin:0,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+{`import 'package:webview_flutter/webview_flutter.dart';
+
+class SupportChatView extends StatefulWidget {
+  @override
+  _State createState() => _State();
+}
+
+class _State extends State<SupportChatView> {
+  late final WebViewController ctrl;
+  @override
+  void initState() {
+    super.initState();
+    ctrl = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..loadRequest(Uri.parse(
+        '${backendOrigin}/chat?bot=${bot.embed_token}'));
+  }
+  @override
+  Widget build(BuildContext c) =>
+    WebViewWidget(controller: ctrl);
+}`}
+            </pre>
+          </EmbedBlock>
+
           {/* API Token */}
-          <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:18}}>
+          <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:18,marginBottom:14}}>
             <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:4}}>Bot Token (API Access)</div>
-            <div style={{fontSize:12,color:C.t3,marginBottom:10}}>Use this token when integrating via the SupportDesk REST API or webhooks.</div>
+            <div style={{fontSize:12,color:C.t3,marginBottom:10}}>Use this token for REST API integration or webhooks.</div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <div style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.t2,fontFamily:FM,letterSpacing:"0.04em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{bot.embed_token}</div>
               <Btn ch={copied==="token"?"✓ Copied":"Copy"} v={copied==="token"?"primary":"ghost"} sm onClick={()=>copyText(bot.embed_token,"token")}/>
             </div>
           </div>
+
+          {/* Quick Setup Steps */}
+          <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:18}}>
+            <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:10}}>Quick Integration Steps</div>
+            {[
+              {p:"HTML Website",steps:["Copy the Widget Script code above","Paste it before the closing </body> tag in your HTML file","Save and reload your page — the chat icon appears at bottom-right"]},
+              {p:"React / Next.js",steps:["Copy the React Component code above","Save as SupportBot.tsx in your components folder","Import and add <SupportBot /> to your App or Layout component"]},
+              {p:"Vue / Nuxt",steps:["Copy the Vue component code above","Save as SupportBot.vue in your components folder","Add <SupportBot /> to your app layout"]},
+              {p:"React Native",steps:["Install: npm install react-native-webview","Copy the React Native code above into a component file","Use <SupportChat /> in your navigation screen"]},
+              {p:"Flutter",steps:["Add webview_flutter to pubspec.yaml dependencies","Run flutter pub get","Copy the Flutter code above and use SupportChatView() in your widget tree"]},
+              {p:"WordPress",steps:["Go to Appearance → Theme Editor → footer.php","Paste the Widget Script code before </body>","Save changes — widget appears on all pages"]},
+            ].map(g=>(
+              <div key={g.p} style={{marginBottom:12}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.a,marginBottom:4}}>{g.p}</div>
+                {g.steps.map((s,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:3}}>
+                    <span style={{width:18,height:18,borderRadius:"50%",background:C.ad,color:C.a,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0,fontFamily:FM}}>{i+1}</span>
+                    <span style={{fontSize:11,color:C.t2,lineHeight:1.5}}>{s}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>}
+
+        {/* ── CHATS TAB ── */}
+        {viewTab==="chats"&&<div style={{padding:20,maxWidth:800,margin:"0 auto",width:"100%"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,fontFamily:FD}}>Chat History</div>
+              <p style={{fontSize:12,color:C.t3,marginTop:2}}>All conversations from this bot</p>
+            </div>
+            <Btn ch="↻ Refresh" v="ghost" sm onClick={loadBotChats}/>
+          </div>
+
+          {chatLoading&&<Spin/>}
+
+          {!chatLoading&&!viewChat&&<>
+            {botChats.length===0&&<div style={{textAlign:"center",padding:40,color:C.t3,background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+              <div style={{fontSize:28,marginBottom:8}}>💬</div>
+              <div style={{fontWeight:600,marginBottom:4}}>No conversations yet</div>
+              <div style={{fontSize:12}}>Conversations will appear here when visitors use this bot.</div>
+            </div>}
+            {botChats.map(ch=>(
+              <div key={ch.id} onClick={()=>setViewChat(ch)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,marginBottom:6,cursor:"pointer",transition:"border-color .15s"}} className="hov">
+                <div style={{width:36,height:36,borderRadius:10,background:C.ad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>💬</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:13,fontWeight:600}}>{ch.visitor_name||"Visitor"}</span>
+                    {ch.visitor_email&&<span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{ch.visitor_email}</span>}
+                    <Tag text={ch.status||"active"} color={ch.status==="active"?C.g:C.t3}/>
+                  </div>
+                  <div style={{fontSize:11,color:C.t3,marginTop:2}}>
+                    {(ch.messages||[]).length} messages · {new Date(ch.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <span style={{fontSize:14,color:C.t3}}>→</span>
+              </div>
+            ))}
+          </>}
+
+          {viewChat&&<ChatDetail chat={viewChat} setViewChat={setViewChat} api={api} backendOrigin={backendOrigin} bot={bot}/>}
         </div>}
 
         {/* ── LIVE SESSIONS TAB ── */}

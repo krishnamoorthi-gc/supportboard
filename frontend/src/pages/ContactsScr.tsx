@@ -180,10 +180,12 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
           <InfoRow label="Email" value={sel.email} copy/>
           <InfoRow label="Phone" value={sel.phone} copy/>
           <InfoRow label="Company" value={sel.company}/>
-          <InfoRow label="Location" value={sel.location}/>
+          <InfoRow label="Location" value={sel.location||(sel.custom_fields?.geo?[sel.custom_fields.geo.city,sel.custom_fields.geo.region,sel.custom_fields.geo.country].filter(Boolean).join(", "):"")}/>
           <InfoRow label="Language" value={sel.language} mono/>
           <InfoRow label="Currency" value={sel.currency} mono/>
-          <InfoRow label="Timezone" value={sel.timezone} mono/>
+          <InfoRow label="Timezone" value={sel.timezone||(sel.custom_fields?.geo?.tz)||""} mono/>
+          {sel.custom_fields?.ip_address&&<InfoRow label="IP Address" value={sel.custom_fields.ip_address} copy color={C.t2} mono/>}
+          {sel.custom_fields?.source&&<InfoRow label="Source" value={sel.custom_fields.source} copy={false} color={C.p} mono/>}
           <div style={{marginTop:14,marginBottom:8,fontSize:9.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase"}}>Account</div>
           <InfoRow label="User ID" value={sel.uid} copy color={C.a} mono/>
           <InfoRow label="User Type" value={sel.userType}/>
@@ -214,7 +216,7 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
               <span style={{fontSize:11,color:C.g,fontWeight:600,fontFamily:FM}}>LIVE SESSION</span>
             </div>
             <InfoRow label="Current URL" value={sel.currentUrl||"—"} copy color={C.a} mono/>
-            <InfoRow label="IP Address" value={sel.ip||"—"} copy mono/>
+            <InfoRow label="IP Address" value={sel.ip||sel.custom_fields?.ip_address||"—"} copy mono/>
             <InfoRow label="Browser" value={sel.browser||"—"}/>
             <InfoRow label="OS" value={sel.os||"—"}/>
             <InfoRow label="Timezone" value={sel.timezone||"—"} mono/>

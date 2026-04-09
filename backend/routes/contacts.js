@@ -7,13 +7,14 @@ router.get('/', auth, async (req, res) => {
   try {
     const { offset, limit } = paginate(req);
     const { q, tag } = req.query;
-    let where = 'agent_id=?'; const params = [req.agent.id];
+    // Show contacts for this agent + contacts created by any bot (bot-visitor tagged)
+    let where = '(agent_id=? OR tags LIKE ?)'; const params = [req.agent.id, '%bot-visitor%'];
     if (q) { where += ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR company LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq,lq); }
     if (tag) { where += ' AND tags LIKE ?'; params.push(`%"${tag}"%`); }
     const contacts = await db.prepare(`SELECT * FROM contacts WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, limit, offset);
     const totalRow = await db.prepare(`SELECT COUNT(*) as c FROM contacts WHERE ${where}`).get(...params);
     const total = totalRow ? totalRow.c : 0;
-    for (const c of contacts) { try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; } }
+    for (const c of contacts) { try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; } try { c.custom_fields = JSON.parse(c.custom_fields||'{}'); } catch { c.custom_fields={}; } }
     console.log(`✅ GET /api/contacts - returning ${contacts.length} contacts`);
     res.json({ contacts, total });
   } catch (e) {
@@ -26,6 +27,7 @@ router.get('/:id', auth, async (req, res) => {
   const c = await db.prepare('SELECT * FROM contacts WHERE id=?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; }
+  try { c.custom_fields = JSON.parse(c.custom_fields||'{}'); } catch { c.custom_fields={}; }
   const convs = await db.prepare('SELECT * FROM conversations WHERE contact_id=? ORDER BY updated_at DESC LIMIT 10').all(req.params.id);
   res.json({ contact: c, conversations: convs });
 });
