@@ -407,6 +407,16 @@ export default function App(){
   const tcUnread=TC_CHANNELS.reduce((s,c)=>s+c.unread,0)+TC_DMS.reduce((s,d)=>s+d.unread,0);
   // ── Sound toggle ──
   const [soundOn,setSoundOn]=useState(true);
+  const normalizeWsAttachments=(value:any)=>{
+    if(Array.isArray(value))return value.filter(Boolean);
+    if(!value)return [];
+    try{
+      const parsed=typeof value==="string"?JSON.parse(value):value;
+      return Array.isArray(parsed)?parsed.filter(Boolean):[];
+    }catch{
+      return [];
+    }
+  };
   // ═══ WEBSOCKET — real-time messages, typing, presence ═══
   const wsRef=useRef(null);
   const wsConnect=useCallback(()=>{
@@ -435,16 +445,47 @@ export default function App(){
           setNotifs(p=>[{id:"n"+uid(),text:"⚠ SLA breach: "+m.conversation_id,type:"error",read:false,time:"now"},...p.slice(0,19)]);
           showT("SLA breach warning!","error");
         }
-        // ── Real-time: new message posted (agent reply saved to DB) ──
+        // ── Real-time: new message posted (agent reply / customer widget msg) ──
         if(m.type==="new_message"&&m.message){
-          const msg={...m.message,aid:m.message.agent_id,t:m.message.created_at?.split?.("T")?.[1]?.slice(0,5)||m.message.created_at?.split?.(" ")?.[1]?.slice(0,5)||""};
+          const msg={...m.message,attachments:normalizeWsAttachments(m.message.attachments),aid:m.message.agent_id,t:m.message.created_at?.split?.("T")?.[1]?.slice(0,5)||m.message.created_at?.split?.(" ")?.[1]?.slice(0,5)||""};
+          // Always append the message
           setMsgs((p:any)=>({...p,[m.conversationId]:[...(p[m.conversationId]||[]).filter((x:any)=>x.id!==msg.id),msg]}));
-          setConvs((p:any)=>p.map((c:any)=>c.id===m.conversationId?{...c,time:"now",unread:msg.role==="customer"?(c.unread||0)+1:c.unread}:c));
+          setConvs((p:any)=>{
+            const exists=p.find((c:any)=>c.id===m.conversationId);
+            if(exists){
+              // Update existing: bump unread + time
+              return p.map((c:any)=>c.id===m.conversationId?{...c,time:"now",updated_at:m.message.created_at||c.updated_at,unread:msg.role==="customer"||(msg.role==="contact"&&msg.role==="customer")?(c.unread||0)+1:c.unread}:c);
+            }
+            // Conversation not in list yet — add it from the broadcast payload
+            if(m.conversation){
+              const cv=m.conversation;
+              const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+              const newConv={...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:1,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")};
+              return [newConv,...p];
+            }
+            // Fallback: fetch from API
+            api.get(`/conversations/${m.conversationId}`).then((r:any)=>{
+              if(r?.conversation){
+                const cv=r.conversation;
+                const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+                setConvs((prev:any)=>{
+                  if(prev.find((c:any)=>c.id===cv.id))return prev;
+                  return [{...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:1,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")},...prev];
+                });
+              }
+            }).catch(()=>{});
+            return p;
+          });
+          // Sound + notification for customer messages
+          if(msg.role==="customer"||msg.role==="contact"){
+            setNotifs((p:any)=>[{id:"n"+uid(),text:"💬 New message in conversation",type:"message",read:false,time:"now"},...p.slice(0,19)]);
+            if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
+          }
         }
         // ── Real-time: inbound email received via IMAP polling ────────────
         if(m.type==="new_email_message"){
           const {conversation:cv}=m;
-          const msg={...m.message,aid:m.message?.agent_id,t:m.message?.created_at?.split?.("T")?.[1]?.slice(0,5)||m.message?.created_at?.split?.(" ")?.[1]?.slice(0,5)||""};
+          const msg={...m.message,attachments:normalizeWsAttachments(m.message?.attachments),aid:m.message?.agent_id,t:m.message?.created_at?.split?.("T")?.[1]?.slice(0,5)||m.message?.created_at?.split?.(" ")?.[1]?.slice(0,5)||""};
           // Merge/add conversation in list
           setConvs((p:any)=>{
             const exists=p.find((c:any)=>c.id===cv.id);
@@ -461,10 +502,31 @@ export default function App(){
           if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
         }
         if(m.type==="new_conversation"){
-          setNotifs(p=>[{id:"n"+uid(),text:"New conversation from "+(m.contact_name||"visitor"),type:"message",read:false,time:"now"},...p.slice(0,19)]);
+          // ── Immediately add to conversation list ──
+          const cv=m.conversation||null;
+          if(cv){
+            const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+            const newConv={...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:0,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")};
+            setConvs((p:any)=>{
+              if(p.find((c:any)=>c.id===cv.id))return p; // already in list
+              return [newConv,...p];
+            });
+          }
+          // Also update contacts list if new contact
+          if(m.conversation?.contact_id){
+            const cid=m.conversation.contact_id;
+            setContacts((p:any)=>{
+              if(p.find((c:any)=>c.id===cid))return p;
+              const av=(m.contact_name||"?").split(" ").map((w:string)=>w[0]).join("").toUpperCase().slice(0,2);
+              return [...p,{id:cid,name:m.contact_name||"Customer",email:m.contact_email||"",av,color:m.contact_color||"#4c82fb",tags:[],convs:1}];
+            });
+          }
+          setNotifs((p:any)=>[{id:"n"+uid(),text:"💬 New conversation from "+(m.contact_name||"visitor"),type:"message",read:false,time:"now"},...p.slice(0,19)]);
           if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
-          // AI Auto-Tag (#7) — classify new conversation
-          if(m.conversation_id&&m.subject){(async()=>{try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:60,system:"Classify this support ticket into ONE category: Bug, Billing, Feature Request, Onboarding, Urgent, General. Reply with just the category name.",messages:[{role:"user",content:m.subject}]})});const d=await r.json();const tag=(d.content?.[0]?.text||"General").trim();setConvs(p=>p.map(c=>c.id===m.conversation_id?{...c,labels:[...new Set([...c.labels,tag])]}:c));}catch{const autoTags={"payment":"Billing","invoice":"Billing","bug":"Bug","error":"Bug","crash":"Bug","feature":"Feature Request","integrate":"Feature Request","setup":"Onboarding","start":"Onboarding"};const sub=(m.subject||"").toLowerCase();const matched=Object.entries(autoTags).find(([k])=>sub.includes(k));if(matched)setConvs(p=>p.map(c=>c.id===m.conversation_id?{...c,labels:[...new Set([...c.labels,matched[1]])]}:c));}})();}
+          // AI Auto-Tag — classify new conversation
+          const convId=cv?.id||m.conversation_id;
+          const convSubject=cv?.subject||m.subject||"";
+          if(convId&&convSubject){(async()=>{try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:60,system:"Classify this support ticket into ONE category: Bug, Billing, Feature Request, Onboarding, Urgent, General. Reply with just the category name.",messages:[{role:"user",content:convSubject}]})});const d=await r.json();const tag=(d.content?.[0]?.text||"General").trim();setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,tag])]}:c));}catch{const autoTags:Record<string,string>={"payment":"Billing","invoice":"Billing","bug":"Bug","error":"Bug","crash":"Bug","feature":"Feature Request","integrate":"Feature Request","setup":"Onboarding","start":"Onboarding"};const sub=convSubject.toLowerCase();const matched=Object.entries(autoTags).find(([k])=>sub.includes(k));if(matched)setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,matched[1]])]}:c));}})();}
         }
       }catch{}};
       ws.onclose=()=>{wsRef.current=null;setTimeout(wsConnect,5000);}; // Auto-reconnect
@@ -473,6 +535,58 @@ export default function App(){
     }catch{}
   },[apiOk,soundOn]);
   useEffect(()=>{if(isLoggedIn&&apiOk)wsConnect();return()=>{wsRef.current?.close();};},[isLoggedIn,apiOk,wsConnect]);
+
+  // ══ Auto-refresh: silently sync conversations + contacts every 30 s ══
+  // Ensures new emails that arrive via IMAP polling appear in the UI
+  // even if the WebSocket event was missed (e.g. tab was in background).
+  const refreshConvsRef=useRef(false);
+  useEffect(()=>{
+    if(!isLoggedIn||!apiOk)return;
+    const doRefresh=async()=>{
+      if(refreshConvsRef.current)return; // skip if already running
+      refreshConvsRef.current=true;
+      try{
+        const [cvRes,ctRes]=await Promise.allSettled([
+          api.get("/conversations?limit=100"),
+          api.get("/contacts?limit=200"),
+        ]);
+        if(cvRes.status==="fulfilled"&&cvRes.value?.conversations){
+          setConvs(prev=>{
+            const newMap:Record<string,any>={};
+            cvRes.value.conversations.forEach((c:any)=>{
+              const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];
+              newMap[c.id]={...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
+            });
+            // Merge: keep existing state for open convs, add new ones on top
+            const prevMap:Record<string,any>={};
+            prev.forEach((c:any)=>{prevMap[c.id]=c;});
+            const merged:any[]=[];
+            // New ones first
+            Object.values(newMap).forEach((c:any)=>{
+              if(!prevMap[c.id]) merged.push(c);
+            });
+            // Then existing (update metadata but keep local unread count if higher)
+            prev.forEach((c:any)=>{
+              const fresh=newMap[c.id];
+              if(fresh) merged.push({...fresh,unread:Math.max(c.unread||0,fresh.unread||0)});
+              else merged.push(c);
+            });
+            return merged;
+          });
+        }
+        if(ctRes.status==="fulfilled"&&ctRes.value?.contacts){
+          setContacts(ctRes.value.contacts.map((c:any)=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,av:c.avatar||c.name?.split(" ").map((w:string)=>w[0]).join("")||"?",convs:c.conversation_count||0,tags,color:c.color||"#4c82fb"};}));
+        }
+      }catch{}
+      refreshConvsRef.current=false;
+    };
+    // Run every 30 s
+    const interval=setInterval(doRefresh,30000);
+    // Also run when the browser tab becomes visible again
+    const onVisible=()=>{if(document.visibilityState==="visible")doRefresh();};
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{clearInterval(interval);document.removeEventListener("visibilitychange",onVisible);};
+  },[isLoggedIn,apiOk]);
 
   // ═══ API SYNC — wraps write ops with optimistic update + API call ═══
   const syncApi=useCallback((method,path,body,opts={})=>{

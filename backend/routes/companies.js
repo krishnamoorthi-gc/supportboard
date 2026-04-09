@@ -3,7 +3,12 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid, paginate } = require('../utils/helpers');
 
-router.get('/', auth, async (req, res) => {
+const wrap = fn => async (req, res, next) => {
+  try { await fn(req, res, next); }
+  catch (e) { console.error('companies error:', e.message); res.status(500).json({ error: e.message }); }
+};
+
+router.get('/', auth, wrap(async (req, res) => {
   const { offset, limit } = paginate(req);
   const { q } = req.query;
   let where = 'agent_id=?'; const params = [req.agent.id];
@@ -12,16 +17,16 @@ router.get('/', auth, async (req, res) => {
   const totalRow = await db.prepare(`SELECT COUNT(*) as c FROM companies WHERE ${where}`).get(...params);
   const total = totalRow ? totalRow.c : 0;
   res.json({ companies, total });
-});
+}));
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', auth, wrap(async (req, res) => {
   const c = await db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   const contacts = await db.prepare('SELECT * FROM contacts WHERE company=?').all(c.name);
   res.json({ company: c, contacts });
-});
+}));
 
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, wrap(async (req, res) => {
   const { name, domain, industry, size, revenue, website, phone, address, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
@@ -30,9 +35,9 @@ router.post('/', auth, async (req, res) => {
   );
   const company = await db.prepare('SELECT * FROM companies WHERE id=?').get(id);
   res.status(201).json({ company });
-});
+}));
 
-router.patch('/:id', auth, async (req, res) => {
+router.patch('/:id', auth, wrap(async (req, res) => {
   const c = await db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','domain','industry','size','revenue','website','phone','address','notes'];
@@ -43,11 +48,11 @@ router.patch('/:id', auth, async (req, res) => {
   await db.prepare(`UPDATE companies SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
   const updatedCompany = await db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
   res.json({ company: updatedCompany });
-});
+}));
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, wrap(async (req, res) => {
   await db.prepare('DELETE FROM companies WHERE id=?').run(req.params.id);
   res.json({ success: true });
-});
+}));
 
 module.exports = router;

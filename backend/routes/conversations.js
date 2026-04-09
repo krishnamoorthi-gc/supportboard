@@ -2,8 +2,31 @@ const router = require('express').Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid, paginate } = require('../utils/helpers');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail, extractVisibleEmailText } = require('../services/emailService');
 const { broadcastToAll } = require('../ws');
+
+function parseAttachments(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (!value) return [];
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildMessagePreview(message) {
+  const attachments = parseAttachments(message?.attachments);
+  const baseText = message?.role === 'customer' && message?.email_message_id
+    ? extractVisibleEmailText(message?.text || '') || message?.text || ''
+    : message?.text || '';
+
+  if (baseText) return baseText;
+  if (attachments.length === 1) return `Attachment: ${attachments[0].name || 'file'}`;
+  if (attachments.length > 1) return `${attachments.length} attachments`;
+  return '';
+}
 
 async function findOrCreateContactByEmail({ email, name, agentId, preferredId }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -62,7 +85,13 @@ router.get('/', auth, async (req, res) => {
 
   for (const cv of convs) {
     const last = await db.prepare('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 1').get(cv.id);
-    cv.lastMessage = last || null;
+    cv.lastMessage = last
+      ? {
+          ...last,
+          attachments: parseAttachments(last.attachments),
+          text: buildMessagePreview(last),
+        }
+      : null;
     const unreadRow = await db.prepare("SELECT COUNT(*) as c FROM messages WHERE conversation_id=? AND is_read=0 AND role='customer'").get(cv.id);
     cv.unreadCount = unreadRow ? unreadRow.c : 0;
     try { cv.labels = JSON.parse(cv.labels || '[]'); } catch { cv.labels = []; }
@@ -97,7 +126,34 @@ router.post('/', auth, async (req, res) => {
   await db.prepare(`INSERT INTO conversations (id,subject,contact_id,inbox_id,assignee_id,priority,labels,agent_id) VALUES (?,?,?,?,?,?,?,?)`).run(
     id, subject, contact_id, inbox_id||null, assignee_id||null, priority, JSON.stringify(labels), req.agent.id
   );
-  const cv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(id);
+  // Fetch full conversation with joins so the UI has everything it needs
+  const cv = await db.prepare(`
+    SELECT c.*, ct.name as contact_name, ct.email as contact_email,
+           ct.avatar as contact_avatar, ct.color as contact_color,
+           i.name as inbox_name, i.type as inbox_type, i.color as inbox_color
+    FROM conversations c
+    LEFT JOIN contacts ct ON c.contact_id = ct.id
+    LEFT JOIN inboxes i ON c.inbox_id = i.id
+    WHERE c.id=?
+  `).get(id);
+  try { cv.labels = JSON.parse(cv.labels || '[]'); } catch { cv.labels = []; }
+
+  // Broadcast to all agents so it appears instantly in their inbox
+  try {
+    broadcastToAll({
+      type: 'new_conversation',
+      conversation_id: cv.id,
+      subject: cv.subject,
+      contact_name: cv.contact_name,
+      contact_email: cv.contact_email,
+      contact_color: cv.contact_color,
+      inbox_id: cv.inbox_id,
+      inbox_name: cv.inbox_name,
+      inbox_type: cv.inbox_type,
+      conversation: cv,
+    });
+  } catch (_) {}
+
   res.status(201).json({ conversation: cv });
 });
 
@@ -144,13 +200,22 @@ router.get('/:id/messages', auth, async (req, res) => {
     WHERE m.conversation_id=?
     ORDER BY m.created_at ASC
   `).all(req.params.id);
-  res.json({ messages: msgs });
+  res.json({
+    messages: msgs.map(msg => {
+      const attachments = parseAttachments(msg.attachments);
+      const text = msg.role === 'customer' && msg.email_message_id
+        ? extractVisibleEmailText(msg.text || '') || msg.text || ''
+        : msg.text;
+      return { ...msg, attachments, text };
+    }),
+  });
 });
 
 // POST /api/conversations/:id/messages
 router.post('/:id/messages', auth, async (req, res) => {
   const { text, role='agent', attachments=[], cc, bcc, emailSubject, inReplyTo, toEmail, contactId, contactName } = req.body;
-  if (!text && attachments.length === 0) return res.status(400).json({ error: 'text required' });
+  const normalizedAttachments = parseAttachments(attachments);
+  if (!text && normalizedAttachments.length === 0) return res.status(400).json({ error: 'text required' });
 
   const conv = await db.prepare(`
     SELECT c.*, ct.email AS contact_email, ct.name AS contact_name,
@@ -207,6 +272,7 @@ router.post('/:id/messages', auth, async (req, res) => {
         subject: emailSubject || conv.subject || '(No Subject)',
         text: text || '',
         inReplyTo: replyHeader,
+        attachments: normalizedAttachments,
       });
     } catch (mailErr) {
       console.error('[conversations] SMTP send failed:', mailErr.message);
@@ -215,14 +281,16 @@ router.post('/:id/messages', auth, async (req, res) => {
   }
 
   const id = uid();
-  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id) VALUES (?,?,?,?,?,?,?)').run(
+  const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,created_at) VALUES (?,?,?,?,?,?,?,?)').run(
     id,
     req.params.id,
     role,
     text,
     role === 'agent' ? req.agent.id : null,
-    JSON.stringify(attachments),
-    smtpResult?.smtpMessageId || null
+    JSON.stringify(normalizedAttachments),
+    smtpResult?.smtpMessageId || null,
+    createdAt
   );
 
   if (role === 'agent') {
@@ -236,9 +304,28 @@ router.post('/:id/messages', auth, async (req, res) => {
   }
 
   const msg = await db.prepare('SELECT * FROM messages WHERE id=?').get(id);
+  msg.attachments = parseAttachments(msg.attachments);
+
+  // Fetch conversation with full joins for the broadcast payload
+  const fullConv = await db.prepare(`
+    SELECT c.*, ct.name as contact_name, ct.email as contact_email,
+           ct.avatar as contact_avatar, ct.color as contact_color,
+           i.name as inbox_name, i.type as inbox_type, i.color as inbox_color
+    FROM conversations c
+    LEFT JOIN contacts ct ON c.contact_id = ct.id
+    LEFT JOIN inboxes i ON c.inbox_id = i.id
+    WHERE c.id=?
+  `).get(req.params.id);
+  try { if (fullConv) fullConv.labels = JSON.parse(fullConv.labels || '[]'); } catch { if (fullConv) fullConv.labels = []; }
 
   try {
-    broadcastToAll({ type: 'new_message', conversationId: req.params.id, message: msg });
+    broadcastToAll({
+      type: 'new_message',
+      conversationId: req.params.id,
+      message: msg,
+      // Include full conversation so frontend can add it to the list if it's new
+      conversation: fullConv || null,
+    });
   } catch (_) {}
 
   res.status(201).json({

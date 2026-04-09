@@ -611,7 +611,8 @@ async function ensureSchemaColumns() {
     // ── Add missing agent_id to all tables that need it ─────────────────
     const agentIdTables = [
       'contacts', 'conversations', 'canned_responses',
-      'automations', 'labels', 'teams'
+      'automations', 'labels', 'teams',
+      'custom_fields', 'companies', 'deals', 'leads', 'campaigns', 'segments'
     ];
     for (const tbl of agentIdTables) {
       try {
