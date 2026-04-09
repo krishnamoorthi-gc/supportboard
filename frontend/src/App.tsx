@@ -44,6 +44,14 @@ export default function App(){
   const [apiOk,setApiOk]=useState(false);
   const [dataLoading,setDataLoading]=useState(false);
   const [showProfileMenu,setShowProfileMenu]=useState(false);
+  // Registration
+  const [showRegister,setShowRegister]=useState(false);
+  const [regName,setRegName]=useState("");
+  const [regEmail,setRegEmail]=useState("");
+  const [regPass,setRegPass]=useState("");
+  const [regConfirm,setRegConfirm]=useState("");
+  const [regLoading,setRegLoading]=useState(false);
+  const [regError,setRegError]=useState("");
 
   const handleLogout=async()=>{
     try {
@@ -54,6 +62,36 @@ export default function App(){
     setLogin2FA(false);
     setShowProfileMenu(false);
     showT("Logged out successfully", "info");
+  };
+
+  const doRegister=async()=>{
+    if(!regName||!regEmail||!regPass||!regConfirm){
+      setRegError("All fields are required");
+      return;
+    }
+    if(regPass!==regConfirm){
+      setRegError("Passwords do not match");
+      return;
+    }
+    if(regPass.length<6){
+      setRegError("Password must be at least 6 characters");
+      return;
+    }
+    setRegLoading(true);
+    setRegError("");
+    try{
+      const res=await api.post("/auth/register",{name:regName,email:regEmail,password:regPass});
+      api.setToken(res.token);
+      setIsLoggedIn(true);
+      setApiOk(true);
+      showT("Account created! Welcome to SupportDesk!", "success");
+      loadInitialData();
+      setShowRegister(false);
+    }catch(e){
+      setRegError(e.message||"Registration failed");
+    }finally{
+      setRegLoading(false);
+    }
   };
 
   const doLogin=async()=>{
@@ -166,7 +204,7 @@ export default function App(){
       }
       if(ok(lbRes)&&lbRes.value.labels)setLabels(lbRes.value.labels);
       if(ok(tmRes)&&tmRes.value.teams)setTeams(tmRes.value.teams.map(t=>({...t,members:typeof t.members==="string"?JSON.parse(t.members||"[]"):t.members||[]})));
-      if(ok(ibRes)&&ibRes.value.inboxes)setInboxes(ibRes.value.inboxes);
+      if(ok(ibRes)&&ibRes.value.inboxes)setInboxes(ibRes.value.inboxes.map(ib=>{let cfg={};try{cfg=typeof ib.config==="string"?JSON.parse(ib.config):ib.config||{};}catch{}return{...ib,cfg};}));
       if(ok(cnRes)&&cnRes.value.canned)setCanned(cnRes.value.canned.map(c=>({...c,code:c.code||c.shortcode||""})));
       if(ok(coRes)&&coRes.value.companies)setComps(coRes.value.companies.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,tags,color:c.color||"#4c82fb"};}));
       if(ok(auRes)&&auRes.value.automations)setAutos(auRes.value.automations.map(a=>({...a,conditions:typeof a.conditions==="string"?JSON.parse(a.conditions||"[]"):a.conditions||[],actions:typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[]})));
@@ -378,27 +416,60 @@ export default function App(){
         <h1 style={{fontSize:22,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 4px"}}>Welcome to SupportDesk</h1>
         <p style={{fontSize:13,color:"#6b7280",margin:0}}>{login2FA?"Enter your verification code":"Sign in to your workspace"}</p>
       </div>
-      {!login2FA?<>
-        <div style={{marginBottom:14}}>
-          <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Email</label>
-          <input value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} type="email" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
-        </div>
-        <div style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><label style={{fontSize:12,fontWeight:700,color:"#374151"}}>Password</label><button style={{fontSize:11,color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Forgot?</button></div>
-          <input value={loginPass} onChange={e=>setLoginPass(e.target.value)} type="password" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
-        </div>
-        <button onClick={doLogin} disabled={loginLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#2563eb,#4f46e5)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",opacity:loginLoading?0.7:1,marginBottom:16}}>
-          {loginLoading?"Signing in…":"Sign In"}
-        </button>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><div style={{flex:1,height:1,background:"#e5e7eb"}}/><span style={{fontSize:11,color:"#9ca3af"}}>or continue with</span><div style={{flex:1,height:1,background:"#e5e7eb"}}/></div>
-        <div style={{display:"flex",gap:8}}>
-          {[{n:"Google",c:"#ea4335",i:"G"},{n:"Microsoft",c:"#00a4ef",i:"M"},{n:"SAML SSO",c:"#6b7280",i:"🔒"}].map(p=>(
-            <button key={p.n} onClick={()=>{setLoginLoading(true);setTimeout(()=>{setLoginLoading(false);setLogin2FA(true);},600);}} style={{flex:1,padding:"9px",borderRadius:9,background:"#f9fafb",border:"1.5px solid #e5e7eb",cursor:"pointer",fontSize:12,fontWeight:600,color:"#374151",display:"flex",alignItems:"center",justifyContent:"center",gap:5,fontFamily:"'Nunito',sans-serif"}}>
-              <span style={{color:p.c,fontWeight:800}}>{p.i}</span>{p.n}
-            </button>
-          ))}
-        </div>
-      </>:<>
+      {!login2FA ? (
+        !showRegister ? <>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Email</label>
+            <input value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} type="email" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><label style={{fontSize:12,fontWeight:700,color:"#374151"}}>Password</label><button style={{fontSize:11,color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Forgot?</button></div>
+            <input value={loginPass} onChange={e=>setLoginPass(e.target.value)} type="password" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+          </div>
+          <button onClick={doLogin} disabled={loginLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#2563eb,#4f46e5)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",opacity:loginLoading?0.7:1,marginBottom:16}}>
+            {loginLoading?"Signing in…":"Sign In"}
+          </button>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><div style={{flex:1,height:1,background:"#e5e7eb"}}/><span style={{fontSize:11,color:"#9ca3af"}}>or continue with</span><div style={{flex:1,height:1,background:"#e5e7eb"}}/></div>
+          <div style={{display:"flex",gap:8}}>
+            {[{n:"Google",c:"#ea4335",i:"G"},{n:"Microsoft",c:"#00a4ef",i:"M"},{n:"SAML SSO",c:"#6b7280",i:"🔒"}].map(p=>(
+              <button key={p.n} onClick={()=>{setLoginLoading(true);setTimeout(()=>{setLoginLoading(false);setLogin2FA(true);},600);}} style={{flex:1,padding:"9px",borderRadius:9,background:"#f9fafb",border:"1.5px solid #e5e7eb",cursor:"pointer",fontSize:12,fontWeight:600,color:"#374151",display:"flex",alignItems:"center",justifyContent:"center",gap:5,fontFamily:"'Nunito',sans-serif"}}>
+                <span style={{color:p.c,fontWeight:800}}>{p.i}</span>{p.n}
+              </button>
+            ))}
+          </div>
+          <div style={{textAlign:"center",marginTop:20,paddingTop:16,borderTop:"1px solid #e5e7eb"}}>
+            <p style={{fontSize:12,color:"#6b7280",margin:0}}>Don't have an account? <button onClick={()=>setShowRegister(true)} style={{color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Create Account</button></p>
+          </div>
+        </> : <>
+          <div style={{textAlign:"center",marginBottom:20}}>
+            <h2 style={{fontSize:18,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 4px"}}>Create Account</h2>
+            <p style={{fontSize:12,color:"#6b7280",margin:0}}>Join SupportDesk today</p>
+          </div>
+          {regError&&<div style={{padding:"10px 12px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#dc2626"}}>{regError}</div>}
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Full Name</label>
+            <input value={regName} onChange={e=>setRegName(e.target.value)} type="text" placeholder="John Doe" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Email</label>
+            <input value={regEmail} onChange={e=>setRegEmail(e.target.value)} type="email" placeholder="john@company.com" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Password</label>
+            <input value={regPass} onChange={e=>setRegPass(e.target.value)} type="password" placeholder="Min 6 characters" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+          </div>
+          <div style={{marginBottom:16}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Confirm Password</label>
+            <input value={regConfirm} onChange={e=>setRegConfirm(e.target.value)} type="password" placeholder="Re-enter password" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doRegister();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+          </div>
+          <button onClick={doRegister} disabled={regLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#10b981,#059669)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",opacity:regLoading?0.7:1,marginBottom:16}}>
+            {regLoading?"Creating Account…":"Create Account"}
+          </button>
+          <div style={{textAlign:"center"}}>
+            <p style={{fontSize:12,color:"#6b7280",margin:0}}>Already have an account? <button onClick={()=>{setShowRegister(false);setRegError("");}} style={{color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Sign In</button></p>
+          </div>
+        </>
+      ) : <>
         <div style={{textAlign:"center",marginBottom:16}}>
           <div style={{fontSize:36,marginBottom:8}}>🔐</div>
           <p style={{fontSize:12,color:"#6b7280"}}>We sent a code to {loginEmail}</p>

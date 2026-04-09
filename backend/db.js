@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS teams (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   description TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS inboxes (
   greeting TEXT,
   active TINYINT DEFAULT 1,
   config TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -84,6 +86,7 @@ CREATE TABLE IF NOT EXISTS labels (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   color VARCHAR(50) DEFAULT '#4c82fb',
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -101,6 +104,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   timezone VARCHAR(100),
   notes TEXT,
   custom_fields TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -118,6 +122,7 @@ CREATE TABLE IF NOT EXISTS companies (
   address TEXT,
   notes TEXT,
   custom_fields TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -140,6 +145,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   first_reply_at DATETIME,
   resolved_at DATETIME,
   custom_fields TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -159,8 +165,9 @@ CREATE TABLE IF NOT EXISTS messages (
 -- Canned Responses
 CREATE TABLE IF NOT EXISTS canned_responses (
   id VARCHAR(255) PRIMARY KEY,
-  code VARCHAR(100) UNIQUE NOT NULL,
+  code VARCHAR(100) NOT NULL,
   content TEXT NOT NULL,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -173,6 +180,7 @@ CREATE TABLE IF NOT EXISTS automations (
   actions TEXT,
   active TINYINT DEFAULT 1,
   run_count INT DEFAULT 0,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -190,6 +198,7 @@ CREATE TABLE IF NOT EXISTS deals (
   expected_close DATE,
   notes TEXT,
   custom_fields TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -208,6 +217,7 @@ CREATE TABLE IF NOT EXISTS leads (
   owner_id VARCHAR(255),
   notes TEXT,
   custom_fields TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -223,6 +233,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   assignee_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -240,6 +251,7 @@ CREATE TABLE IF NOT EXISTS meetings (
   status VARCHAR(50) DEFAULT 'scheduled',
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -279,6 +291,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   scheduled_at DATETIME,
   sent_at DATETIME,
   stats TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -287,6 +300,7 @@ CREATE TABLE IF NOT EXISTS segments (
   name VARCHAR(255) NOT NULL,
   conditions TEXT,
   contact_count INT DEFAULT 0,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -296,6 +310,7 @@ CREATE TABLE IF NOT EXISTS campaign_templates (
   type VARCHAR(50),
   subject VARCHAR(255),
   body TEXT,
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -424,6 +439,7 @@ CREATE TABLE IF NOT EXISTS custom_fields (
   description TEXT,
   options TEXT,
   group_name VARCHAR(100),
+  agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -548,41 +564,41 @@ async function seed() {
 
   // Inboxes
   const inboxes = [
-    ['ib1', 'Website Chat', 'live', '#1fd07a', 'Hi! How can we help?', 1],
-    ['ib2', 'Support Email', 'email', '#4c82fb', '', 1],
-    ['ib3', 'WhatsApp Business', 'whatsapp', '#25d366', 'Hello!', 1],
-    ['ib4', 'Telegram Bot', 'telegram', '#0088cc', '', 0],
-    ['ib5', 'Facebook Page', 'facebook', '#1877f2', 'Hi! Thanks for reaching out.', 1],
-    ['ib6', 'Instagram DMs', 'instagram', '#e1306c', 'Hi! We got your DM.', 1],
-    ['ib11', 'X (Twitter) DMs', 'x', '#e7e9ea', 'Hi there! How can we help?', 1],
-    ['ib12', 'SMS Support', 'sms', '#f5a623', '', 1],
-    ['ib15', 'REST API', 'api', '#22d4e8', '', 1],
+    ['ib1', 'Website Chat', 'live', '#1fd07a', 'Hi! How can we help?', 1, 'a1'],
+    ['ib2', 'Support Email', 'email', '#4c82fb', '', 1, 'a1'],
+    ['ib3', 'WhatsApp Business', 'whatsapp', '#25d366', 'Hello!', 1, 'a1'],
+    ['ib4', 'Telegram Bot', 'telegram', '#0088cc', '', 0, 'a1'],
+    ['ib5', 'Facebook Page', 'facebook', '#1877f2', 'Hi! Thanks for reaching out.', 1, 'a1'],
+    ['ib6', 'Instagram DMs', 'instagram', '#e1306c', 'Hi! We got your DM.', 1, 'a1'],
+    ['ib11', 'X (Twitter) DMs', 'x', '#e7e9ea', 'Hi there! How can we help?', 1, 'a1'],
+    ['ib12', 'SMS Support', 'sms', '#f5a623', '', 1, 'a1'],
+    ['ib15', 'REST API', 'api', '#22d4e8', '', 1, 'a1'],
   ];
   for (const i of inboxes) {
-    await run('INSERT INTO inboxes (id,name,type,color,greeting,active) VALUES (?,?,?,?,?,?)', i);
+    await run('INSERT INTO inboxes (id,name,type,color,greeting,active,agent_id) VALUES (?,?,?,?,?,?,?)', i);
   }
 
   // Contacts
   const contacts = [
-    ['ct1', 'Alice Johnson', 'alice@techcorp.com', '+1 555 0101', 'TechCorp', '#4c82fb', '["vip","enterprise"]'],
-    ['ct2', 'Bob Martinez', 'bob@startup.io', '+1 555 0102', 'StartupIO', '#1fd07a', '["trial"]'],
-    ['ct3', 'Carol Chen', 'carol@enterprise.com', '+1 555 0103', 'Enterprise Co', '#9b6dff', '["enterprise","vip"]'],
-    ['ct4', 'David Kim', 'david@freelance.dev', '+1 555 0104', 'Freelance', '#f5a623', '[]'],
-    ['ct5', 'Emma Wilson', 'emma@agency.com', '+1 555 0105', 'Creative Agency', '#f04f5a', '["agency"]'],
-    ['ct6', 'Frank Brown', 'retail@retail.com', '+1 555 0106', 'RetailCo', '#22d4e8', '[]'],
+    ['ct1', 'Alice Johnson', 'alice@techcorp.com', '+1 555 0101', 'TechCorp', '#4c82fb', '["vip","enterprise"]', 'a1'],
+    ['ct2', 'Bob Martinez', 'bob@startup.io', '+1 555 0102', 'StartupIO', '#1fd07a', '["trial"]', 'a1'],
+    ['ct3', 'Carol Chen', 'carol@enterprise.com', '+1 555 0103', 'Enterprise Co', '#9b6dff', '["enterprise","vip"]', 'a1'],
+    ['ct4', 'David Kim', 'david@freelance.dev', '+1 555 0104', 'Freelance', '#f5a623', '[]', 'a1'],
+    ['ct5', 'Emma Wilson', 'emma@agency.com', '+1 555 0105', 'Creative Agency', '#f04f5a', '["agency"]', 'a1'],
+    ['ct6', 'Frank Brown', 'retail@retail.com', '+1 555 0106', 'RetailCo', '#22d4e8', '[]', 'a1'],
   ];
   for (const c of contacts) {
-    await run('INSERT INTO contacts (id,name,email,phone,company,color,tags) VALUES (?,?,?,?,?,?,?)', c);
+    await run('INSERT INTO contacts (id,name,email,phone,company,color,tags,agent_id) VALUES (?,?,?,?,?,?,?,?)', c);
   }
 
   // Conversations
   const convos = [
-    ['cv1', 'API rate limit exceeded', 'open', 'urgent', 'ct1', 'ib2', 'a1', '["api","urgent"]', '#f04f5a'],
-    ['cv2', 'Billing question for enterprise plan', 'open', 'high', 'ct2', 'ib1', 'a2', '["billing"]', '#f5a623'],
-    ['cv3', 'WhatsApp integration not working', 'open', 'high', 'ct3', 'ib3', 'a3', '["bug"]', '#4c82fb'],
+    ['cv1', 'API rate limit exceeded', 'open', 'urgent', 'ct1', 'ib2', 'a1', '["api","urgent"]', '#f04f5a', 'a1'],
+    ['cv2', 'Billing question for enterprise plan', 'open', 'high', 'ct2', 'ib1', 'a2', '["billing"]', '#f5a623', 'a1'],
+    ['cv3', 'WhatsApp integration not working', 'open', 'high', 'ct3', 'ib3', 'a3', '["bug"]', '#4c82fb', 'a1'],
   ];
   for (const c of convos) {
-    await run('INSERT INTO conversations (id,subject,status,priority,contact_id,inbox_id,assignee_id,labels,color) VALUES (?,?,?,?,?,?,?,?,?)', c);
+    await run('INSERT INTO conversations (id,subject,status,priority,contact_id,inbox_id,assignee_id,labels,color,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)', c);
   }
 
   console.log('✅ Database seeded successfully');

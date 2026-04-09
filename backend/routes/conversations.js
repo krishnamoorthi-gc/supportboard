@@ -8,8 +8,8 @@ router.get('/', auth, async (req, res) => {
   const { offset, limit } = paginate(req);
   const { status, priority, assignee, inbox, label, q } = req.query;
 
-  let where = '1=1';
-  const params = [];
+  let where = 'c.agent_id=?';
+  const params = [req.agent.id];
   if (status) { where += ' AND c.status=?'; params.push(status); }
   if (priority) { where += ' AND c.priority=?'; params.push(priority); }
   if (assignee) { where += ' AND c.assignee_id=?'; params.push(assignee); }
@@ -72,8 +72,8 @@ router.post('/', auth, async (req, res) => {
   const { subject, contact_id, inbox_id, assignee_id, priority='normal', labels=[] } = req.body;
   if (!subject || !contact_id) return res.status(400).json({ error: 'subject and contact_id required' });
   const id = uid();
-  await db.prepare(`INSERT INTO conversations (id,subject,contact_id,inbox_id,assignee_id,priority,labels) VALUES (?,?,?,?,?,?,?)`).run(
-    id, subject, contact_id, inbox_id||null, assignee_id||null, priority, JSON.stringify(labels)
+  await db.prepare(`INSERT INTO conversations (id,subject,contact_id,inbox_id,assignee_id,priority,labels,agent_id) VALUES (?,?,?,?,?,?,?,?)`).run(
+    id, subject, contact_id, inbox_id||null, assignee_id||null, priority, JSON.stringify(labels), req.agent.id
   );
   const cv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(id);
   res.status(201).json({ conversation: cv });

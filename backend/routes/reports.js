@@ -7,10 +7,11 @@ router.get('/overview', auth, async (req, res) => {
   const days = period === '30d' ? 30 : period === '90d' ? 90 : 7;
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
-  const total = (await db.prepare('SELECT COUNT(*) as c FROM conversations WHERE created_at >= ?').get(since)).c;
-  const resolved = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE status='resolved' AND updated_at >= ?").get(since)).c;
-  const open = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE status='open'").get()).c;
-  const urgent = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE priority='urgent' AND status='open'").get()).c;
+  const aid = req.agent.id;
+  const total = (await db.prepare('SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND created_at >= ?').get(aid, since)).c;
+  const resolved = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND status='resolved' AND updated_at >= ?").get(aid, since)).c;
+  const open = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND status='open'").get(aid)).c;
+  const urgent = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND priority='urgent' AND status='open'").get(aid)).c;
 
   // Real daily breakdown from the database
   const dailyRows = await db.query(
@@ -24,10 +25,10 @@ router.get('/overview', auth, async (req, res) => {
               END
             ), 0) as avgResponse
      FROM conversations
-     WHERE created_at >= ?
+     WHERE agent_id=? AND created_at >= ?
      GROUP BY DATE(created_at)
      ORDER BY d ASC`,
-    [since]
+    [aid, since]
   );
 
   // Build a map from the query results
@@ -58,18 +59,19 @@ router.get('/overview', auth, async (req, res) => {
 router.get('/agents', auth, async (req, res) => {
   const agents = await db.prepare('SELECT * FROM agents').all();
   const stats = [];
+  const aid = req.agent.id;
 
   for (const a of agents) {
-    const assigned = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE assignee_id=?").get(a.id)).c;
-    const resolvedCount = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE assignee_id=? AND status='resolved'").get(a.id)).c;
-    const openCount = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE assignee_id=? AND status='open'").get(a.id)).c;
+    const assigned = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND assignee_id=?").get(aid, a.id)).c;
+    const resolvedCount = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND assignee_id=? AND status='resolved'").get(aid, a.id)).c;
+    const openCount = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND assignee_id=? AND status='open'").get(aid, a.id)).c;
 
     // Average response time: average minutes between conversation created_at and first_reply_at for this agent
     const rtRow = await db.query(
       `SELECT AVG(TIMESTAMPDIFF(MINUTE, c.created_at, c.first_reply_at)) as avg_rt
        FROM conversations c
-       WHERE c.assignee_id = ? AND c.first_reply_at IS NOT NULL`,
-      [a.id], true
+       WHERE c.agent_id = ? AND c.assignee_id = ? AND c.first_reply_at IS NOT NULL`,
+      [aid, a.id], true
     );
     const avgResponseTime = rtRow && rtRow.avg_rt != null
       ? `${Math.round(rtRow.avg_rt)}m`
@@ -77,8 +79,8 @@ router.get('/agents', auth, async (req, res) => {
 
     // Average CSAT for conversations assigned to this agent
     const csatRow = await db.query(
-      'SELECT AVG(csat_score) as avg_csat FROM conversations WHERE assignee_id = ? AND csat_score IS NOT NULL',
-      [a.id], true
+      'SELECT AVG(csat_score) as avg_csat FROM conversations WHERE agent_id = ? AND assignee_id = ? AND csat_score IS NOT NULL',
+      [aid, a.id], true
     );
     const csat = csatRow && csatRow.avg_csat != null
       ? Number(csatRow.avg_csat).toFixed(1)
@@ -98,19 +100,20 @@ router.get('/agents', auth, async (req, res) => {
 });
 
 router.get('/channels', auth, async (req, res) => {
-  const inboxes = await db.prepare('SELECT * FROM inboxes WHERE active=1').all();
+  const aid = req.agent.id;
+  const inboxes = await db.prepare('SELECT * FROM inboxes WHERE agent_id=? AND active=1').all(aid);
   const stats = [];
 
   for (const i of inboxes) {
-    const conversations = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE inbox_id=?").get(i.id)).c;
-    const resolvedCount = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE inbox_id=? AND status='resolved'").get(i.id)).c;
+    const conversations = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND inbox_id=?").get(aid, i.id)).c;
+    const resolvedCount = (await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND inbox_id=? AND status='resolved'").get(aid, i.id)).c;
 
     // Average response time for conversations in this inbox
     const rtRow = await db.query(
       `SELECT AVG(TIMESTAMPDIFF(MINUTE, c.created_at, c.first_reply_at)) as avg_rt
        FROM conversations c
-       WHERE c.inbox_id = ? AND c.first_reply_at IS NOT NULL`,
-      [i.id], true
+       WHERE c.agent_id = ? AND c.inbox_id = ? AND c.first_reply_at IS NOT NULL`,
+      [aid, i.id], true
     );
     const avgResponseTime = rtRow && rtRow.avg_rt != null
       ? `${Math.round(rtRow.avg_rt)}m`
@@ -128,7 +131,8 @@ router.get('/channels', auth, async (req, res) => {
 });
 
 router.get('/sla', auth, async (req, res) => {
-  const total = (await db.prepare('SELECT COUNT(*) as c FROM conversations').get()).c;
+  const aid = req.agent.id;
+  const total = (await db.prepare('SELECT COUNT(*) as c FROM conversations WHERE agent_id=?').get(aid)).c;
 
   // Get the default SLA threshold (first_response_minutes) from sla_policies; fall back to 60 minutes
   const slaRow = await db.query(
@@ -140,17 +144,17 @@ router.get('/sla', auth, async (req, res) => {
   // Breached: first reply took longer than SLA, OR no first reply and conversation is older than SLA threshold
   const breachedRow = await db.query(
     `SELECT COUNT(*) as c FROM conversations
-     WHERE (first_reply_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, first_reply_at) > ?)
-        OR (first_reply_at IS NULL AND TIMESTAMPDIFF(MINUTE, created_at, NOW()) > ?)`,
-    [slaThresholdMinutes, slaThresholdMinutes], true
+     WHERE agent_id=? AND ((first_reply_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, first_reply_at) > ?)
+        OR (first_reply_at IS NULL AND TIMESTAMPDIFF(MINUTE, created_at, NOW()) > ?))`,
+    [aid, slaThresholdMinutes, slaThresholdMinutes], true
   );
   const breached = breachedRow ? breachedRow.c : 0;
 
   // Compliant: first reply within SLA threshold
   const compliantRow = await db.query(
     `SELECT COUNT(*) as c FROM conversations
-     WHERE first_reply_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, first_reply_at) <= ?`,
-    [slaThresholdMinutes], true
+     WHERE agent_id=? AND first_reply_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, first_reply_at) <= ?`,
+    [aid, slaThresholdMinutes], true
   );
   const compliant = compliantRow ? compliantRow.c : 0;
 
@@ -162,15 +166,15 @@ router.get('/sla', auth, async (req, res) => {
   const byPriority = [];
   for (const p of priorities) {
     const pTotal = (await db.query(
-      'SELECT COUNT(*) as c FROM conversations WHERE priority = ?',
-      [p], true
+      'SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND priority = ?',
+      [aid, p], true
     )).c;
     const pBreached = (await db.query(
       `SELECT COUNT(*) as c FROM conversations
-       WHERE priority = ?
+       WHERE agent_id=? AND priority = ?
          AND ((first_reply_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, first_reply_at) > ?)
            OR (first_reply_at IS NULL AND TIMESTAMPDIFF(MINUTE, created_at, NOW()) > ?))`,
-      [p, slaThresholdMinutes, slaThresholdMinutes], true
+      [aid, p, slaThresholdMinutes, slaThresholdMinutes], true
     )).c;
     byPriority.push({ priority: p, total: pTotal, breached: pBreached });
   }
@@ -187,6 +191,7 @@ router.get('/sla', auth, async (req, res) => {
 });
 
 router.get('/trends', auth, async (req, res) => {
+  const aid = req.agent.id;
   // Last 12 weeks of real conversation data
   const trendRows = await db.query(
     `SELECT
@@ -196,9 +201,10 @@ router.get('/trends', auth, async (req, res) => {
        SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
        AVG(CASE WHEN csat_score IS NOT NULL THEN csat_score ELSE NULL END) as csat
      FROM conversations
-     WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 WEEK)
+     WHERE agent_id=? AND created_at >= DATE_SUB(NOW(), INTERVAL 12 WEEK)
      GROUP BY YEARWEEK(created_at, 1)
-     ORDER BY yw ASC`
+     ORDER BY yw ASC`,
+    [aid]
   );
 
   // Build a map keyed by YEARWEEK
@@ -238,10 +244,11 @@ router.get('/trends', auth, async (req, res) => {
 });
 
 router.get('/labels', auth, async (req, res) => {
-  const labels = await db.prepare('SELECT * FROM labels').all();
+  const aid = req.agent.id;
+  const labels = await db.prepare('SELECT * FROM labels WHERE agent_id=?').all(aid);
   const stats = [];
   for (const l of labels) {
-    const row = await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE labels LIKE ?").get(`%"${l.title}"%`);
+    const row = await db.prepare("SELECT COUNT(*) as c FROM conversations WHERE agent_id=? AND labels LIKE ?").get(aid, `%"${l.title}"%`);
     stats.push({ label: l, count: row.c });
   }
   res.json({ labels: stats });

@@ -7,6 +7,47 @@ const { uid } = require('../utils/helpers');
 
 const SECRET = () => process.env.JWT_SECRET || 'supportdesk_secret';
 
+// POST /api/auth/register
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password required' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    
+    // Check if user already exists
+    const existing = await db.prepare('SELECT id FROM agents WHERE email = ?').get(email.toLowerCase().trim());
+    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    
+    // Create new agent
+    const id = uid();
+    const password_hash = bcrypt.hashSync(password, 10);
+    const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+    const av = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+    
+    await db.prepare('INSERT INTO agents (id,name,email,password_hash,role,color,avatar,status) VALUES (?,?,?,?,?,?,?,?)').run(
+      id, name, email.toLowerCase().trim(), password_hash, 'agent', color, av, 'active'
+    );
+    
+    // Create default inbox for this user
+    await db.prepare('INSERT INTO inboxes (id,name,type,color,agent_id) VALUES (?,?,?,?,?)').run(
+      uid(), 'My Inbox', 'live', '#4c82fb', id
+    );
+    
+    const token = jwt.sign({ id, email: email.toLowerCase().trim(), role: 'agent' }, SECRET(), { expiresIn: '30d' });
+    
+    // Log audit
+    await db.prepare('INSERT INTO audit_logs (id,agent_id,action,entity_type,details) VALUES (?,?,?,?,?)').run(
+      uid(), id, 'register', 'agent', JSON.stringify({ email, name })
+    );
+    
+    const agent = { id, name, email: email.toLowerCase().trim(), role: 'agent', color, avatar: av, status: 'active' };
+    res.status(201).json({ token, agent });
+  } catch (e) {
+    console.error('❌ Registration error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
