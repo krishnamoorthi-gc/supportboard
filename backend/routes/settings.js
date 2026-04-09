@@ -495,4 +495,75 @@ router.get('/audit-log', auth, (req, res) => {
   res.json({ logs });
 });
 
+// ── BOTS ──
+function parseBot(b) {
+  if (!b) return null;
+  return {
+    ...b,
+    nodes: (() => { try { return typeof b.nodes === 'string' ? JSON.parse(b.nodes) : b.nodes || []; } catch { return []; } })(),
+    knowledge: (() => { try { return typeof b.knowledge === 'string' ? JSON.parse(b.knowledge) : b.knowledge || []; } catch { return []; } })(),
+    stats: (() => { try { return typeof b.stats === 'string' ? JSON.parse(b.stats) : b.stats || { triggered: 0, completed: 0, handoff: 0, avgTime: '—' }; } catch { return { triggered: 0, completed: 0, handoff: 0, avgTime: '—' }; } })(),
+  };
+}
+
+router.get('/bots', auth, async (req, res) => {
+  try {
+    const bots = await db.prepare('SELECT * FROM bots WHERE agent_id=? ORDER BY created_at DESC').all(req.agent.id);
+    res.json({ bots: bots.map(parseBot) });
+  } catch (e) {
+    console.error('❌ GET /api/settings/bots error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/bots', auth, async (req, res) => {
+  try {
+    const { name, desc, status = 'draft', template, nodes = [], knowledge = [] } = req.body;
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const id = uid();
+    const embed_token = uid().replace(/-/g, '');
+    const defaultStats = JSON.stringify({ triggered: 0, completed: 0, handoff: 0, avgTime: '—' });
+    await db.prepare(
+      'INSERT INTO bots (id,name,description,status,template,nodes,knowledge,embed_token,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).run(id, name, desc || null, status, template || null, JSON.stringify(nodes), JSON.stringify(knowledge), embed_token, defaultStats, req.agent.id);
+    const bot = await db.prepare('SELECT * FROM bots WHERE id=?').get(id);
+    res.status(201).json({ bot: parseBot(bot) });
+  } catch (e) {
+    console.error('❌ POST /api/settings/bots error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.patch('/bots/:id', auth, async (req, res) => {
+  try {
+    const bot = await db.prepare('SELECT * FROM bots WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!bot) return res.status(404).json({ error: 'Not found' });
+    const allowed = ['name', 'description', 'status', 'template'];
+    const updates = {};
+    for (const f of allowed) if (req.body[f] !== undefined) updates[f] = req.body[f];
+    if (req.body.nodes !== undefined) updates.nodes = JSON.stringify(req.body.nodes);
+    if (req.body.knowledge !== undefined) updates.knowledge = JSON.stringify(req.body.knowledge);
+    if (req.body.stats !== undefined) updates.stats = JSON.stringify(req.body.stats);
+    updates.updated_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    if (!Object.keys(updates).length) return res.json({ bot: parseBot(bot) });
+    const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
+    await db.prepare(`UPDATE bots SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+    const updated = await db.prepare('SELECT * FROM bots WHERE id=?').get(req.params.id);
+    res.json({ bot: parseBot(updated) });
+  } catch (e) {
+    console.error('❌ PATCH /api/settings/bots error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/bots/:id', auth, async (req, res) => {
+  try {
+    await db.prepare('DELETE FROM bots WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('❌ DELETE /api/settings/bots error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
