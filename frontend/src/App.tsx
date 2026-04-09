@@ -432,11 +432,19 @@ export default function App(){
           setNotifs(p=>[{id:"n"+uid(),text:m.message.author+" sent a message in "+m.channel,type:"message",read:false,time:"now"},...p.slice(0,19)]);
         }
         if(m.type==="conversation_update"){
-          api.get(`/conversations/${m.conversation_id}`).then(res=>{
-            const cv=res?.conversation;
-            if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.channel||cv.inbox_type||cv.type||c.ch,agent:cv.assignee_id??cv.agent_id??c.agent,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
-          }).catch(()=>{});
-          setNotifs(p=>[{id:"n"+uid(),text:"Conversation #"+m.conversation_id+" updated",type:"info",read:false,time:"now"},...p.slice(0,19)]);
+          // If bot handoff, reload conversations to pick up new ones
+          if(m.updates?.bot_handoff){
+            api.get("/conversations").then(r=>{
+              if(r?.conversations)setConvs(r.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
+            }).catch(()=>{});
+            setNotifs(p=>[{id:"n"+uid(),text:"🤖 Bot handoff: "+(m.updates.visitor_name||"Visitor")+" needs a live agent",type:"message",read:false,time:"now"},...p.slice(0,19)]);
+            showT("🤖 Bot handoff — a visitor needs a live agent!","info");
+          } else {
+            api.get(`/conversations/${m.conversationId}`).then(cv=>{
+              if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.channel,agent:cv.agent_id,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
+            }).catch(()=>{});
+          }
+          setNotifs(p=>[{id:"n"+uid(),text:"Conversation updated",type:"info",read:false,time:"now"},...p.slice(0,19)]);
         }
         if(m.type==="presence"){
           setAgents(p=>p.map(a=>a.id===m.agent_id?{...a,status:m.status}:a));

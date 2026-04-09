@@ -556,6 +556,22 @@ CREATE TABLE IF NOT EXISTS bots (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Bot Chat Sessions
+CREATE TABLE IF NOT EXISTS bot_chats (
+  id VARCHAR(255) PRIMARY KEY,
+  bot_id VARCHAR(255),
+  bot_name VARCHAR(255),
+  contact_id VARCHAR(255),
+  conversation_id VARCHAR(255),
+  visitor_name VARCHAR(255) DEFAULT 'Visitor',
+  visitor_email VARCHAR(255),
+  messages TEXT,
+  status VARCHAR(50) DEFAULT 'active',
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 `;
 
   await db.query(schema.replace(/TEXT DEFAULT \(datetime\('now'\)\)/g, "DATETIME DEFAULT CURRENT_TIMESTAMP")

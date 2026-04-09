@@ -637,7 +637,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                   {cv.status==="resolved"&&<Tag text="resolved" color={C.g}/>}
                   {cv.status==="snoozed"&&<Tag text="snoozed" color={C.y}/>}
-                  {cv.labels.slice(0,2).map(l=><Tag key={l} text={l} color={lc(l)}/>)}
+                  {(cv.labels||[]).includes("bot-handoff")&&<Tag text="🤖 Bot Handoff" color="#ef4444"/>}
+                  {cv.labels.filter((l:string)=>l!=="bot-handoff").slice(0,2).map((l:string)=><Tag key={l} text={l} color={lc(l)}/>)}
                   {viewingAg&&viewingAg.id!=="a1"&&<span style={{fontSize:9,color:C.p,fontFamily:FM,display:"flex",alignItems:"center",gap:3}}>👁 {viewingAg.name.split(" ")[0]}</span>}
                   {slaTimers[cv.id]&&cv.status==="open"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:getSlaColor(slaTimers[cv.id].firstReply,slaTimers[cv.id].target),background:getSlaColor(slaTimers[cv.id].firstReply,slaTimers[cv.id].target)+"18",padding:"1px 5px",borderRadius:4}}>{getSlaText(slaTimers[cv.id].firstReply,slaTimers[cv.id].target)}</span>}
                 </div>

@@ -76,6 +76,308 @@ app.get('/api/bot-public/:token', widgetCors, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Gemini AI - KB-powered answer ──
+app.post('/api/bot-public/:token/ask', widgetCors, async (req, res) => {
+  try {
+    const bot = await db.prepare('SELECT * FROM bots WHERE embed_token=?').get(req.params.token);
+    if (!bot || !bot.id) return res.status(404).json({ error: 'Bot not found' });
+    const p = (v, fb) => { try { return typeof v === 'string' ? JSON.parse(v) : v || fb; } catch { return fb; } };
+    const kb = p(bot.knowledge, []);
+    const { question, chat_id } = req.body;
+    if (!question) return res.status(400).json({ error: 'question required' });
+
+    // Build KB context from uploaded docs
+    let kbContext = '';
+    for (const item of kb) {
+      kbContext += `\n--- ${item.title || 'Document'} ---\n${item.content || ''}\n`;
+      // If it's a file, try to read it
+      if (item.url && !item.content?.includes('Uploaded')) {
+        try {
+          const filePath = path.join(__dirname, item.url);
+          if (fs.existsSync(filePath)) {
+            const txt = fs.readFileSync(filePath, 'utf8');
+            if (txt.length < 50000) kbContext += txt + '\n';
+          }
+        } catch {}
+      }
+    }
+
+    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
+    const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+    if (!GEMINI_KEY) return res.json({ answer: null, source: 'no_api_key' });
+
+    const sysPrompt = `You are a helpful support bot for "${bot.name || 'this company'}". Answer the user's question ONLY based on the knowledge base documents provided below. If the answer is found in the documents, provide a clear, friendly, and concise answer. If the answer is NOT found in the documents, respond with exactly: __NO_ANSWER__
+
+Knowledge Base:
+${kbContext}`;
+
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: sysPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: question }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
+      })
+    });
+    const geminiData = await geminiRes.json();
+    const answer = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+
+    if (!answer || answer.includes('__NO_ANSWER__')) {
+      return res.json({ answer: null, source: 'not_found' });
+    }
+    res.json({ answer, source: 'gemini' });
+  } catch (e) { console.error('Gemini ask error:', e); res.status(500).json({ error: e.message }); }
+});
+app.options('/api/bot-public/:token/ask', widgetCors, (req, res) => res.sendStatus(204));
+
+// ── Bot chat session management ──
+app.post('/api/bot-public/:token/chat-session', widgetCors, async (req, res) => {
+  try {
+    const bot = await db.prepare('SELECT * FROM bots WHERE embed_token=?').get(req.params.token);
+    if (!bot || !bot.id) return res.status(404).json({ error: 'Bot not found' });
+    const { uid } = require('./utils/helpers');
+    const { visitor_name, visitor_email, contact_id } = req.body;
+    const id = 'bc' + uid();
+    await db.prepare('INSERT INTO bot_chats (id,bot_id,bot_name,contact_id,visitor_name,visitor_email,messages,agent_id) VALUES (?,?,?,?,?,?,?,?)').run(
+      id, bot.id, bot.name, contact_id || null, visitor_name || 'Visitor', visitor_email || null, '[]', bot.agent_id
+    );
+    res.json({ chat_id: id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req, res) => {
+  try {
+    const { messages, status } = req.body;
+    const updates = [];
+    const params = [];
+    if (messages !== undefined) { updates.push('messages=?'); params.push(JSON.stringify(messages)); }
+    if (status) { updates.push('status=?'); params.push(status); }
+    if (updates.length === 0) return res.json({ success: true });
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    updates.push('updated_at=?'); params.push(now);
+    params.push(req.params.chatId);
+    await db.prepare('UPDATE bot_chats SET ' + updates.join(',') + ' WHERE id=?').run(...params);
+
+    // Sync new visitor messages to linked inbox conversation
+    if (messages) {
+      try {
+        const chat = await db.prepare('SELECT conversation_id FROM bot_chats WHERE id=?').get(req.params.chatId);
+        if (chat && chat.conversation_id) {
+          const newMsgs = messages.filter(m => m.f === 'user');
+          // Get count of existing customer messages in inbox
+          const existing = await db.prepare('SELECT COUNT(*) as c FROM messages WHERE conversation_id=? AND role=?').get(chat.conversation_id, 'customer');
+          const existingCount = existing ? existing.c : 0;
+          // Only add messages that are new (beyond what we already have)
+          const toAdd = newMsgs.slice(existingCount);
+          const { uid } = require('./utils/helpers');
+          for (const m of toAdd) {
+            await db.prepare('INSERT INTO messages (id,conversation_id,role,text,is_read) VALUES (?,?,?,?,?)').run(
+              uid(), chat.conversation_id, 'customer', m.t, 0
+            );
+          }
+          if (toAdd.length > 0) {
+            await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, chat.conversation_id);
+          }
+        }
+      } catch {}
+    }
+
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.options('/api/bot-public/:token/chat-session', widgetCors, (req, res) => res.sendStatus(204));
+app.options('/api/bot-public/:token/chat-session/:chatId', widgetCors, (req, res) => res.sendStatus(204));
+
+// ── Bot chat history (authenticated) ──
+app.get('/api/settings/bot-chats', require('./middleware/auth'), async (req, res) => {
+  try {
+    const { bot_id } = req.query;
+    let where = 'agent_id=?';
+    const params = [req.agent.id];
+    if (bot_id) { where += ' AND bot_id=?'; params.push(bot_id); }
+    const chats = await db.prepare('SELECT * FROM bot_chats WHERE ' + where + ' ORDER BY updated_at DESC LIMIT 100').all(...params);
+    for (const c of chats) { try { c.messages = JSON.parse(c.messages || '[]'); } catch { c.messages = []; } }
+    res.json({ chats });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Admin reply to a bot chat (authenticated) ──
+app.post('/api/settings/bot-chats/:chatId/reply', require('./middleware/auth'), async (req, res) => {
+  try {
+    const chat = await db.prepare('SELECT * FROM bot_chats WHERE id=?').get(req.params.chatId);
+    if (!chat || !chat.id) return res.status(404).json({ error: 'Chat not found' });
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required' });
+    const msgs = (() => { try { return JSON.parse(chat.messages || '[]'); } catch { return []; } })();
+    msgs.push({ f: 'agent', t: message, agent_name: req.agent.name, ts: Date.now() });
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    await db.prepare('UPDATE bot_chats SET messages=?, status=?, updated_at=? WHERE id=?').run(
+      JSON.stringify(msgs), 'agent_connected', now, chat.id
+    );
+    // Also sync to inbox conversation if linked
+    if (chat.conversation_id) {
+      const { uid } = require('./utils/helpers');
+      await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id) VALUES (?,?,?,?,?)').run(
+        uid(), chat.conversation_id, 'agent', message, req.agent.id
+      );
+      await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, chat.conversation_id);
+    }
+    res.json({ success: true, messages: msgs });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Public: visitor polls for new messages (agent replies) ──
+app.get('/api/bot-public/:token/chat-session/:chatId/poll', widgetCors, async (req, res) => {
+  try {
+    const chat = await db.prepare('SELECT messages, status FROM bot_chats WHERE id=?').get(req.params.chatId);
+    if (!chat) return res.status(404).json({ error: 'Not found' });
+    const msgs = (() => { try { return JSON.parse(chat.messages || '[]'); } catch { return []; } })();
+    res.json({ messages: msgs, status: chat.status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Get single bot chat (authenticated) ──
+app.get('/api/settings/bot-chats/:chatId', require('./middleware/auth'), async (req, res) => {
+  try {
+    const chat = await db.prepare('SELECT * FROM bot_chats WHERE id=?').get(req.params.chatId);
+    if (!chat || !chat.id) return res.status(404).json({ error: 'Not found' });
+    try { chat.messages = JSON.parse(chat.messages || '[]'); } catch { chat.messages = []; }
+    res.json({ chat });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Bot handoff → create real inbox conversation ──
+app.post('/api/bot-public/:token/handoff', widgetCors, async (req, res) => {
+  try {
+    const bot = await db.prepare('SELECT * FROM bots WHERE embed_token=?').get(req.params.token);
+    if (!bot || !bot.id) return res.status(404).json({ error: 'Bot not found' });
+    const { chat_id } = req.body;
+    if (!chat_id) return res.status(400).json({ error: 'chat_id required' });
+    const chat = await db.prepare('SELECT * FROM bot_chats WHERE id=?').get(chat_id);
+    if (!chat || !chat.id) return res.status(404).json({ error: 'Chat not found' });
+
+    // Idempotency: if already handed off, return existing conversation
+    if (chat.conversation_id) {
+      return res.json({ conversation_id: chat.conversation_id, success: true });
+    }
+
+    const { uid } = require('./utils/helpers');
+    const botMsgs = (() => { try { return JSON.parse(chat.messages || '[]'); } catch { return []; } })();
+
+    // Create or find contact
+    let contactId = chat.contact_id;
+    if (!contactId && chat.visitor_email) {
+      const existing = await db.prepare('SELECT id FROM contacts WHERE email=?').get(chat.visitor_email);
+      if (existing && existing.id) contactId = existing.id;
+    }
+    if (!contactId) {
+      contactId = 'ct' + uid();
+      await db.prepare('INSERT INTO contacts (id,name,email,phone,color,tags,agent_id) VALUES (?,?,?,?,?,?,?)').run(
+        contactId, chat.visitor_name || 'Visitor', chat.visitor_email || null, null, '#4c82fb', '["bot-visitor"]', bot.agent_id
+      );
+    }
+
+    // Create conversation
+    const convId = uid();
+    const subject = 'Bot handoff: ' + (chat.visitor_name || 'Visitor') + ' from ' + (bot.name || 'Bot');
+    await db.prepare('INSERT INTO conversations (id,subject,status,priority,contact_id,labels,color,agent_id) VALUES (?,?,?,?,?,?,?,?)').run(
+      convId, subject, 'open', 'high', contactId, '["bot-handoff"]', '#ef4444', bot.agent_id
+    );
+
+    // Link bot_chat → conversation immediately (before message migration so link is never lost)
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    await db.prepare('UPDATE bot_chats SET status=?, conversation_id=?, updated_at=? WHERE id=?').run(
+      'handed_off', convId, now, chat_id
+    );
+
+    // Migrate bot messages → real messages (wrapped so failures don't break the link)
+    try {
+      for (const m of botMsgs) {
+        const msgId = uid();
+        let role = 'customer';
+        if (m.f === 'bot' || m.f === 'ai' || m.f === 'kb') role = 'system';
+        if (m.f === 'sys' || m.f === 'ask') role = 'system';
+        if (m.f === 'agent') role = 'agent';
+        if (m.f === 'user') role = 'customer';
+        const text = (m.t != null) ? String(m.t) : '';
+        await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,is_read) VALUES (?,?,?,?,?,?)').run(
+          msgId, convId, role, text, m.f === 'agent' ? bot.agent_id : null, 1
+        );
+      }
+      // Add system message about handoff
+      const sysId = uid();
+      await db.prepare('INSERT INTO messages (id,conversation_id,role,text,is_read) VALUES (?,?,?,?,?)').run(
+        sysId, convId, 'system', '🤖 This conversation was handed off from bot "' + (bot.name || 'Bot') + '". The visitor requested to speak with a live agent.', 1
+      );
+    } catch (migErr) { console.error('Handoff message migration error (non-fatal):', migErr); }
+
+    // Broadcast to agents via WebSocket
+    try {
+      const { broadcastToAll } = require('./ws');
+      broadcastToAll({
+        type: 'conversation_update',
+        conversationId: convId,
+        updates: { status: 'open', priority: 'high', bot_handoff: true, visitor_name: chat.visitor_name }
+      });
+      broadcastToAll({
+        type: 'notification',
+        payload: { title: '🤖 Bot Handoff', body: (chat.visitor_name || 'Visitor') + ' needs a live agent', conversationId: convId }
+      });
+    } catch {}
+
+    res.json({ conversation_id: convId, success: true });
+  } catch (e) { console.error('Handoff error:', e); res.status(500).json({ error: e.message }); }
+});
+app.options('/api/bot-public/:token/handoff', widgetCors, (req, res) => res.sendStatus(204));
+
+// ── Pre-chat form submission (public, creates/updates contact) ──
+app.post('/api/bot-public/:token/pre-chat', widgetCors, async (req, res) => {
+  try {
+    const bot = await db.prepare('SELECT * FROM bots WHERE embed_token=?').get(req.params.token);
+    if (!bot || !bot.id) return res.status(404).json({ error: 'Bot not found' });
+    const { fields = {}, ip, geo } = req.body;
+    const name = fields.name || 'Visitor';
+    const email = fields.email || null;
+    const phone = fields.phone || null;
+    const company = fields.company || null;
+    const location = geo ? `${geo.city||''}, ${geo.region||''}, ${geo.country||''}`.replace(/^[, ]+|[, ]+$/g, '') : (fields.location || null);
+    // Check for existing contact by email
+    let contact = null;
+    if (email) contact = await db.prepare('SELECT * FROM contacts WHERE email=?').get(email);
+    const { uid } = require('./utils/helpers');
+    // Build custom_fields from non-mapped form fields
+    const MAPPED = ['name','email','phone','company','location','notes'];
+    const custom = {};
+    for (const [k,v] of Object.entries(fields)) { if (!MAPPED.includes(k) && v) custom[k] = v; }
+    if (ip) custom.ip_address = ip;
+    if (geo) custom.geo = geo;
+    custom.source = 'bot:' + (bot.name || bot.id);
+    custom.bot_token = req.params.token;
+    if (contact && contact.id) {
+      // Update existing
+      const now = new Date().toISOString().slice(0,19).replace('T',' ');
+      const oldCf = (() => { try { return JSON.parse(contact.custom_fields||'{}'); } catch { return {}; } })();
+      const merged = { ...oldCf, ...custom };
+      await db.prepare('UPDATE contacts SET name=?,phone=?,company=?,location=?,custom_fields=?,updated_at=? WHERE id=?').run(
+        name, phone || contact.phone, company || contact.company, location || contact.location, JSON.stringify(merged), now, contact.id
+      );
+      contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(contact.id);
+    } else {
+      // Create new
+      const id = 'ct' + uid();
+      const color = '#4c82fb';
+      const tags = JSON.stringify(['bot-visitor']);
+      await db.prepare('INSERT INTO contacts (id,name,email,phone,company,color,tags,location,custom_fields,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
+        id, name, email, phone, company, color, tags, location, JSON.stringify(custom), bot.agent_id
+      );
+      contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
+    }
+    res.json({ contact_id: contact?.id, success: true });
+  } catch (e) { console.error('Pre-chat form error:', e); res.status(500).json({ error: e.message }); }
+});
+app.options('/api/bot-public/:token/pre-chat', widgetCors, (req, res) => res.sendStatus(204));
+
 // ── Widget script ──
 app.get('/widget/bot.js', widgetCors, (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
@@ -88,13 +390,13 @@ app.get('/widget/bot.js', widgetCors, (req, res) => {
   var TOKEN=el.getAttribute('data-bot-id');
   if(!TOKEN)return;
   var ORIGIN='${BACKEND}';
-  var botCfg=null,open=false,step=0,msgs=[],lastBtn='';
+  var botCfg=null,open=false,step=0,msgs=[],lastBtn='',wChatId=null,wAgentMode=false;
   fetch(ORIGIN+'/api/bot-public/'+TOKEN).then(function(r){return r.json();}).then(function(d){
     if(d.bot)botCfg=d.bot;
   }).catch(function(){}).finally(function(){injectStyle();makeBtn();});
   function injectStyle(){
     var s=document.createElement('style');
-    s.textContent='#_sd_btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4c82fb,#7c3aed);border:none;cursor:pointer;z-index:999999;box-shadow:0 4px 20px #4c82fb66;display:flex;align-items:center;justify-content:center;font-size:22px;transition:transform .2s,box-shadow .2s}#_sd_btn:hover{transform:scale(1.1)}#_sd_panel{position:fixed;bottom:90px;right:24px;width:360px;height:520px;max-height:calc(100vh - 110px);background:#fff;border:1px solid #e5e5e5;border-radius:16px;box-shadow:0 16px 60px rgba(0,0,0,.2);display:flex;flex-direction:column;z-index:999998;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;animation:_sdUp .25s ease}@keyframes _sdUp{from{opacity:0;transform:translateY(20px) scale(.95)}to{opacity:1;transform:none}}#_sd_head{background:linear-gradient(135deg,#4c82fb,#7c3aed);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}#_sd_msgs{flex:1;overflow-y:auto;padding:14px;background:#f9f9fb}#_sd_inp_area{padding:10px 12px;border-top:1px solid #eee;display:flex;gap:7px;background:#fff;flex-shrink:0}#_sd_inp{flex:1;border:1px solid #ddd;border-radius:8px;padding:8px 11px;font-size:13px;outline:none;font-family:inherit;color:#111}#_sd_inp:focus{border-color:#4c82fb}#_sd_send{width:36px;height:36px;border-radius:8px;background:#4c82fb;border:none;color:#fff;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}._sd_msg{margin-bottom:10px}._sd_bot{display:flex;justify-content:flex-start}._sd_user{display:flex;justify-content:flex-end}._sd_sys{text-align:center;font-size:11px;color:#999;padding:3px 0}._sd_bub_b{background:#fff;color:#111;border:1px solid #e5e5e5;padding:9px 13px;border-radius:14px 14px 14px 3px;font-size:13px;line-height:1.5;max-width:80%;box-shadow:0 1px 4px rgba(0,0,0,.07)}._sd_bub_u{background:#4c82fb;color:#fff;padding:9px 13px;border-radius:14px 14px 3px 14px;font-size:13px;line-height:1.5;max-width:80%}._sd_ai_lbl{font-size:9px;color:#7c3aed;font-weight:700;letter-spacing:.5px;margin-bottom:3px}._sd_btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}._sd_chip{padding:5px 11px;border-radius:20px;font-size:12px;border:1.5px solid #4c82fb44;background:transparent;color:#4c82fb;cursor:pointer;font-family:inherit}._sd_chip:hover{background:#4c82fb11}._sd_chip_agent{border-color:#ef444466;color:#ef4444}._sd_chip_agent:hover{background:#ef444411}._sd_kb_lbl{font-size:9px;color:#059669;font-weight:700;letter-spacing:.5px;margin-bottom:3px}';
+    s.textContent='#_sd_btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4c82fb,#7c3aed);border:none;cursor:pointer;z-index:999999;box-shadow:0 4px 20px #4c82fb66;display:flex;align-items:center;justify-content:center;font-size:22px;transition:transform .2s,box-shadow .2s}#_sd_btn:hover{transform:scale(1.1)}#_sd_panel{position:fixed;bottom:90px;right:24px;width:360px;height:520px;max-height:calc(100vh - 110px);background:#fff;border:1px solid #e5e5e5;border-radius:16px;box-shadow:0 16px 60px rgba(0,0,0,.2);display:flex;flex-direction:column;z-index:999998;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;animation:_sdUp .25s ease}@keyframes _sdUp{from{opacity:0;transform:translateY(20px) scale(.95)}to{opacity:1;transform:none}}#_sd_head{background:linear-gradient(135deg,#4c82fb,#7c3aed);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}#_sd_msgs{flex:1;overflow-y:auto;padding:14px;background:#f9f9fb}#_sd_inp_area{padding:10px 12px;border-top:1px solid #eee;display:flex;gap:7px;background:#fff;flex-shrink:0}#_sd_inp{flex:1;border:1px solid #ddd;border-radius:8px;padding:8px 11px;font-size:13px;outline:none;font-family:inherit;color:#111}#_sd_inp:focus{border-color:#4c82fb}#_sd_send{width:36px;height:36px;border-radius:8px;background:#4c82fb;border:none;color:#fff;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}._sd_msg{margin-bottom:10px}._sd_bot{display:flex;justify-content:flex-start}._sd_user{display:flex;justify-content:flex-end}._sd_sys{text-align:center;font-size:11px;color:#999;padding:3px 0}._sd_bub_b{background:#fff;color:#111;border:1px solid #e5e5e5;padding:9px 13px;border-radius:14px 14px 14px 3px;font-size:13px;line-height:1.5;max-width:80%;box-shadow:0 1px 4px rgba(0,0,0,.07)}._sd_bub_u{background:#4c82fb;color:#fff;padding:9px 13px;border-radius:14px 14px 3px 14px;font-size:13px;line-height:1.5;max-width:80%}._sd_ai_lbl{font-size:9px;color:#7c3aed;font-weight:700;letter-spacing:.5px;margin-bottom:3px}._sd_btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}._sd_chip{padding:5px 11px;border-radius:20px;font-size:12px;border:1.5px solid #4c82fb44;background:transparent;color:#4c82fb;cursor:pointer;font-family:inherit}._sd_chip:hover{background:#4c82fb11}._sd_chip_agent{border-color:#ef444466;color:#ef4444}._sd_chip_agent:hover{background:#ef444411}._sd_kb_lbl{font-size:9px;color:#059669;font-weight:700;letter-spacing:.5px;margin-bottom:3px}#_sd_pcf{position:absolute;inset:0;background:#fff;z-index:10;display:flex;flex-direction:column;border-radius:16px;overflow:hidden}._sd_pcf_head{background:linear-gradient(135deg,#4c82fb,#7c3aed);color:#fff;padding:16px;text-align:center}._sd_pcf_head h3{margin:0 0 3px;font-size:14px;font-weight:700}._sd_pcf_head p{margin:0;font-size:11px;opacity:.85}._sd_pcf_body{flex:1;overflow-y:auto;padding:16px}._sd_pcf_fld{margin-bottom:12px}._sd_pcf_lbl{display:block;font-size:11px;font-weight:600;color:#333;margin-bottom:4px}._sd_pcf_lbl .req{color:#ef4444}._sd_pcf_inp{width:100%;border:1px solid #ddd;border-radius:7px;padding:8px 10px;font-size:12px;outline:none;font-family:inherit;color:#111;box-sizing:border-box}._sd_pcf_inp:focus{border-color:#4c82fb}._sd_pcf_btn{width:100%;padding:10px;border-radius:8px;background:linear-gradient(135deg,#4c82fb,#7c3aed);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px}._sd_pcf_btn:disabled{opacity:.5;cursor:default}';
     document.head.appendChild(s);
   }
   function makeBtn(){
@@ -106,16 +408,57 @@ app.get('/widget/bot.js', widgetCors, (req, res) => {
     var b=document.getElementById('_sd_btn');if(b)b.innerHTML=open?'✕':'💬';
     if(open)openPanel();else{var p=document.getElementById('_sd_panel');if(p)p.remove();}
   }
+  function getGeo(){return fetch('https://ipapi.co/json/').then(function(r){return r.json();}).catch(function(){return null;});}
+  function showWidgetForm(panel){
+    var s=botCfg.setup||{};
+    var fields=s.pre_chat_fields||[{id:'pf1',name:'name',label:'Full Name',type:'text',required:true,map_to:'name'},{id:'pf2',name:'email',label:'Email',type:'email',required:true,map_to:'email'},{id:'pf3',name:'phone',label:'Phone',type:'tel',required:false,map_to:'phone'}];
+    var overlay=document.createElement('div');overlay.id='_sd_pcf';
+    var html='<div class="_sd_pcf_head"><h3>'+esc(s.pre_chat_title||'Before we start…')+'</h3><p>'+esc(s.pre_chat_desc||'Please share some details so we can help you better.')+'</p></div>';
+    html+='<div class="_sd_pcf_body"><form id="_sd_pcf_form">';
+    fields.forEach(function(f){
+      html+='<div class="_sd_pcf_fld"><label class="_sd_pcf_lbl">'+esc(f.label)+(f.required?'<span class="req"> *</span>':'')+'</label>';
+      if(f.type==='textarea'){html+='<textarea class="_sd_pcf_inp" name="'+esc(f.map_to||f.name||f.id)+'" '+(f.required?'required':'')+' placeholder="'+esc(f.label)+'" style="resize:vertical;min-height:50px"></textarea>';}
+      else{html+='<input class="_sd_pcf_inp" type="'+esc(f.type||'text')+'" name="'+esc(f.map_to||f.name||f.id)+'" '+(f.required?'required':'')+' placeholder="'+esc(f.label)+'"/>';}
+      html+='</div>';
+    });
+    html+='<button type="submit" class="_sd_pcf_btn">Start Chat →</button></form></div>';
+    overlay.innerHTML=html;
+    panel.style.position='relative';
+    panel.appendChild(overlay);
+    document.getElementById('_sd_pcf_form').onsubmit=function(e){
+      e.preventDefault();
+      var btn=overlay.querySelector('._sd_pcf_btn');btn.disabled=true;btn.textContent='Starting…';
+      var data={};
+      fields.forEach(function(f){var el=overlay.querySelector('[name="'+(f.map_to||f.name||f.id)+'"]');if(el)data[f.map_to||f.name||f.id]=el.value.trim();});
+      var doGeo=(s.pre_chat_geo!==false);
+      var geoP=doGeo?getGeo():Promise.resolve(null);
+      geoP.then(function(geo){
+        var body={fields:data};
+        if(geo){body.ip=geo.ip||'';body.geo={city:geo.city,region:geo.region,country:geo.country_name,lat:geo.latitude,lon:geo.longitude,tz:geo.timezone};}
+        return fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/pre-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      }).then(function(r){return r.json();}).then(function(){
+        overlay.remove();startChat();
+      }).catch(function(){overlay.remove();startChat();});
+    };
+  }
+  function startChat(){
+    step=0;msgs=[];lastBtn='';flowDone=false;
+    fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/chat-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}).then(function(r){return r.json();}).then(function(sr){if(sr.chat_id)wChatId=sr.chat_id;}).catch(function(){});
+    document.getElementById('_sd_send').onclick=function(){doSend();};
+    document.getElementById('_sd_inp').onkeydown=function(e){if(e.key==='Enter')doSend();};
+    if(botCfg)setTimeout(function(){flow(0,'','');},300);
+    else addMsg({f:'sys',t:'Bot unavailable'});
+  }
   function openPanel(){
     var name=(botCfg&&botCfg.name)||'Support Bot';
     var p=document.createElement('div');p.id='_sd_panel';
     p.innerHTML='<div id="_sd_head"><div style="width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🤖</div><div style="flex:1"><div style="font-size:13px;font-weight:700">'+esc(name)+'</div><div style="font-size:10px;opacity:.8">● Online</div></div><button onclick="document.getElementById(\'_sd_btn\').click()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px;padding:0;opacity:.7">✕</button></div><div id="_sd_msgs"></div><div id="_sd_inp_area"><input id="_sd_inp" placeholder="Type a message…"/><button id="_sd_send">→</button></div>';
     document.body.appendChild(p);
-    document.getElementById('_sd_send').onclick=function(){doSend();};
-    document.getElementById('_sd_inp').onkeydown=function(e){if(e.key==='Enter')doSend();};
-    step=0;msgs=[];lastBtn='';
-    if(botCfg)setTimeout(function(){flow(0,'','');},300);
-    else addMsg({f:'sys',t:'Bot unavailable'});
+    if(botCfg&&botCfg.setup&&botCfg.setup.pre_chat_enabled){
+      showWidgetForm(p);
+    } else {
+      startChat();
+    }
   }
   function addMsg(m){
     msgs.push(m);
@@ -160,37 +503,81 @@ app.get('/widget/bot.js', widgetCors, (req, res) => {
     addMsg({f:'bot',t:"I don\\'t have specific information on that. Would you like to connect with a live agent?",b:['Connect to Live Agent','Ask Something Else']});
   }
   function connectAgent(){
+    wAgentMode=true;
     addMsg({f:'user',t:'Connect to Live Agent'});
+    addMsg({f:'sys',t:'Connecting you to a live agent…'});
+    addMsg({f:'bot',t:'A support agent will join shortly. Please wait.'});
+    wSaveSession();
+    // Trigger handoff → create inbox conversation (PATCH first, then handoff sequentially)
+    if(wChatId){
+      var _hChatId=wChatId;
+      fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/chat-session/'+_hChatId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'waiting_agent',messages:msgs.map(function(m){return{f:m.f,t:m.t};})})})
+        .catch(function(){})
+        .then(function(){
+          fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/handoff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:_hChatId})}).catch(function(){});
+        });
+    }
+    // Poll for agent replies
+    var wLastCount=msgs.length;
+    setInterval(function(){
+      if(!wChatId)return;
+      fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/chat-session/'+wChatId+'/poll')
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(!d.messages)return;
+          for(var i=wLastCount;i<d.messages.length;i++){
+            var m=d.messages[i];
+            if(m.f==='agent'){
+              addMsg({f:'bot',t:'👤 '+(m.agent_name||'Agent')+': '+m.t});
+              var inp3=document.getElementById('_sd_inp');var snd3=document.getElementById('_sd_send');
+              if(inp3)inp3.disabled=false;if(snd3)snd3.disabled=false;
+            }
+          }
+          wLastCount=d.messages.length;
+        }).catch(function(){});
+    },3000);
+    // Keep input enabled for visitor to reply
     var inp2=document.getElementById('_sd_inp');var snd2=document.getElementById('_sd_send');
-    if(inp2)inp2.disabled=true;if(snd2)snd2.disabled=true;
-    setTimeout(function(){
-      addMsg({f:'sys',t:'Connecting you to a live agent…'});
-      addMsg({f:'bot',t:'A support agent will join shortly. Please wait.'});
-    },800);
+    if(inp2)inp2.disabled=false;if(snd2)snd2.disabled=false;
+  }
+  function wSaveSession(){
+    if(!wChatId)return;
+    var saveMsgs=msgs.map(function(m){return{f:m.f,t:m.t};});
+    fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/chat-session/'+wChatId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:saveMsgs})}).catch(function(){});
   }
   function doSend(txt,isChip){
     var inp=document.getElementById('_sd_inp');
     var msg=txt||(inp?inp.value.trim():'');if(!msg)return;
     if(inp&&!txt)inp.value='';
+    // Agent mode — visitor replies go directly to session
+    if(wAgentMode&&!isChip){addMsg({f:'user',t:msg});wSaveSession();return;}
     var cur=botCfg&&botCfg.nodes&&botCfg.nodes[step];
     var onBtns=cur&&cur.type==='buttons';
     if(!isChip&&(onBtns||flowDone)){
       addMsg({f:'user',t:msg});
-      setTimeout(function(){
-        var hit=searchKB(msg);
-        if(hit){
-          var answer=(hit.title?hit.title+'\\n\\n':'')+hit.content;
-          addMsg({f:'kb',t:answer});
-          addMsg({f:'bot',t:'Does that answer your question?',b:['Yes, thanks!','No, connect me to an agent']});
-        } else {
-          showAgentOption();
-        }
-      },700);
+      fetch(ORIGIN+'/api/bot-public/'+TOKEN+'/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:msg,chat_id:wChatId})})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.answer){
+            addMsg({f:'ai',t:d.answer});
+            addMsg({f:'bot',t:'Does that answer your question?',b:['Yes, thanks!','No, connect me to an agent']});
+          } else {
+            var hit=searchKB(msg);
+            if(hit){
+              var answer=(hit.title?hit.title+'\\n\\n':'')+hit.content;
+              addMsg({f:'kb',t:answer});
+              addMsg({f:'bot',t:'Does that answer your question?',b:['Yes, thanks!','No, connect me to an agent']});
+            } else {
+              showAgentOption();
+            }
+          }
+          wSaveSession();
+        }).catch(function(){showAgentOption();wSaveSession();});
       return;
     }
     if(onBtns)lastBtn=msg;
     addMsg({f:'user',t:msg});
-    var ni=step+1;setTimeout(function(){flow(ni,msg,lastBtn);},400);
+    var ni=step+1;setTimeout(function(){flow(ni,msg,lastBtn);wSaveSession();},400);
   }
   function evalCond(cond,lastIn,lBtn){
     if(!cond)return true;
@@ -267,6 +654,21 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;bac
 #chat-input:disabled{background:#f5f5f5;color:#aaa;cursor:not-allowed}
 #chat-send{width:40px;height:40px;border-radius:10px;background:#4c82fb;border:none;color:#fff;cursor:pointer;font-size:16px;flex-shrink:0}
 #chat-send:disabled{background:#ccc;cursor:default}
+#pre-chat-overlay{position:absolute;inset:0;background:#fff;z-index:10;display:flex;flex-direction:column;border-radius:20px;overflow:hidden}
+#pcf-head{background:linear-gradient(135deg,#4c82fb,#7c3aed);color:#fff;padding:20px;text-align:center}
+#pcf-head h3{margin:0 0 4px;font-size:16px;font-weight:700}
+#pcf-head p{margin:0;font-size:12px;opacity:.85}
+#pcf-body{flex:1;overflow-y:auto;padding:20px}
+.pcf-field{margin-bottom:14px}
+.pcf-label{display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:5px}
+.pcf-label .req{color:#ef4444;margin-left:2px}
+.pcf-input{width:100%;border:1.5px solid #e0e0e0;border-radius:8px;padding:9px 12px;font-size:13px;outline:none;font-family:inherit;color:#111;box-sizing:border-box;transition:border-color .15s}
+.pcf-input:focus{border-color:#4c82fb}
+.pcf-textarea{resize:vertical;min-height:60px}
+.pcf-err{color:#ef4444;font-size:11px;margin-top:3px;display:none}
+#pcf-submit{width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,#4c82fb,#7c3aed);color:#fff;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:opacity .15s}
+#pcf-submit:hover{opacity:.9}
+#pcf-submit:disabled{opacity:.5;cursor:default}
 .typing{display:flex;gap:4px;padding:10px 14px;background:#fff;border:1px solid #e8e8e8;border-radius:16px 16px 16px 4px;width:52px}
 .dot{width:7px;height:7px;border-radius:50%;background:#bbb;animation:bounce .9s infinite}
 .dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
@@ -275,7 +677,8 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;bac
 </style>
 </head>
 <body>
-<div id="chat-box">
+<div id="chat-box" style="position:relative">
+  <div id="pre-chat-overlay" style="display:none"></div>
   <div id="chat-header">
     <div id="bot-avatar">🤖</div>
     <div>
@@ -292,7 +695,7 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;bac
 <script>
 (function(){
 var BACKEND='${BACKEND}',TOKEN='${token}';
-var botCfg=null,step=0,lastBtn='',flowDone=false;
+var botCfg=null,step=0,lastBtn='',flowDone=false,chatId=null,allMsgs=[],agentMode=false;
 var msgsEl=document.getElementById('chat-msgs');
 var inputEl=document.getElementById('chat-input');
 var sendEl=document.getElementById('chat-send');
@@ -317,6 +720,7 @@ function chips(items){
 }
 
 function addMsg(m){
+  allMsgs.push({f:m.f,t:m.t});
   var row=document.createElement('div');
   if(m.f==='sys'){row.className='msg-sys';row.textContent=m.t;}
   else if(m.f==='user'){row.className='msg-row-user';row.innerHTML='<div class="bub bub-user">'+esc(m.t)+'</div>';}
@@ -362,14 +766,41 @@ function showAgentOption(){
 }
 
 function connectAgent(){
+  agentMode=true;
   addMsg({f:'user',t:'Connect to Live Agent'});
-  inputEl.disabled=true;sendEl.disabled=true;
-  showTyping();
-  setTimeout(function(){
-    hideTyping();
-    addMsg({f:'sys',t:'Connecting you to a live agent…'});
-    addMsg({f:'bot',t:'A support agent will join shortly. Please wait — your conversation history has been saved.'});
-  },800);
+  addMsg({f:'sys',t:'Connecting you to a live agent…'});
+  addMsg({f:'bot',t:'A support agent will join shortly. Please wait — your conversation history has been saved.'});
+  saveSession();
+  // Trigger handoff → create inbox conversation (PATCH first, then handoff sequentially)
+  if(chatId){
+    var _hChatId2=chatId;
+    fetch(BACKEND+'/api/bot-public/'+TOKEN+'/chat-session/'+_hChatId2,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'waiting_agent',messages:allMsgs.map(function(m){return{f:m.f,t:m.t};})})})
+      .catch(function(){})
+      .then(function(){
+        fetch(BACKEND+'/api/bot-public/'+TOKEN+'/handoff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:_hChatId2})}).catch(function(){});
+      });
+  }
+  // Start polling for agent messages
+  var lastCount=allMsgs.length;
+  var agentPoll=setInterval(function(){
+    if(!chatId)return;
+    fetch(BACKEND+'/api/bot-public/'+TOKEN+'/chat-session/'+chatId+'/poll')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.messages)return;
+        // Show new messages from agent
+        for(var i=lastCount;i<d.messages.length;i++){
+          var m=d.messages[i];
+          if(m.f==='agent'){
+            addMsg({f:'bot',t:'👤 '+(m.agent_name||'Agent')+': '+m.t});
+            inputEl.disabled=false;sendEl.disabled=false;
+          }
+        }
+        lastCount=d.messages.length;
+      }).catch(function(){});
+  },3000);
+  // Enable input for visitor to reply to agent
+  inputEl.disabled=false;sendEl.disabled=false;
 }
 
 function evalCond(cond,lastIn,lBtn){
@@ -410,30 +841,55 @@ function flow(from,lastIn,lBtn){
 function doSend(txt,isChip){
   var msg=txt||(inputEl?inputEl.value.trim():'');if(!msg)return;
   if(inputEl&&!txt)inputEl.value='';
+
+  // Agent mode — visitor replies go directly to session
+  if(agentMode&&!isChip){
+    addMsg({f:'user',t:msg});
+    saveSession();
+    return;
+  }
+
   var cur=botCfg&&botCfg.nodes&&botCfg.nodes[step];
   var onBtns=cur&&cur.type==='buttons';
 
-  // Free-text when on a buttons node OR after flow done → search KB first
+  // Free-text when on a buttons node OR after flow done → ask Gemini AI
   if(!isChip&&(onBtns||flowDone)){
     addMsg({f:'user',t:msg});
     showTyping();
-    setTimeout(function(){
-      hideTyping();
-      var hit=searchKB(msg);
-      if(hit){
-        var answer=(hit.title?hit.title+'\\n\\n':'')+hit.content;
-        addMsg({f:'kb',t:answer});
-        addMsg({f:'bot',t:'Does that answer your question?',b:['Yes, thanks!','No, connect me to an agent']});
-      } else {
-        showAgentOption();
-      }
-    },700);
+    fetch(BACKEND+'/api/bot-public/'+TOKEN+'/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:msg,chat_id:chatId})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        hideTyping();
+        if(d.answer){
+          addMsg({f:'ai',t:d.answer});
+          addMsg({f:'bot',t:'Does that answer your question?',b:['Yes, thanks!','No, connect me to an agent']});
+        } else {
+          // Fallback to local KB search
+          var hit=searchKB(msg);
+          if(hit){
+            var answer=(hit.title?hit.title+'\\n\\n':'')+hit.content;
+            addMsg({f:'kb',t:answer});
+            addMsg({f:'bot',t:'Does that answer your question?',b:['Yes, thanks!','No, connect me to an agent']});
+          } else {
+            showAgentOption();
+          }
+        }
+        saveSession();
+      }).catch(function(){
+        hideTyping();showAgentOption();saveSession();
+      });
     return;
   }
 
   if(onBtns)lastBtn=msg;
   addMsg({f:'user',t:msg});
-  var ni=step+1;showTyping();setTimeout(function(){flow(ni,msg,lastBtn);},600);
+  var ni=step+1;showTyping();setTimeout(function(){flow(ni,msg,lastBtn);saveSession();},600);
+}
+
+function saveSession(){
+  if(!chatId)return;
+  var saveMsgs=allMsgs.map(function(m){return{f:m.f,t:m.t};});
+  fetch(BACKEND+'/api/bot-public/'+TOKEN+'/chat-session/'+chatId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:saveMsgs})}).catch(function(){});
 }
 
 // Handle "Yes thanks" / "No connect agent" responses
@@ -448,6 +904,69 @@ window._sdChip=function(el){
 sendEl.onclick=function(){doSend();};
 inputEl.onkeydown=function(e){if(e.key==='Enter'&&!inputEl.disabled)doSend();};
 
+// ── Pre-chat form ──
+function getGeo(){
+  return fetch('https://ipapi.co/json/').then(function(r){return r.json();}).catch(function(){return null;});
+}
+function showPreChatForm(){
+  var s=botCfg.setup||{};
+  var fields=s.pre_chat_fields||[
+    {id:'pf1',name:'name',label:'Full Name',type:'text',required:true,map_to:'name'},
+    {id:'pf2',name:'email',label:'Email',type:'email',required:true,map_to:'email'},
+    {id:'pf3',name:'phone',label:'Phone',type:'tel',required:false,map_to:'phone'}
+  ];
+  var overlay=document.getElementById('pre-chat-overlay');
+  var html='<div id="pcf-head"><h3>'+esc(s.pre_chat_title||'Before we start…')+'</h3><p>'+esc(s.pre_chat_desc||'Please share some details so we can help you better.')+'</p></div>';
+  html+='<div id="pcf-body"><form id="pcf-form">';
+  fields.forEach(function(f){
+    html+='<div class="pcf-field"><label class="pcf-label">'+esc(f.label)+(f.required?'<span class="req">*</span>':'')+'</label>';
+    if(f.type==='textarea'){
+      html+='<textarea class="pcf-input pcf-textarea" name="'+esc(f.map_to||f.name||f.id)+'" '+(f.required?'required':'')+' placeholder="'+esc(f.label)+'"></textarea>';
+    } else if(f.type==='select'){
+      html+='<select class="pcf-input" name="'+esc(f.map_to||f.name||f.id)+'" '+(f.required?'required':'')+'><option value="">Select…</option>';
+      (f.options||[]).forEach(function(o){html+='<option value="'+esc(o)+'">'+esc(o)+'</option>';});
+      html+='</select>';
+    } else {
+      html+='<input class="pcf-input" type="'+esc(f.type||'text')+'" name="'+esc(f.map_to||f.name||f.id)+'" '+(f.required?'required':'')+' placeholder="'+esc(f.label)+'"/>';
+    }
+    html+='<div class="pcf-err" id="err-'+esc(f.id)+'"></div></div>';
+  });
+  html+='<button type="submit" id="pcf-submit">Start Chat →</button></form></div>';
+  overlay.innerHTML=html;
+  overlay.style.display='flex';
+
+  document.getElementById('pcf-form').onsubmit=function(e){
+    e.preventDefault();
+    var btn=document.getElementById('pcf-submit');
+    btn.disabled=true;btn.textContent='Starting…';
+    var data={};
+    fields.forEach(function(f){
+      var el=document.querySelector('[name="'+CSS.escape(f.map_to||f.name||f.id)+'"]');
+      if(el)data[f.map_to||f.name||f.id]=el.value.trim();
+    });
+    // Get IP + geo if enabled
+    var doGeo=(botCfg.setup&&botCfg.setup.pre_chat_geo!==false);
+    var geoP=doGeo?getGeo():Promise.resolve(null);
+    geoP.then(function(geo){
+      var body={fields:data};
+      if(geo){body.ip=geo.ip||'';body.geo={city:geo.city,region:geo.region,country:geo.country_name,lat:geo.latitude,lon:geo.longitude,tz:geo.timezone};}
+      return fetch(BACKEND+'/api/bot-public/'+TOKEN+'/pre-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }).then(function(r){return r.json();}).then(function(pcr){
+      // Create chat session with visitor info
+      return fetch(BACKEND+'/api/bot-public/'+TOKEN+'/chat-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visitor_name:data.name||'Visitor',visitor_email:data.email||'',contact_id:pcr.contact_id||''})});
+    }).then(function(r){return r.json();}).then(function(sr){
+      if(sr.chat_id)chatId=sr.chat_id;
+      overlay.style.display='none';
+      inputEl.disabled=false;sendEl.disabled=false;
+      showTyping();setTimeout(function(){flow(0,'','');},500);
+    }).catch(function(){
+      overlay.style.display='none';
+      inputEl.disabled=false;sendEl.disabled=false;
+      showTyping();setTimeout(function(){flow(0,'','');},500);
+    });
+  };
+}
+
 // Load bot
 fetch(BACKEND+'/api/bot-public/'+TOKEN)
   .then(function(r){return r.json();})
@@ -456,8 +975,16 @@ fetch(BACKEND+'/api/bot-public/'+TOKEN)
     if(!d.bot){addMsg({f:'sys',t:'Bot not found or inactive.'});return;}
     botCfg=d.bot;
     document.getElementById('bot-title').textContent=d.bot.name||'Support Bot';
-    inputEl.disabled=false;sendEl.disabled=false;
-    showTyping();setTimeout(function(){flow(0,'','');},500);
+    // Create chat session
+    fetch(BACKEND+'/api/bot-public/'+TOKEN+'/chat-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+      .then(function(r){return r.json();}).then(function(sr){if(sr.chat_id)chatId=sr.chat_id;}).catch(function(){});
+    // Show pre-chat form if enabled
+    if(d.bot.setup&&d.bot.setup.pre_chat_enabled){
+      showPreChatForm();
+    } else {
+      inputEl.disabled=false;sendEl.disabled=false;
+      showTyping();setTimeout(function(){flow(0,'','');},500);
+    }
   })
   .catch(function(){
     msgsEl.innerHTML='';
