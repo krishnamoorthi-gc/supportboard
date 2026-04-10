@@ -572,6 +572,157 @@ CREATE TABLE IF NOT EXISTS bot_chats (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Forms
+CREATE TABLE IF NOT EXISTS forms (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  status VARCHAR(50) DEFAULT 'draft',
+  fields TEXT,
+  settings TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS form_submissions (
+  id VARCHAR(255) PRIMARY KEY,
+  form_id VARCHAR(255) NOT NULL,
+  data TEXT,
+  ip VARCHAR(100),
+  user_agent VARCHAR(500),
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Sales Agents
+CREATE TABLE IF NOT EXISTS sales_agents (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  role VARCHAR(255),
+  emoji VARCHAR(50) DEFAULT '🤖',
+  color VARCHAR(50) DEFAULT '#4c82fb',
+  tone VARCHAR(50) DEFAULT 'consultative',
+  language VARCHAR(20) DEFAULT 'en',
+  channels TEXT,
+  system_prompt TEXT,
+  handoff_threshold INT DEFAULT 70,
+  max_turns INT DEFAULT 10,
+  followup_days INT DEFAULT 3,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_playbooks (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  \`trigger\` VARCHAR(255),
+  steps TEXT,
+  product_tier VARCHAR(100),
+  owner_name VARCHAR(255),
+  conversion_rate DECIMAL(5,2) DEFAULT 0,
+  avg_deal_size DECIMAL(15,2) DEFAULT 0,
+  conversion_count INT DEFAULT 0,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_qualification_rules (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  field VARCHAR(100) NOT NULL,
+  operator VARCHAR(50) DEFAULT 'equals',
+  value VARCHAR(255),
+  points INT DEFAULT 10,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_objections (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  trigger_phrase VARCHAR(255),
+  response TEXT,
+  category VARCHAR(100) DEFAULT 'general',
+  usage_count INT DEFAULT 0,
+  success_rate DECIMAL(5,2) DEFAULT 0,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_products (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  price VARCHAR(100),
+  features TEXT,
+  segment VARCHAR(255),
+  qualifier_rule TEXT,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_lead_activities (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  type VARCHAR(100),
+  details TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- AI Bot Settings
+CREATE TABLE IF NOT EXISTS aibot_config (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) UNIQUE NOT NULL,
+  bot_name VARCHAR(255) DEFAULT 'Aria',
+  bot_tone VARCHAR(50) DEFAULT 'professional',
+  bot_lang VARCHAR(20) DEFAULT 'EN',
+  handoff_after VARCHAR(20) DEFAULT '3',
+  working_hours TINYINT DEFAULT 1,
+  auto_resolve TINYINT DEFAULT 0,
+  auto_resolve_hours VARCHAR(20) DEFAULT '24',
+  sys_prompt TEXT,
+  ai_auto_reply TINYINT DEFAULT 0,
+  channels TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS aibot_faqs (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS aibot_docs (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) NOT NULL,
+  name VARCHAR(500) NOT NULL,
+  size_label VARCHAR(50),
+  file_path VARCHAR(500),
+  status VARCHAR(50) DEFAULT 'trained',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS aibot_urls (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) NOT NULL,
+  url VARCHAR(500) NOT NULL,
+  status VARCHAR(50) DEFAULT 'trained',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
   await db.query(schema.replace(/TEXT DEFAULT \(datetime\('now'\)\)/g, "DATETIME DEFAULT CURRENT_TIMESTAMP")

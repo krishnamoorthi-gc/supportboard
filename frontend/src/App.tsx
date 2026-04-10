@@ -427,7 +427,8 @@ export default function App(){
       const token=api.getToken()||_token.current;
       if(!token)return;
       const wsProto=window.location.protocol==="https:"?"wss":"ws";
-      const ws=new WebSocket(`${wsProto}://localhost:4002/ws?token=${encodeURIComponent(token)}`);
+      const wsHost=(import.meta.env.VITE_BACKEND_URL||"http://localhost:4002").replace(/^https?:\/\//,"");
+      const ws=new WebSocket(`${wsProto}://${wsHost}/ws?token=${encodeURIComponent(token)}`);
       ws.onopen=()=>{showT("Live connected","success");};
       ws.onmessage=e=>{try{const m=JSON.parse(e.data);
         if(m.type==="chat_message"&&m.message){
