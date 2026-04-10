@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
 export default function CrmScr({contacts,setContacts,convs,comps,setComps,customFields,getCfVal,setCfVal}){
-  const [tab,setTab]=useState("leads");const [crmSearch,setCrmSearch]=useState("");const [showQuickAct,setShowQuickAct]=useState(false);
+  const [tab,setTab]=useState("dashboard");const [crmSearch,setCrmSearch]=useState("");const [showQuickAct,setShowQuickAct]=useState(false);
   // ═══ DEALS ═══
   const STAGES=["Lead","Qualified","Proposal","Negotiation","Won","Lost"];
   const SC={Lead:C.t3,Qualified:C.a,Proposal:C.p,Negotiation:C.y,Won:C.g,Lost:C.r};
@@ -231,8 +231,32 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
         </div>
       </div>
 
-      {/* KPI Cards Row */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,padding:"12px 24px 0"}}>
+      {/* Tab bar */}
+      <div style={{display:"flex",gap:0,padding:"0 24px",overflowX:"auto"}}>
+        {[
+          ["dashboard","📊 Dashboard",0],
+          ["leads","🎯 Leads",activeLeads],
+          ["deals","💰 Deals",openDeals.length],
+          ["tasks","✅ Tasks",dueTasks],
+          ["meetings","📅 Meetings",upcomingMtgs],
+          ["companies","🏢 Customers",comps.length],
+          ["activities","📋 Activities",acts.filter(a=>!a.done).length]
+        ].map(([id,l,cnt])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 14px",fontSize:12.5,fontWeight:700,fontFamily:FD,color:tab===id?C.a:C.t3,borderBottom:`2.5px solid ${tab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"color .15s",whiteSpace:"nowrap",flexShrink:0}}>
+            {l}
+            {cnt>0&&<span style={{fontSize:9,fontFamily:FM,padding:"1px 6px",borderRadius:10,background:tab===id?C.ad:C.s3,color:tab===id?C.a:C.t3,fontWeight:600}}>{cnt}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* ═══ CRM LOADING SKELETON ═══ */}
+    {crmLoading&&<div style={{flex:1,padding:"24px",minHeight:0,overflowY:"auto"}}><div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}><Spin/><span style={{fontSize:12,color:C.t2,fontFamily:FM}}>Loading CRM data from API…</span></div><SkelTable rows={6} cols={5}/></div>}
+
+    {/* ═══ DASHBOARD TAB ═══ */}
+    {!crmLoading&&tab==="dashboard"&&<div style={{flex:1,minHeight:0,overflowY:"auto",padding:"16px 24px"}}>
+      {/* KPI Cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
         {[
           {icon:"🎯",label:"Active Leads",value:activeLeads,sub:leadConvRate+"% conversion",color:C.cy,bg:C.cy+"12",click:()=>setTab("leads")},
           {icon:"💰",label:"Open Deals",value:openDeals.length,sub:"₹"+avgDealSize.toLocaleString()+" avg",color:C.a,bg:C.ad,click:()=>setTab("deals")},
@@ -241,86 +265,120 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
           {icon:"📋",label:"Tasks Due",value:dueTasks,sub:overdueTasks+" overdue",color:overdueTasks>0?C.r:C.y,bg:overdueTasks>0?C.rd:C.yd,click:()=>setTab("tasks")},
           {icon:"📅",label:"Meetings",value:upcomingMtgs,sub:meetings.filter(m=>m.status==="completed").length+" completed",color:C.cy,bg:C.cy+"12",click:()=>setTab("meetings")}
         ].map(k=>(
-          <div key={k.label} onClick={k.click} style={{padding:"10px 12px",background:k.bg,borderRadius:10,border:`1px solid ${k.color}22`,cursor:"pointer",transition:"transform .1s"}} className="hov">
+          <div key={k.label} onClick={k.click} style={{padding:"12px 14px",background:k.bg,borderRadius:10,border:`1px solid ${k.color}22`,cursor:"pointer",transition:"transform .1s"}} className="hov">
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <span style={{fontSize:14}}>{k.icon}</span>
+              <span style={{fontSize:16}}>{k.icon}</span>
               <span style={{fontSize:9,color:k.color,fontFamily:FM,fontWeight:600}}>{k.sub}</span>
             </div>
-            <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:k.color}}>{k.value}</div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:2}}>{k.label}</div>
+            <div style={{fontSize:22,fontWeight:800,fontFamily:FD,color:k.color}}>{k.value}</div>
+            <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{k.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Pipeline Funnel + Owner Performance + Recent Activity */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,padding:"10px 24px"}}>
+      {/* Pipeline Funnel + Team Performance + Recent Activity */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16}}>
         {/* Pipeline Funnel */}
-        <div style={{background:C.s2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.b1}`}}>
-          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>PIPELINE FUNNEL</div>
-          <div style={{display:"flex",gap:0,height:28,borderRadius:6,overflow:"hidden"}}>
-            {STAGES.map(stage=>{const cnt=deals.filter(d=>d.stage===stage).length;const pct=deals.length?Math.max(cnt/deals.length*100,cnt>0?6:0):0;return pct>0?<div key={stage} title={stage+": "+cnt+" (₹"+deals.filter(d=>d.stage===stage).reduce((s,d)=>s+d.value,0).toLocaleString()+")"} style={{width:pct+"%",background:SC[stage],display:"flex",alignItems:"center",justifyContent:"center",transition:"width .3s",minWidth:cnt>0?20:0}}>
-              <span style={{fontSize:8,color:"#fff",fontWeight:700,fontFamily:FM}}>{cnt}</span>
+        <div style={{background:C.s2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>PIPELINE FUNNEL</div>
+          <div style={{display:"flex",gap:0,height:32,borderRadius:6,overflow:"hidden"}}>
+            {STAGES.map(stage=>{const cnt=deals.filter(d=>d.stage===stage).length;const pct=deals.length?Math.max(cnt/deals.length*100,cnt>0?6:0):0;return pct>0?<div key={stage} title={stage+": "+cnt+" (₹"+deals.filter(d=>d.stage===stage).reduce((s,d)=>s+d.value,0).toLocaleString()+")"} style={{width:pct+"%",background:SC[stage],display:"flex",alignItems:"center",justifyContent:"center",transition:"width .3s",minWidth:cnt>0?22:0}}>
+              <span style={{fontSize:9,color:"#fff",fontWeight:700,fontFamily:FM}}>{cnt}</span>
             </div>:null;})}
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            {STAGES.map(s=><span key={s} style={{fontSize:7,color:SC[s],fontFamily:FM,fontWeight:600}}>{s}</span>)}
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
+            {STAGES.map(s=><span key={s} style={{fontSize:8,color:SC[s],fontFamily:FM,fontWeight:600}}>{s}</span>)}
+          </div>
+          {/* Stage details */}
+          <div style={{marginTop:10}}>
+            {STAGES.map(stage=>{const sd=deals.filter(d=>d.stage===stage);const total=sd.reduce((s,d)=>s+d.value,0);return sd.length>0?<div key={stage} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+              <div style={{width:8,height:8,borderRadius:2,background:SC[stage],flexShrink:0}}/>
+              <span style={{fontSize:10,fontWeight:600,flex:1}}>{stage}</span>
+              <span style={{fontSize:10,color:C.t2,fontFamily:FM}}>{sd.length} deals</span>
+              <span style={{fontSize:10,fontWeight:700,color:SC[stage],fontFamily:FM}}>₹{total.toLocaleString()}</span>
+            </div>:null;})}
           </div>
         </div>
 
-        {/* Owner Performance */}
-        <div style={{background:C.s2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.b1}`}}>
-          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>TEAM PERFORMANCE</div>
+        {/* Team Performance */}
+        <div style={{background:C.s2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>TEAM PERFORMANCE</div>
+          {ownerStats.filter(o=>o.deals+o.leads+o.tasks>0).length===0&&<div style={{fontSize:11,color:C.t3,padding:12,textAlign:"center"}}>No team data yet</div>}
           {ownerStats.filter(o=>o.deals+o.leads+o.tasks>0).map(o=>(
-            <div key={o.name} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-              <Av i={o.name[0]+o.name[1]} c={o.name==="Priya"?C.a:o.name==="Dev"?C.g:o.name==="Meena"?C.p:C.y} s={20}/>
-              <span style={{fontSize:10,fontWeight:600,width:40}}>{o.name}</span>
-              <div style={{flex:1,display:"flex",gap:8,fontSize:9,fontFamily:FM}}>
-                <span style={{color:C.p}}>{o.deals}D</span>
-                <span style={{color:C.cy}}>{o.leads}L</span>
-                <span style={{color:C.y}}>{o.tasks}T</span>
-                <span style={{color:C.g}}>₹{(o.pipeline/1000).toFixed(0)}K</span>
+            <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 8px",background:C.bg,borderRadius:8}}>
+              <Av i={o.name[0]+o.name[1]} c={o.name==="Priya"?C.a:o.name==="Dev"?C.g:o.name==="Meena"?C.p:C.y} s={24}/>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontSize:11,fontWeight:600}}>{o.name}</span>
+                <div style={{display:"flex",gap:8,fontSize:9,fontFamily:FM,marginTop:2}}>
+                  <span style={{color:C.p}}>{o.deals} Deals</span>
+                  <span style={{color:C.cy}}>{o.leads} Leads</span>
+                  <span style={{color:C.y}}>{o.tasks} Tasks</span>
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.g,fontFamily:FM}}>₹{(o.pipeline/1000).toFixed(0)}K</div>
+                <div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Pipeline</div>
               </div>
             </div>
           ))}
         </div>
 
         {/* Recent Activity */}
-        <div style={{background:C.s2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.b1}`,maxHeight:90,overflowY:"auto"}}>
-          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>RECENT ACTIVITY</div>
-          {recentActivities.slice(0,5).map((a,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
-              <span style={{fontSize:10,flexShrink:0}}>{a.icon}</span>
-              <div style={{flex:1,minWidth:0}}><span style={{fontSize:9,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{a.note?.slice(0,45)}{(a.note||"").length>45?"…":""}</span><span style={{fontSize:8,color:C.t3,fontFamily:FM}}>{a.entityName} · {a.date}</span></div>
+        <div style={{background:C.s2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>RECENT ACTIVITY</div>
+          {recentActivities.length===0&&<div style={{fontSize:11,color:C.t3,padding:12,textAlign:"center"}}>No activities yet</div>}
+          {recentActivities.slice(0,8).map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6,padding:"4px 0",borderBottom:i<recentActivities.slice(0,8).length-1?`1px solid ${C.b1}`:"none"}}>
+              <span style={{fontSize:12,flexShrink:0,marginTop:1}}>{a.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.note?.slice(0,60)}{(a.note||"").length>60?"…":""}</div>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:1}}>{a.entityName} · {a.date}</div>
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div style={{display:"flex",gap:0,padding:"0 24px"}}>
-        {[
-          ["leads","🎯 Leads",activeLeads],
-          ["deals","💰 Deals",openDeals.length],
-          ["tasks","✅ Tasks",dueTasks],
-          ["meetings","📅 Meetings",upcomingMtgs],
-          ["companies","🏢 Customers",comps.length],
-          ["activities","📋 Activities",acts.filter(a=>!a.done).length]
-        ].map(([id,l,cnt])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 14px",fontSize:12.5,fontWeight:700,fontFamily:FD,color:tab===id?C.a:C.t3,borderBottom:`2.5px solid ${tab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"color .15s"}}>
-            {l}
-            {cnt>0&&<span style={{fontSize:9,fontFamily:FM,padding:"1px 6px",borderRadius:10,background:tab===id?C.ad:C.s3,color:tab===id?C.a:C.t3,fontWeight:600}}>{cnt}</span>}
-          </button>
-        ))}
+      {/* AI Advisor */}
+      <div style={{marginBottom:16}}>
+        <AiInsight title="CRM AI ADVISOR" loading={crmAiLoad} onRefresh={genCrmAi} items={crmAi?crmAi.split("\n").filter(l=>l.trim()).map(l=>({icon:l.startsWith("•")?"":undefined,text:l.replace(/^[•\-]\s*/,"")})):[{text:"Click Refresh to get AI-powered pipeline analysis, deal risk alerts, and next-best-action recommendations."}]}/>
       </div>
-    </div>
 
-    {/* ═══ CRM AI ADVISOR ═══ */}
-    {!crmLoading&&<div style={{margin:"0 24px 12px"}}>
-      <AiInsight title="CRM AI ADVISOR" loading={crmAiLoad} onRefresh={genCrmAi} items={crmAi?crmAi.split("\n").filter(l=>l.trim()).map(l=>({icon:l.startsWith("•")?"":undefined,text:l.replace(/^[•\-]\s*/,"")})):[{text:"Click Refresh to get AI-powered pipeline analysis, deal risk alerts, and next-best-action recommendations."}]}/>
+      {/* Quick stats summary row */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>LEAD SOURCES</div>
+          {leads.length===0?<div style={{fontSize:10,color:C.t3}}>No leads</div>:
+          LEAD_SOURCES.filter(s=>leads.some(l=>l.source===s)).slice(0,5).map(s=>{const cnt=leads.filter(l=>l.source===s).length;return<div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:C.t2}}>{s}</span>
+            <span style={{fontSize:10,fontWeight:700,color:C.a,fontFamily:FM}}>{cnt}</span>
+          </div>;})}
+        </div>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>LEAD STATUS</div>
+          {LEAD_STAGES.map(s=>{const cnt=leads.filter(l=>l.stage===s).length;return cnt>0?<div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:2,background:LC2[s]}}/><span style={{fontSize:10,color:C.t2}}>{s}</span></div>
+            <span style={{fontSize:10,fontWeight:700,color:LC2[s],fontFamily:FM}}>{cnt}</span>
+          </div>:null;})}
+        </div>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>TASK PRIORITY</div>
+          {PRIORITIES.map(p=>{const cnt=tasks.filter(t=>t.priority===p.v&&t.status!=="done").length;return cnt>0?<div key={p.v} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:C.t2}}>{p.l}</span>
+            <span style={{fontSize:10,fontWeight:700,color:p.c,fontFamily:FM}}>{cnt}</span>
+          </div>:null;})}
+          {tasks.filter(t=>t.status!=="done").length===0&&<div style={{fontSize:10,color:C.t3}}>All done!</div>}
+        </div>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>MEETING TYPES</div>
+          {MT_TYPES.filter(mt=>meetings.some(m=>m.type===mt.v)).map(mt=>{const cnt=meetings.filter(m=>m.type===mt.v).length;return<div key={mt.v} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:C.t2}}>{mt.i} {mt.l}</span>
+            <span style={{fontSize:10,fontWeight:700,color:mt.c,fontFamily:FM}}>{cnt}</span>
+          </div>;})}
+          {meetings.length===0&&<div style={{fontSize:10,color:C.t3}}>No meetings</div>}
+        </div>
+      </div>
     </div>}
-
-    {/* ═══ CRM LOADING SKELETON ═══ */}
-    {crmLoading&&<div style={{flex:1,padding:"24px"}}><div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}><Spin/><span style={{fontSize:12,color:C.t2,fontFamily:FM}}>Loading CRM data from API…</span></div><SkelTable rows={6} cols={5}/></div>}
 
     {/* ═══ DEALS ═══ */}
     {!crmLoading&&tab==="deals"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
