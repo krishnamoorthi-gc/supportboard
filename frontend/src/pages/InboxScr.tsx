@@ -20,6 +20,15 @@ const sortConversationMessages=(list=[])=>list
   })
   .map(item=>item.msg);
 
+const hydrateConversationMessages=(list=[])=>sortConversationMessages(
+  list.map((m:any)=>({
+    ...m,
+    attachments:normalizeAttachmentList(m.attachments||[]),
+    aid:m.agent_id,
+    t:m.created_at?.split?.("T")?.[1]?.slice(0,5)||m.created_at?.split?.(" ")?.[1]?.slice(0,5)||"",
+  }))
+);
+
 const BACKEND_ORIGIN=API_BASE.replace(/\/api$/,"");
 
 const formatAttachmentSize=(value)=>{
@@ -56,7 +65,7 @@ const attachmentHref=(attachment:any)=>{
   return `${BACKEND_ORIGIN}${url.startsWith("/")?"":"/"}${url}`;
 };
 
-export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,convs,setConvs,msgs,setMsgs,aid,setAid,soundOn,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,getCfVal,setCfVal,csatPending,setCsatPending,snoozeConv,convViewers,savedViews,setSavedViews}){
+export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,convs,setConvs,msgs,setMsgs,aid,setAid,soundOn,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,getCfVal,setCfVal,csatPending,setCsatPending,snoozeConv,convViewers,savedViews,setSavedViews,isActive=true}){
   const [fStatus,setFStatus]=useState("open");
   const [fOwner,setFOwner]=useState("all");
   const [fCh,setFCh]=useState("all");
@@ -135,6 +144,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const [attachments,setAttachments]=useState<any[]>([]);
   const [dragOver,setDragOver]=useState(false);
   const fileInputRef=useRef<HTMLInputElement>(null);
+  const emailLiveSyncRef=useRef(false);
 
   const uploadFile=async(file:File)=>{
     const tempId=uid();
@@ -186,7 +196,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       if(cvRes.status==="fulfilled"&&cvRes.value?.conversations){
         const fresh=cvRes.value.conversations.map((c:any)=>{
           const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];
-          return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
+          return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.inbox_type||c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
         });
         setConvs(fresh);
         showT("✓ Inbox synced","success");
@@ -200,6 +210,22 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const contact=conv?contacts.find(c=>c.id===conv.cid):null;
   const isEmailCh=conv?.ch==="email";
   const isWhatsAppCh=conv?.ch==="whatsapp";
+  const activeInbox=conv?inboxes.find((ib:any)=>ib.id===conv.iid):null;
+  const whatsappCfg=(activeInbox?.cfg||{}) as Record<string,any>;
+  const whatsappPhoneNumberId=String(whatsappCfg.phoneNumberId||"").trim();
+  const whatsappAccessToken=String(whatsappCfg.apiKey||whatsappCfg.accessToken||"").trim();
+  const whatsappVerifyToken=String(whatsappCfg.verifyToken||"").trim();
+  const whatsappWebhookUrl=String(whatsappCfg.webhookUrl||"").trim();
+  const whatsappSendReady=!isWhatsAppCh||(!!whatsappPhoneNumberId&&!!whatsappAccessToken);
+  const whatsappInboundReady=!isWhatsAppCh||(!!whatsappVerifyToken&&!!whatsappWebhookUrl);
+  const whatsappMissingSendBits=[
+    !whatsappPhoneNumberId?"Phone Number ID":"",
+    !whatsappAccessToken?"Access Token":"",
+  ].filter(Boolean);
+  const whatsappMissingInboundBits=[
+    !whatsappVerifyToken?"Verify Token":"",
+    !whatsappWebhookUrl?"Webhook URL":"",
+  ].filter(Boolean);
   const contactEmail=(contact?.email||conv?.contact_email||"").trim();
   const contactPhone=(contact?.phone||conv?.contact_phone||"").trim().replace(/^\+/,"");
   const contactName=contact?.name||conv?.contact_name||"Customer";
@@ -256,8 +282,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         const res=await api.get(`/conversations/${aid}/messages`);
         if(cancelled)return;
         if(res?.messages?.length){
-          const nextMsgs=sortConversationMessages(res.messages.map(m=>({...m,attachments:normalizeAttachmentList(m.attachments||[]),aid:m.agent_id,t:m.created_at?.split?.("T")?.[1]?.slice(0,5)||m.created_at?.split?.(" ")?.[1]?.slice(0,5)||""})));
-          setMsgs(p=>({...p,[aid]:nextMsgs}));
+          setMsgs(p=>({...p,[aid]:hydrateConversationMessages(res.messages)}));
         }else{
           setMsgs(p=>({...p,[aid]:[]}));
         }
@@ -266,6 +291,53 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     })();
     return()=>{cancelled=true;};
   },[aid,conv?.ch,conv?.iid,conv?.unread]);
+
+  useEffect(()=>{
+    if(!isActive||!api.isConnected()||!aid||conv?.ch!=="email"||!conv?.iid)return;
+
+    let cancelled=false;
+    const syncActiveEmailConversation=async()=>{
+      if(cancelled||emailLiveSyncRef.current)return;
+      if(typeof document!=="undefined"&&document.visibilityState==="hidden")return;
+
+      emailLiveSyncRef.current=true;
+      try{
+        await api.post("/email/poll-now",{ inboxId: conv.iid }).catch(()=>null);
+        if(cancelled)return;
+
+        const res=await api.get(`/conversations/${aid}/messages`);
+        if(cancelled)return;
+
+        if(Array.isArray(res?.messages)){
+          setMsgs(p=>({...p,[aid]:hydrateConversationMessages(res.messages)}));
+          setConvs(p=>p.map((c:any)=>c.id===aid?{...c,unread:0}:c));
+        }
+      }catch{}
+      finally{
+        emailLiveSyncRef.current=false;
+      }
+    };
+
+    const onVisibilityChange=()=>{
+      if(typeof document==="undefined"||document.visibilityState==="visible"){
+        syncActiveEmailConversation();
+      }
+    };
+
+    const intervalId=window.setInterval(syncActiveEmailConversation,8000);
+    syncActiveEmailConversation();
+    if(typeof document!=="undefined"){
+      document.addEventListener("visibilitychange",onVisibilityChange);
+    }
+
+    return()=>{
+      cancelled=true;
+      window.clearInterval(intervalId);
+      if(typeof document!=="undefined"){
+        document.removeEventListener("visibilitychange",onVisibilityChange);
+      }
+    };
+  },[aid,conv?.ch,conv?.iid,isActive,setConvs,setMsgs]);
 
   const prevCounts=useRef({});
 
@@ -337,6 +409,11 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     if(isWhatsAppCh&&!isNote&&!contactPhone){
       setInp(txt);
       showT("Customer phone number missing for this WhatsApp conversation","error");
+      return;
+    }
+    if(isWhatsAppCh&&!isNote&&!whatsappSendReady){
+      setInp(txt);
+      showT(`WhatsApp inbox setup incomplete: ${whatsappMissingSendBits.join(", ")}`,"error");
       return;
     }
     if((isEmailCh||isWhatsAppCh)&&!isNote&&!api.isConnected()){
@@ -415,6 +492,16 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const mergeConv=()=>showT("Merge — select target conversation","info");
   const exportChat=()=>{const txt=convMsgs.map(m=>m.role==="sys"?`[${m.text}]`:`[${m.role==="agent"?"Agent":"Customer"}] ${m.text}`).join("\n");navigator.clipboard?.writeText(txt);showT("Chat exported to clipboard","success");};
   const blockContact=()=>showT("Contact blocked","warn");
+  const deleteConv=async()=>{
+    if(!aid)return;
+    const nextConvs=convs.filter(c=>c.id!==aid);
+    setConvs(nextConvs);
+    setMsgs(p=>{const n={...p};delete n[aid];return n;});
+    if(api.isConnected())api.del(`/conversations/${aid}`).catch(()=>{});
+    const next=nextConvs.find(c=>c.status==="open")||nextConvs[0];
+    setAid(next?.id||"");
+    showT("Conversation deleted","success");
+  };
 
   const [hovConv,setHovConv]=useState(null);
   const [showConfetti,setShowConfetti]=useState(false);
@@ -602,9 +689,9 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       </div>
 
       {/* Saved views */}
-      {savedViews.length>0&&<div style={{display:"flex",padding:"5px 10px",gap:3,borderBottom:`1px solid ${C.b1}`,flexWrap:"wrap",alignItems:"center"}}>
-        {savedViews.map(sv=><button key={sv.id} onClick={()=>applyView(sv)} onContextMenu={e=>{e.preventDefault();delView(sv.id);}} title="Right-click to remove" style={{padding:"2px 8px",borderRadius:12,fontSize:9,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.pd,color:C.p,border:`1px solid ${C.p}33`}}>{sv.icon} {sv.name}</button>)}
-        <button onClick={()=>setShowSaveView(true)} style={{padding:"2px 6px",borderRadius:12,fontSize:9,color:C.t3,background:"transparent",border:`1px dashed ${C.b2}`,cursor:"pointer"}}>+ View</button>
+      {savedViews.length>0&&<div style={{display:"flex",padding:"3px 10px",gap:3,borderBottom:`1px solid ${C.b1}`,overflowX:"auto",alignItems:"center",whiteSpace:"nowrap"}}>
+        {savedViews.map(sv=><button key={sv.id} onClick={()=>applyView(sv)} onContextMenu={e=>{e.preventDefault();delView(sv.id);}} title="Right-click to remove" style={{padding:"1px 6px",borderRadius:10,fontSize:8,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.pd,color:C.p,border:`1px solid ${C.p}33`,flexShrink:0}}>{sv.icon} {sv.name}</button>)}
+        <button onClick={()=>setShowSaveView(true)} style={{padding:"1px 5px",borderRadius:10,fontSize:8,color:C.t3,background:"transparent",border:`1px dashed ${C.b2}`,cursor:"pointer",flexShrink:0}}>+</button>
       </div>}
 
       {/* Bulk bar */}
@@ -705,37 +792,37 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,position:"relative"}}>
 
       {/* ── Conversation Header ── */}
-      <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s1,display:"flex",alignItems:"center",gap:10,position:"relative"}}>
-        {contact&&<Av i={contact.av} c={conv?.color||C.a} s={36}/>}
+      <div style={{padding:"6px 10px",borderBottom:`1px solid ${C.b1}`,background:C.s1,display:"flex",alignItems:"center",gap:8,position:"relative"}}>
+        {contact&&<Av i={contact.av} c={conv?.color||C.a} s={28}/>}
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
-            <span style={{fontSize:14,fontWeight:700,fontFamily:FD,color:C.t1}}>{contact?.name||"Select a conversation"}</span>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+            <span style={{fontSize:13,fontWeight:700,fontFamily:FD,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{contact?.name||"Select a conversation"}</span>
             {conv&&<><Tag text={conv.status||"open"} color={conv.status==="resolved"?C.g:conv.status==="snoozed"?C.y:C.a}/>
             {conv.priority!=="normal"&&<Tag text={conv.priority||""} color={prC(conv.priority)}/>}
-            <span style={{fontSize:11,color:chC(conv.ch)}}>{chI(conv.ch)}</span></>}
+            <span style={{fontSize:10,color:chC(conv.ch)}}>{chI(conv.ch)}</span></>}
           </div>
-          {conv&&<div style={{fontSize:10.5,color:C.t3,fontFamily:FM,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{conv.subject}</span>
+          {conv&&<div style={{fontSize:10,color:C.t3,fontFamily:FM,display:"flex",gap:5,alignItems:"center",overflow:"hidden",whiteSpace:"nowrap"}}>
+            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{conv.subject}</span>
             <span style={{color:C.b1}}>·</span>
-            <span style={{color:assignedAg?C.a:C.y,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:3}} onClick={()=>setShowAssign(true)}>
-              {assignedAg?<><Av i={assignedAg.av} c={assignedAg.color} s={12}/>{assignedAg.name}</>:<>⚠ Unassigned</>}
+            <span style={{color:assignedAg?C.a:C.y,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:2,flexShrink:0}} onClick={()=>setShowAssign(true)}>
+              {assignedAg?<><Av i={assignedAg.av} c={assignedAg.color} s={11}/>{assignedAg.name}</>:<>⚠ Unassigned</>}
             </span>
-            {inboxes.find((ib:any)=>ib.id===conv.iid)&&<><span style={{color:C.b1}}>·</span><span>{inboxes.find((ib:any)=>ib.id===conv.iid)?.name}</span></>}
+            {inboxes.find((ib:any)=>ib.id===conv.iid)&&<><span style={{color:C.b1}}>·</span><span style={{flexShrink:0}}>{inboxes.find((ib:any)=>ib.id===conv.iid)?.name}</span></>}
           </div>}
         </div>
         {/* Action buttons */}
-        {conv&&<div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
+        {conv&&<div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
           <Btn ch="✦ Summarize" v="ai" sm onClick={genSum}/>
           <Btn ch="✦ Classify" v="ai" sm onClick={classifyAI}/>
-          <div style={{width:1,height:18,background:C.b1,margin:"0 2px"}}/>
+          <div style={{width:1,height:16,background:C.b1,margin:"0 1px"}}/>
           {conv.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}
           <Btn ch="↗ Transfer" v="ghost" sm onClick={()=>setShowTransfer(true)}/>
           <Btn ch="⊖ Snooze" v="ghost" sm onClick={()=>setShowSnooze(true)}/>
-          <div style={{width:1,height:18,background:C.b1,margin:"0 2px"}}/>
-          <button onClick={()=>setShowMsgSearch(p=>!p)} title="Search messages" style={{width:28,height:28,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,background:showMsgSearch?C.ad:C.s3,color:showMsgSearch?C.a:C.t3,border:`1px solid ${showMsgSearch?C.a+"44":C.b1}`,cursor:"pointer"}} className="hov">⌕</button>
-          <button onClick={()=>setShowConvConfig(p=>!p)} title="More options" style={{width:28,height:28,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,background:showConvConfig?C.s3:C.s3,color:C.t3,border:`1px solid ${C.b1}`,cursor:"pointer"}} className="hov">⋯</button>
+          <div style={{width:1,height:16,background:C.b1,margin:"0 1px"}}/>
+          <button onClick={()=>setShowMsgSearch(p=>!p)} title="Search messages" style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,background:showMsgSearch?C.ad:C.s3,color:showMsgSearch?C.a:C.t3,border:`1px solid ${showMsgSearch?C.a+"44":C.b1}`,cursor:"pointer"}} className="hov">⌕</button>
+          <button onClick={()=>setShowConvConfig(p=>!p)} title="More options" style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,background:showConvConfig?C.s3:C.s3,color:C.t3,border:`1px solid ${C.b1}`,cursor:"pointer"}} className="hov">⋯</button>
           {showConvConfig&&<div style={{position:"absolute",top:52,right:14,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",zIndex:60,boxShadow:"0 10px 40px rgba(0,0,0,.5)",animation:"fadeUp .15s ease",minWidth:190}}>
-            {[{l:"Export Chat",navId:"download",fn:exportChat},{l:"Merge Conversations",navId:"merge",fn:()=>setShowMerge(true)},{l:"Mark as Spam",navId:"spam",fn:markSpam,c:C.y},{l:"Block Contact",navId:"block",fn:blockContact,c:C.r}].map(opt=>(
+            {[{l:"Export Chat",navId:"download",fn:exportChat},{l:"Merge Conversations",navId:"merge",fn:()=>setShowMerge(true)},{l:"Mark as Spam",navId:"spam",fn:markSpam,c:C.y},{l:"Delete Conversation",navId:"spam",fn:deleteConv,c:C.r},{l:"Block Contact",navId:"block",fn:blockContact,c:C.r}].map(opt=>(
               <button key={opt.l} onClick={()=>{opt.fn();setShowConvConfig(false);}} className="hov" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",color:opt.c||C.t2,fontSize:12,fontFamily:FB,textAlign:"left"}}>
                 <NavIcon id={opt.navId} s={14} col={opt.c||C.t2}/>{opt.l}
               </button>
@@ -804,8 +891,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
                   {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}</span>}
                   {isAg&&!isNt&&(isWhatsAppCh?(
-                    // WhatsApp-style double-tick (blue = delivered)
-                    <span style={{fontSize:10,fontFamily:FM,color:"#53d391",letterSpacing:"-2px"}} title="Delivered">✓✓</span>
+                    <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.55)":C.t3}} title={m.whatsapp_message_id?"Sent to WhatsApp":"Pending send"}>{m.whatsapp_message_id?"✓":"..."}</span>
                   ):(
                     <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>
                   ))}
@@ -872,13 +958,15 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} style={{borderTop:`1px solid ${C.b1}`,background:dragOver?C.ad:isNote?C.yd:C.s1,padding:"10px 14px",transition:"background .2s",position:"relative"}}>
         {dragOver&&<div style={{position:"absolute",inset:0,background:C.a+"22",border:`2px dashed ${C.a}`,borderRadius:0,zIndex:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:C.a,fontWeight:700,fontFamily:FM}}>Drop files here</div>}
         {/* WhatsApp header (only for whatsapp channel) */}
-        {isWhatsAppCh&&!isNote&&<div style={{marginBottom:8,display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#25d36611",border:"1px solid #25d36633",borderRadius:7}}>
+        {isWhatsAppCh&&!isNote&&<div style={{marginBottom:8,display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#25d36611",border:"1px solid #25d36633",borderRadius:7,flexWrap:"wrap"}}>
           <span style={{fontSize:14}}>💬</span>
           <span style={{fontSize:10,color:"#128C7E",fontFamily:FM,fontWeight:600}}>WhatsApp</span>
           <span style={{fontSize:10,color:C.t2,fontFamily:FB,flex:1}}>
             To: {contact?.name||contactName}{contactPhone?" · +"+contactPhone:""}
           </span>
           {!contactPhone&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ No phone on contact</span>}
+          {contactPhone&&!whatsappSendReady&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ Send setup missing: {whatsappMissingSendBits.join(", ")}</span>}
+          {whatsappSendReady&&!whatsappInboundReady&&<span style={{fontSize:9,color:C.y,fontFamily:FM}}>⚠ Reply sync setup missing: {whatsappMissingInboundBits.join(", ")}</span>}
         </div>}
         {/* Email fields (only for email channel) */}
         {isEmailCh&&!isNote&&<div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4}}>
@@ -938,15 +1026,16 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         </div>}
         <div style={{display:"flex",gap:9,alignItems:"flex-end"}}>
           <textarea value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendMsg())}
-            placeholder={isNote?"Write an internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message… (Enter to send)":"Type reply… (Enter to send, Shift+Enter for new line)"} rows={isEmailCh?5:isWhatsAppCh?3:3}
-            style={{flex:1,background:isNote?"#fffbe6":C.bg,border:`1px solid ${isNote?C.y+"66":C.b2}`,borderRadius:10,padding:"10px 13px",fontSize:13,color:isNote?"#5a4e1a":C.t1,resize:"none",lineHeight:1.5,fontFamily:FB,transition:"all .15s"}}/>
+            placeholder={isNote?"Write an internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message… (Enter to send)":"Type reply… (Enter to send, Shift+Enter for new line)"} rows={isEmailCh?3:2}
+            style={{flex:1,background:isNote?"#fffbe6":C.bg,border:`1px solid ${isNote?C.y+"66":C.b2}`,borderRadius:10,padding:"8px 12px",fontSize:13,color:isNote?"#5a4e1a":C.t1,resize:"none",lineHeight:1.45,fontFamily:FB,transition:"all .15s"}}/>
           <button onClick={sendMsg} style={{width:42,height:42,borderRadius:10,fontSize:18,background:isNote?C.y:isWhatsAppCh?"#25d366":C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .15s"}} title={isWhatsAppCh?"Send via WhatsApp":"Send"}>{editMsgId?"✓":isWhatsAppCh?"📤":"↑"}</button>
         </div>
         {/* Email signature preview */}
         {isEmailCh&&!isNote&&<div style={{marginTop:6,padding:"6px 10px",borderTop:`1px solid ${C.b1}22`,fontSize:10,color:C.t3,fontFamily:FM,whiteSpace:"pre-line",lineHeight:1.4}}>— Priya Sharma · Head of Support · SupportDesk</div>}
         {/* WhatsApp footer hint */}
-        {isWhatsAppCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,fontSize:9,color:"#25d366",fontFamily:FM}}>
-          <span>🔒</span><span>End-to-end encrypted · via WhatsApp Business API</span>
+        {isWhatsAppCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,fontSize:9,color:whatsappSendReady&&whatsappInboundReady?"#25d366":whatsappSendReady?C.y:C.r,fontFamily:FM,flexWrap:"wrap"}}>
+          <span>{whatsappSendReady&&whatsappInboundReady?"🔒":"⚠"}</span>
+          <span>{whatsappSendReady&&whatsappInboundReady?"WhatsApp send + reply sync ready":"WhatsApp setup incomplete — sends need Meta API credentials and replies need webhook verification"}</span>
         </div>}
       </div>
     </div>

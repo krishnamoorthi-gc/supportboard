@@ -1012,6 +1012,8 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/email', require('./routes/email'));
+// WhatsApp Cloud API webhook (GET = Meta verification challenge, no auth required)
+app.use('/api/whatsapp', require('./routes/whatsapp'));
 
 // Live monitor - visitor sessions
 app.use('/api/monitor', require('./middleware/auth'), (req, res) => {

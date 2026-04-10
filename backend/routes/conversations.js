@@ -3,6 +3,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid, paginate } = require('../utils/helpers');
 const { sendEmail, extractVisibleEmailText } = require('../services/emailService');
+const { sendWhatsAppMessage } = require('../services/whatsappService');
 const { broadcastToAll } = require('../ws');
 
 function parseAttachments(value) {
@@ -219,6 +220,7 @@ router.post('/:id/messages', auth, async (req, res) => {
 
   const conv = await db.prepare(`
     SELECT c.*, ct.email AS contact_email, ct.name AS contact_name,
+           ct.phone AS contact_phone,
            i.type AS inbox_type, i.id AS inbox_id_val
     FROM conversations c
     LEFT JOIN contacts ct ON c.contact_id = ct.id
@@ -227,8 +229,9 @@ router.post('/:id/messages', auth, async (req, res) => {
   `).get(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
-  let smtpResult = null;
+  let smtpResult    = null;
   let resolvedRecipient = null;
+  let waResult      = null;
 
   if (role === 'agent' && conv.inbox_type === 'email') {
     resolvedRecipient = String(toEmail || conv.contact_email || '').split(',')[0].trim().toLowerCase();
@@ -280,9 +283,29 @@ router.post('/:id/messages', auth, async (req, res) => {
     }
   }
 
+  // ── WhatsApp send ────────────────────────────────────────────────────────
+  if (role === 'agent' && conv.inbox_type === 'whatsapp') {
+    const { toPhone } = req.body;
+    const recipientPhone = (toPhone || conv.contact_phone || '').replace(/^\+/, '');
+    if (!recipientPhone) {
+      return res.status(400).json({ error: 'Customer phone number missing for this WhatsApp conversation' });
+    }
+    try {
+      waResult = await sendWhatsAppMessage({
+        inboxId:     conv.inbox_id_val,
+        to:          recipientPhone,
+        text:        text || '',
+        attachments: normalizedAttachments,
+      });
+    } catch (waErr) {
+      console.error('[conversations] WhatsApp send failed:', waErr.message);
+      return res.status(502).json({ error: `WhatsApp delivery failed: ${waErr.message}` });
+    }
+  }
+
   const id = uid();
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,created_at) VALUES (?,?,?,?,?,?,?,?)').run(
+  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,whatsapp_message_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
     id,
     req.params.id,
     role,
@@ -290,6 +313,7 @@ router.post('/:id/messages', auth, async (req, res) => {
     role === 'agent' ? req.agent.id : null,
     JSON.stringify(normalizedAttachments),
     smtpResult?.smtpMessageId || null,
+    waResult?.messages?.[0]?.id || null,
     createdAt
   );
 
@@ -347,6 +371,10 @@ router.post('/:id/messages', auth, async (req, res) => {
       messageId: smtpResult.smtpMessageId,
       accepted: smtpResult.accepted,
       rejected: smtpResult.rejected,
+    } : null,
+    whatsapp: waResult ? {
+      delivered: true,
+      messageId: waResult?.messages?.[0]?.id,
     } : null,
   });
 });

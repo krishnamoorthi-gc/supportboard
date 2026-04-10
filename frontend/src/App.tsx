@@ -238,7 +238,7 @@ export default function App(){
         else console.log('ctRes:', ctRes);
       }
       if(ok(cvRes)&&cvRes.value.conversations){
-        setConvs(cvRes.value.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
+        setConvs(cvRes.value.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.inbox_type||c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
       }
       if(ok(lbRes)&&lbRes.value.labels)setLabels(lbRes.value.labels);
       if(ok(tmRes)&&tmRes.value.teams)setTeams(tmRes.value.teams.map(t=>({...t,members:typeof t.members==="string"?JSON.parse(t.members||"[]"):t.members||[]})));
@@ -301,7 +301,9 @@ export default function App(){
       return false;
     }
   },[applyInboxes]);
-  const [aid,setAid]=useState("cv1");
+  const [aid,setAid]=useState("");
+  // Auto-select first conversation when data loads (or if current aid no longer exists)
+  useEffect(()=>{if(convs.length&&(!aid||!convs.find((c:any)=>c.id===aid)))setAid(convs[0].id);},[convs]);
   const [fontKey,setFontKey]=useState("outfit");
   const [fontScale,setFontScale]=useState("md");
   const [themeKey,setThemeKey]=useState("light");
@@ -435,13 +437,14 @@ export default function App(){
           // If bot handoff, reload conversations to pick up new ones
           if(m.updates?.bot_handoff){
             api.get("/conversations").then(r=>{
-              if(r?.conversations)setConvs(r.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
+              if(r?.conversations)setConvs(r.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.inbox_type||c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
             }).catch(()=>{});
             setNotifs(p=>[{id:"n"+uid(),text:"🤖 Bot handoff: "+(m.updates.visitor_name||"Visitor")+" needs a live agent",type:"message",read:false,time:"now"},...p.slice(0,19)]);
             showT("🤖 Bot handoff — a visitor needs a live agent!","info");
           } else {
-            api.get(`/conversations/${m.conversationId}`).then(cv=>{
-              if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.channel,agent:cv.agent_id,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
+            api.get(`/conversations/${m.conversationId}`).then(r=>{
+              const cv=r?.conversation;
+              if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||"live",agent:cv.assignee_id,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
             }).catch(()=>{});
           }
           setNotifs(p=>[{id:"n"+uid(),text:"Conversation updated",type:"info",read:false,time:"now"},...p.slice(0,19)]);
@@ -563,7 +566,7 @@ export default function App(){
             const newMap:Record<string,any>={};
             cvRes.value.conversations.forEach((c:any)=>{
               const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];
-              newMap[c.id]={...c,cid:c.contact_id,iid:c.inbox_id,ch:c.channel||c.inbox_type||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
+              newMap[c.id]={...c,cid:c.contact_id,iid:c.inbox_id,ch:c.inbox_type||c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};
             });
             // Merge: keep existing state for open convs, add new ones on top
             const prevMap:Record<string,any>={};
@@ -889,7 +892,7 @@ export default function App(){
       {apiOk&&!api.isConnected()&&<ErrorBanner msg="Lost connection to API server. Data may be stale." onRetry={()=>loadInitialData()} compact/>}
       <div key={themeKey} role="main" aria-label={ROUTES[scr]?.label||"Dashboard"} style={{flex:1,display:"flex",minWidth:0,overflow:"hidden",zoom:FS!==1?FS:undefined}}>
         {scr==="home"&&<HomeScr convs={convs} contacts={contacts} agents={agents} labels={labels} inboxes={inboxes} setScr={navigate} setAid={setAid} msgs={msgs} dashWidgets={dashWidgets} hiddenWidgets={hiddenWidgets} onDashConfig={()=>setShowDashConfig(true)}/>}
-        <LazyMount active={scr==="inbox"}><InboxScr {...sp} aid={aid} setAid={setAid} soundOn={soundOn} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} csatPending={csatPending} setCsatPending={setCsatPending} snoozeConv={snoozeConv} convViewers={convViewers} savedViews={savedViews} setSavedViews={setSavedViews}/></LazyMount>
+        <LazyMount active={scr==="inbox"}><InboxScr {...sp} aid={aid} setAid={setAid} soundOn={soundOn} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} csatPending={csatPending} setCsatPending={setCsatPending} snoozeConv={snoozeConv} convViewers={convViewers} savedViews={savedViews} setSavedViews={setSavedViews} isActive={scr==="inbox"}/></LazyMount>
         <LazyMount active={scr==="teamchat"}><TeamChatScr agents={agents} setAgents={setAgents} fontKey={fontKey} themeKey={themeKey}/></LazyMount>
         <LazyMount active={scr==="crm"}><CrmScr contacts={contacts} setContacts={setContacts} convs={convs} comps={comps} setComps={setComps} customFields={customFields} getCfVal={getCfVal} setCfVal={setCfVal}/></LazyMount>
         <LazyMount active={scr==="contacts"}><ContactsScr {...sp}/></LazyMount>
