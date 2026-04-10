@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
-export default function CrmScr({contacts,setContacts,convs,comps,setComps,customFields,getCfVal,setCfVal}){
-  const [tab,setTab]=useState("leads");const [crmSearch,setCrmSearch]=useState("");const [showQuickAct,setShowQuickAct]=useState(false);
+export default function CrmScr({contacts,setContacts,convs,comps,setComps,customFields,getCfVal,setCfVal,inboxes=[]}){
+  const [tab,setTab]=useState("dashboard");const [crmSearch,setCrmSearch]=useState("");const [showQuickAct,setShowQuickAct]=useState(false);
   // ═══ DEALS ═══
   const STAGES=["Lead","Qualified","Proposal","Negotiation","Won","Lost"];
   const SC={Lead:C.t3,Qualified:C.a,Proposal:C.p,Negotiation:C.y,Won:C.g,Lost:C.r};
@@ -99,7 +99,7 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   const [showMF,setShowMF]=useState(false);const [editMt,setEditMt]=useState(null);const [mtFilter,setMtFilter]=useState("all");const [mtView,setMtView]=useState("list");const [selMeeting,setSelMeeting]=useState(null);const [mtSideTab,setMtSideTab]=useState("details");const [mtSearch,setMtSearch]=useState("");const [mtStatusFilter,setMtStatusFilter]=useState("all");const [mtHostFilter,setMtHostFilter]=useState("all");const [mtSort,setMtSort]=useState("date_asc");
   const [mtTitle,setMtTitle]=useState("");const [mtType,setMtType]=useState("demo");const [mtContact,setMtContact]=useState("");const [mtCompany,setMtCompany]=useState("");const [mtDate,setMtDate]=useState("");const [mtTime,setMtTime]=useState("");const [mtDuration,setMtDuration]=useState("30 min");const [mtLocation,setMtLocation]=useState("Zoom");const [mtHost,setMtHost]=useState("Priya");const [mtAgenda,setMtAgenda]=useState("");const [mtNotes,setMtNotes]=useState("");const [mtOutcome,setMtOutcome]=useState("");const [mtDeal,setMtDeal]=useState("");
   const MT_TYPES=[{v:"demo",l:"Demo",i:"🖥",c:C.a},{v:"discovery",l:"Discovery",i:"🔍",c:C.cy},{v:"technical",l:"Technical",i:"⚙",c:C.p},{v:"negotiation",l:"Negotiation",i:"🤝",c:C.y},{v:"onboarding",l:"Onboarding",i:"🚀",c:C.g},{v:"internal",l:"Internal",i:"👥",c:C.t3},{v:"follow_up",l:"Follow-up",i:"📞",c:"#ff6b35"}];
-  const saveMt=()=>{if(!mtTitle.trim())return showT("Title required","error");const p={title:mtTitle,type:mtType,contact:mtContact,company:mtCompany,date:mtDate,time:mtTime,duration:mtDuration,location:mtLocation,host:mtHost,attendees:[mtHost],agenda:mtAgenda,notes:mtNotes,outcome:mtOutcome,deal:mtDeal,status:editMt?.status||"scheduled",activities:editMt?.activities||[]};const nid="mt"+uid();if(editMt)setMeetings(pr=>pr.map(m=>m.id===editMt.id?{...m,...p}:m));else setMeetings(pr=>[{id:nid,...p},...pr]);showT(editMt?"Updated":"Scheduled!","success");setShowMF(false);if(api.isConnected()){const st=p.date&&(p.time?`${p.date}T${p.time}`:p.date);if(editMt)api.patch(`/crm/meetings/${editMt.id}`,{title:p.title,description:p.notes,start_time:st,location:p.location,status:p.status}).catch(()=>{});else api.post("/crm/meetings",{title:p.title,description:p.notes,start_time:st,location:p.location,status:p.status}).then(r=>{if(r?.meeting?.id)setMeetings(pr=>pr.map(m=>m.id===nid?{...m,id:r.meeting.id}:m));}).catch(()=>{});}setEditMt(null);};
+  const saveMt=()=>{if(!mtTitle.trim())return showT("Title required","error");const p={title:mtTitle,type:mtType,contact:mtContact,company:mtCompany,date:mtDate,time:mtTime,duration:mtDuration,location:mtLocation,host:mtHost,attendees:[mtHost],agenda:mtAgenda,notes:mtNotes,outcome:mtOutcome,deal:mtDeal,status:editMt?.status||"scheduled",activities:editMt?.activities||[]};const nid="mt"+uid();if(editMt)setMeetings(pr=>pr.map(m=>m.id===editMt.id?{...m,...p}:m));else setMeetings(pr=>[{id:nid,...p},...pr]);showT(editMt?"Updated":"Scheduled!","success");setShowMF(false);if(api.isConnected()){const st=p.date&&(p.time?`${p.date}T${p.time}`:p.date);if(editMt){api.patch(`/crm/meetings/${editMt.id}`,{title:p.title,type:p.type,description:p.notes,start_time:st,location:p.location,status:p.status,agenda:p.agenda,host_id:null,attendees:p.attendees,contact_id:null,company_id:null}).catch(()=>{});}else{const ct=contacts.find(c=>c.name===mtContact);api.post("/crm/schedule",{title:p.title,type:p.type,description:p.notes,start_time:st,location:p.location,agenda:p.agenda,attendees:p.attendees,contact_id:ct?.id||null,invite_channels:selInvChannels.map(c=>({id:c.id,type:c.type,name:c.name})),recipient_name:invName||mtContact,recipient_email:invEmail||(ct?.email)||"",recipient_phone:invPhone||(ct?.phone)||"",custom_message:invMsg}).then(r=>{if(r?.meeting?.id){setMeetings(pr=>pr.map(m=>m.id===nid?{...m,id:r.meeting.id}:m));if(r.invite_results?.length){const sent=r.invite_results.filter(x=>x.status==="sent").length;if(sent)showT(`Invite sent via ${sent} channel${sent>1?"s":""}`,"success");}}}).catch(()=>{});}}setEditMt(null);setSelInvChannels([]);setInvEmail("");setInvPhone("");setInvName("");setInvMsg("");};
   const delMt=(id)=>{setMeetings(p=>p.filter(x=>x.id!==id));if(selMeeting===id)setSelMeeting(null);showT("Deleted","success");if(api.isConnected())api.del(`/crm/meetings/${id}`).catch(()=>{});};
   const openMtE=m=>{setMtTitle(m.title);setMtType(m.type);setMtContact(m.contact);setMtCompany(m.company);setMtDate(m.date);setMtTime(m.time);setMtDuration(m.duration);setMtLocation(m.location);setMtHost(m.host);setMtAgenda(m.agenda);setMtNotes(m.notes);setMtOutcome(m.outcome||"");setMtDeal(m.deal||"");setEditMt(m);setShowMF(true);};
   const openMtN=()=>{setMtTitle("");setMtType("demo");setMtContact("");setMtCompany("");setMtDate("");setMtTime("");setMtDuration("30 min");setMtLocation("Zoom");setMtHost("Priya");setMtAgenda("");setMtNotes("");setMtOutcome("");setMtDeal("");setEditMt(null);setShowMF(true);};
@@ -107,6 +107,23 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
   const logMtActivity=(mid,note)=>{setMeetings(p=>p.map(m=>m.id===mid?{...m,activities:[{date:"Today",note},...(m.activities||[])]}:m));showT("Note added","success");};
   const sortMeetings=arr=>{const s=mtSort;if(s==="date_asc")return[...arr].sort((a,b)=>(a.date||"").localeCompare(b.date||""));if(s==="date_desc")return[...arr].sort((a,b)=>(b.date||"").localeCompare(a.date||""));if(s==="name_asc")return[...arr].sort((a,b)=>a.title.localeCompare(b.title));return arr;};
   const fMeetings=sortMeetings(meetings.filter(m=>(mtFilter==="all"||m.type===mtFilter)&&(mtStatusFilter==="all"||m.status===mtStatusFilter)&&(mtHostFilter==="all"||m.host===mtHostFilter)&&(!mtSearch||m.title.toLowerCase().includes(mtSearch.toLowerCase())||(m.contact||"").toLowerCase().includes(mtSearch.toLowerCase())||(m.company||"").toLowerCase().includes(mtSearch.toLowerCase()))));
+
+  // ═══ SCHEDULE — inbox channel invitations ═══
+  const CH_ICON={email:"📧",whatsapp:"💬",sms:"📱",live:"💻",telegram:"✈️",facebook:"📘",instagram:"📷",x:"𝕏",api:"⚡"};
+  const CH_COLOR={email:"#4c82fb",whatsapp:"#25d366",sms:"#f5a623",live:"#1fd07a",telegram:"#0088cc",facebook:"#1877f2",instagram:"#e1306c",x:"#e7e9ea",api:"#22d4e8"};
+  const activeInboxes=useMemo(()=>(inboxes||[]).filter(ib=>ib.active!==0&&ib.active!=="0"),[inboxes]);
+  const [selInvChannels,setSelInvChannels]=useState([]);
+  const [invEmail,setInvEmail]=useState("");const [invPhone,setInvPhone]=useState("");const [invName,setInvName]=useState("");const [invMsg,setInvMsg]=useState("");
+  const [invSending,setInvSending]=useState(false);
+  const [showInviteModal,setShowInviteModal]=useState(null); // meeting id
+  const [showRemindModal,setShowRemindModal]=useState(null);
+  const [meetingInvitations,setMeetingInvitations]=useState({});
+  const toggleInvCh=(ch)=>setSelInvChannels(p=>p.find(c=>c.id===ch.id)?p.filter(c=>c.id!==ch.id):[...p,ch]);
+  const loadInvitations=async(mid)=>{if(!api.isConnected())return;try{const r=await api.get(`/crm/meetings/${mid}/invitations`);if(r?.invitations)setMeetingInvitations(p=>({...p,[mid]:r.invitations}));}catch{}};
+  const sendInvite=async(mid)=>{if(!selInvChannels.length)return showT("Select a channel","error");if(!invEmail&&!invPhone)return showT("Email or phone required","error");setInvSending(true);try{const r=await api.post(`/crm/meetings/${mid}/invite`,{channels:selInvChannels.map(c=>({id:c.id,type:c.type,name:c.name})),recipient_name:invName,recipient_email:invEmail,recipient_phone:invPhone,custom_message:invMsg});if(r?.results){const sent=r.results.filter(x=>x.status==="sent").length;const failed=r.results.filter(x=>x.status==="failed").length;if(sent)showT(`Invite sent via ${sent} channel${sent>1?"s":""}`,"success");if(failed)showT(`${failed} channel${failed>1?"s":""} failed`,"error");setMeetings(p=>p.map(m=>m.id===mid?{...m,activities:[{date:"Today",note:`Invite sent via ${r.results.filter(x=>x.status==="sent").map(x=>x.channel).join(", ")}`},...(m.activities||[])]}:m));loadInvitations(mid);}setShowInviteModal(null);setSelInvChannels([]);setInvMsg("");}catch(e){showT("Failed: "+e.message,"error");}setInvSending(false);};
+  const sendRemind=async(mid)=>{if(!selInvChannels.length)return showT("Select a channel","error");setInvSending(true);try{const r=await api.post(`/crm/meetings/${mid}/remind`,{channels:selInvChannels.map(c=>({id:c.id,type:c.type,name:c.name})),recipient_name:invName,recipient_email:invEmail,recipient_phone:invPhone});if(r?.results){const sent=r.results.filter(x=>x.status==="sent").length;if(sent)showT(`Reminder sent via ${sent} channel${sent>1?"s":""}!`,"success");setMeetings(p=>p.map(m=>m.id===mid?{...m,activities:[{date:"Today",note:`Reminder sent via ${r.results.filter(x=>x.status==="sent").map(x=>x.channel).join(", ")}`},...(m.activities||[])]}:m));loadInvitations(mid);}setShowRemindModal(null);setSelInvChannels([]);}catch(e){showT("Failed: "+e.message,"error");}setInvSending(false);};
+  // Auto-fill invite recipient from contact
+  const prefillInvite=(m)=>{setInvName(m.contact||"");const ct=contacts.find(c=>c.name===m.contact);if(ct){setInvEmail(ct.email||"");setInvPhone(ct.phone||"");}else{setInvEmail("");setInvPhone("");}setInvMsg("");setSelInvChannels([]);};
 
   // ═══ COMPANIES ═══
   const [compQ,setCompQ]=useState("");const [selComp,setSelComp]=useState(null);const [compView,setCompView]=useState("cards");const [compSideTab,setCompSideTab]=useState("details");const [compIndFilter,setCompIndFilter]=useState("all");const [compSzFilter,setCompSzFilter]=useState("all");const [compSort,setCompSort]=useState("name_asc");
@@ -231,8 +248,32 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
         </div>
       </div>
 
-      {/* KPI Cards Row */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,padding:"12px 24px 0"}}>
+      {/* Tab bar */}
+      <div style={{display:"flex",gap:0,padding:"0 24px",overflowX:"auto"}}>
+        {[
+          ["dashboard","📊 Dashboard",0],
+          ["leads","🎯 Leads",activeLeads],
+          ["deals","💰 Deals",openDeals.length],
+          ["tasks","✅ Tasks",dueTasks],
+          ["meetings","📅 Meetings",upcomingMtgs],
+          ["companies","🏢 Customers",comps.length],
+          ["activities","📋 Activities",acts.filter(a=>!a.done).length]
+        ].map(([id,l,cnt])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 14px",fontSize:12.5,fontWeight:700,fontFamily:FD,color:tab===id?C.a:C.t3,borderBottom:`2.5px solid ${tab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"color .15s",whiteSpace:"nowrap",flexShrink:0}}>
+            {l}
+            {cnt>0&&<span style={{fontSize:9,fontFamily:FM,padding:"1px 6px",borderRadius:10,background:tab===id?C.ad:C.s3,color:tab===id?C.a:C.t3,fontWeight:600}}>{cnt}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* ═══ CRM LOADING SKELETON ═══ */}
+    {crmLoading&&<div style={{flex:1,padding:"24px",minHeight:0,overflowY:"auto"}}><div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}><Spin/><span style={{fontSize:12,color:C.t2,fontFamily:FM}}>Loading CRM data from API…</span></div><SkelTable rows={6} cols={5}/></div>}
+
+    {/* ═══ DASHBOARD TAB ═══ */}
+    {!crmLoading&&tab==="dashboard"&&<div style={{flex:1,minHeight:0,overflowY:"auto",padding:"16px 24px"}}>
+      {/* KPI Cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
         {[
           {icon:"🎯",label:"Active Leads",value:activeLeads,sub:leadConvRate+"% conversion",color:C.cy,bg:C.cy+"12",click:()=>setTab("leads")},
           {icon:"💰",label:"Open Deals",value:openDeals.length,sub:"₹"+avgDealSize.toLocaleString()+" avg",color:C.a,bg:C.ad,click:()=>setTab("deals")},
@@ -241,86 +282,120 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
           {icon:"📋",label:"Tasks Due",value:dueTasks,sub:overdueTasks+" overdue",color:overdueTasks>0?C.r:C.y,bg:overdueTasks>0?C.rd:C.yd,click:()=>setTab("tasks")},
           {icon:"📅",label:"Meetings",value:upcomingMtgs,sub:meetings.filter(m=>m.status==="completed").length+" completed",color:C.cy,bg:C.cy+"12",click:()=>setTab("meetings")}
         ].map(k=>(
-          <div key={k.label} onClick={k.click} style={{padding:"10px 12px",background:k.bg,borderRadius:10,border:`1px solid ${k.color}22`,cursor:"pointer",transition:"transform .1s"}} className="hov">
+          <div key={k.label} onClick={k.click} style={{padding:"12px 14px",background:k.bg,borderRadius:10,border:`1px solid ${k.color}22`,cursor:"pointer",transition:"transform .1s"}} className="hov">
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <span style={{fontSize:14}}>{k.icon}</span>
+              <span style={{fontSize:16}}>{k.icon}</span>
               <span style={{fontSize:9,color:k.color,fontFamily:FM,fontWeight:600}}>{k.sub}</span>
             </div>
-            <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:k.color}}>{k.value}</div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:2}}>{k.label}</div>
+            <div style={{fontSize:22,fontWeight:800,fontFamily:FD,color:k.color}}>{k.value}</div>
+            <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{k.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Pipeline Funnel + Owner Performance + Recent Activity */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,padding:"10px 24px"}}>
+      {/* Pipeline Funnel + Team Performance + Recent Activity */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16}}>
         {/* Pipeline Funnel */}
-        <div style={{background:C.s2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.b1}`}}>
-          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>PIPELINE FUNNEL</div>
-          <div style={{display:"flex",gap:0,height:28,borderRadius:6,overflow:"hidden"}}>
-            {STAGES.map(stage=>{const cnt=deals.filter(d=>d.stage===stage).length;const pct=deals.length?Math.max(cnt/deals.length*100,cnt>0?6:0):0;return pct>0?<div key={stage} title={stage+": "+cnt+" (₹"+deals.filter(d=>d.stage===stage).reduce((s,d)=>s+d.value,0).toLocaleString()+")"} style={{width:pct+"%",background:SC[stage],display:"flex",alignItems:"center",justifyContent:"center",transition:"width .3s",minWidth:cnt>0?20:0}}>
-              <span style={{fontSize:8,color:"#fff",fontWeight:700,fontFamily:FM}}>{cnt}</span>
+        <div style={{background:C.s2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>PIPELINE FUNNEL</div>
+          <div style={{display:"flex",gap:0,height:32,borderRadius:6,overflow:"hidden"}}>
+            {STAGES.map(stage=>{const cnt=deals.filter(d=>d.stage===stage).length;const pct=deals.length?Math.max(cnt/deals.length*100,cnt>0?6:0):0;return pct>0?<div key={stage} title={stage+": "+cnt+" (₹"+deals.filter(d=>d.stage===stage).reduce((s,d)=>s+d.value,0).toLocaleString()+")"} style={{width:pct+"%",background:SC[stage],display:"flex",alignItems:"center",justifyContent:"center",transition:"width .3s",minWidth:cnt>0?22:0}}>
+              <span style={{fontSize:9,color:"#fff",fontWeight:700,fontFamily:FM}}>{cnt}</span>
             </div>:null;})}
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            {STAGES.map(s=><span key={s} style={{fontSize:7,color:SC[s],fontFamily:FM,fontWeight:600}}>{s}</span>)}
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
+            {STAGES.map(s=><span key={s} style={{fontSize:8,color:SC[s],fontFamily:FM,fontWeight:600}}>{s}</span>)}
+          </div>
+          {/* Stage details */}
+          <div style={{marginTop:10}}>
+            {STAGES.map(stage=>{const sd=deals.filter(d=>d.stage===stage);const total=sd.reduce((s,d)=>s+d.value,0);return sd.length>0?<div key={stage} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+              <div style={{width:8,height:8,borderRadius:2,background:SC[stage],flexShrink:0}}/>
+              <span style={{fontSize:10,fontWeight:600,flex:1}}>{stage}</span>
+              <span style={{fontSize:10,color:C.t2,fontFamily:FM}}>{sd.length} deals</span>
+              <span style={{fontSize:10,fontWeight:700,color:SC[stage],fontFamily:FM}}>₹{total.toLocaleString()}</span>
+            </div>:null;})}
           </div>
         </div>
 
-        {/* Owner Performance */}
-        <div style={{background:C.s2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.b1}`}}>
-          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>TEAM PERFORMANCE</div>
+        {/* Team Performance */}
+        <div style={{background:C.s2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>TEAM PERFORMANCE</div>
+          {ownerStats.filter(o=>o.deals+o.leads+o.tasks>0).length===0&&<div style={{fontSize:11,color:C.t3,padding:12,textAlign:"center"}}>No team data yet</div>}
           {ownerStats.filter(o=>o.deals+o.leads+o.tasks>0).map(o=>(
-            <div key={o.name} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-              <Av i={o.name[0]+o.name[1]} c={o.name==="Priya"?C.a:o.name==="Dev"?C.g:o.name==="Meena"?C.p:C.y} s={20}/>
-              <span style={{fontSize:10,fontWeight:600,width:40}}>{o.name}</span>
-              <div style={{flex:1,display:"flex",gap:8,fontSize:9,fontFamily:FM}}>
-                <span style={{color:C.p}}>{o.deals}D</span>
-                <span style={{color:C.cy}}>{o.leads}L</span>
-                <span style={{color:C.y}}>{o.tasks}T</span>
-                <span style={{color:C.g}}>₹{(o.pipeline/1000).toFixed(0)}K</span>
+            <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 8px",background:C.bg,borderRadius:8}}>
+              <Av i={o.name[0]+o.name[1]} c={o.name==="Priya"?C.a:o.name==="Dev"?C.g:o.name==="Meena"?C.p:C.y} s={24}/>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontSize:11,fontWeight:600}}>{o.name}</span>
+                <div style={{display:"flex",gap:8,fontSize:9,fontFamily:FM,marginTop:2}}>
+                  <span style={{color:C.p}}>{o.deals} Deals</span>
+                  <span style={{color:C.cy}}>{o.leads} Leads</span>
+                  <span style={{color:C.y}}>{o.tasks} Tasks</span>
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.g,fontFamily:FM}}>₹{(o.pipeline/1000).toFixed(0)}K</div>
+                <div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Pipeline</div>
               </div>
             </div>
           ))}
         </div>
 
         {/* Recent Activity */}
-        <div style={{background:C.s2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.b1}`,maxHeight:90,overflowY:"auto"}}>
-          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>RECENT ACTIVITY</div>
-          {recentActivities.slice(0,5).map((a,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
-              <span style={{fontSize:10,flexShrink:0}}>{a.icon}</span>
-              <div style={{flex:1,minWidth:0}}><span style={{fontSize:9,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{a.note?.slice(0,45)}{(a.note||"").length>45?"…":""}</span><span style={{fontSize:8,color:C.t3,fontFamily:FM}}>{a.entityName} · {a.date}</span></div>
+        <div style={{background:C.s2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>RECENT ACTIVITY</div>
+          {recentActivities.length===0&&<div style={{fontSize:11,color:C.t3,padding:12,textAlign:"center"}}>No activities yet</div>}
+          {recentActivities.slice(0,8).map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6,padding:"4px 0",borderBottom:i<recentActivities.slice(0,8).length-1?`1px solid ${C.b1}`:"none"}}>
+              <span style={{fontSize:12,flexShrink:0,marginTop:1}}>{a.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.note?.slice(0,60)}{(a.note||"").length>60?"…":""}</div>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:1}}>{a.entityName} · {a.date}</div>
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div style={{display:"flex",gap:0,padding:"0 24px"}}>
-        {[
-          ["leads","🎯 Leads",activeLeads],
-          ["deals","💰 Deals",openDeals.length],
-          ["tasks","✅ Tasks",dueTasks],
-          ["meetings","📅 Meetings",upcomingMtgs],
-          ["companies","🏢 Customers",comps.length],
-          ["activities","📋 Activities",acts.filter(a=>!a.done).length]
-        ].map(([id,l,cnt])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 14px",fontSize:12.5,fontWeight:700,fontFamily:FD,color:tab===id?C.a:C.t3,borderBottom:`2.5px solid ${tab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"color .15s"}}>
-            {l}
-            {cnt>0&&<span style={{fontSize:9,fontFamily:FM,padding:"1px 6px",borderRadius:10,background:tab===id?C.ad:C.s3,color:tab===id?C.a:C.t3,fontWeight:600}}>{cnt}</span>}
-          </button>
-        ))}
+      {/* AI Advisor */}
+      <div style={{marginBottom:16}}>
+        <AiInsight title="CRM AI ADVISOR" loading={crmAiLoad} onRefresh={genCrmAi} items={crmAi?crmAi.split("\n").filter(l=>l.trim()).map(l=>({icon:l.startsWith("•")?"":undefined,text:l.replace(/^[•\-]\s*/,"")})):[{text:"Click Refresh to get AI-powered pipeline analysis, deal risk alerts, and next-best-action recommendations."}]}/>
       </div>
-    </div>
 
-    {/* ═══ CRM AI ADVISOR ═══ */}
-    {!crmLoading&&<div style={{margin:"0 24px 12px"}}>
-      <AiInsight title="CRM AI ADVISOR" loading={crmAiLoad} onRefresh={genCrmAi} items={crmAi?crmAi.split("\n").filter(l=>l.trim()).map(l=>({icon:l.startsWith("•")?"":undefined,text:l.replace(/^[•\-]\s*/,"")})):[{text:"Click Refresh to get AI-powered pipeline analysis, deal risk alerts, and next-best-action recommendations."}]}/>
+      {/* Quick stats summary row */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>LEAD SOURCES</div>
+          {leads.length===0?<div style={{fontSize:10,color:C.t3}}>No leads</div>:
+          LEAD_SOURCES.filter(s=>leads.some(l=>l.source===s)).slice(0,5).map(s=>{const cnt=leads.filter(l=>l.source===s).length;return<div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:C.t2}}>{s}</span>
+            <span style={{fontSize:10,fontWeight:700,color:C.a,fontFamily:FM}}>{cnt}</span>
+          </div>;})}
+        </div>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>LEAD STATUS</div>
+          {LEAD_STAGES.map(s=>{const cnt=leads.filter(l=>l.stage===s).length;return cnt>0?<div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:2,background:LC2[s]}}/><span style={{fontSize:10,color:C.t2}}>{s}</span></div>
+            <span style={{fontSize:10,fontWeight:700,color:LC2[s],fontFamily:FM}}>{cnt}</span>
+          </div>:null;})}
+        </div>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>TASK PRIORITY</div>
+          {PRIORITIES.map(p=>{const cnt=tasks.filter(t=>t.priority===p.v&&t.status!=="done").length;return cnt>0?<div key={p.v} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:C.t2}}>{p.l}</span>
+            <span style={{fontSize:10,fontWeight:700,color:p.c,fontFamily:FM}}>{cnt}</span>
+          </div>:null;})}
+          {tasks.filter(t=>t.status!=="done").length===0&&<div style={{fontSize:10,color:C.t3}}>All done!</div>}
+        </div>
+        <div style={{background:C.s2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.b1}`,textAlign:"center"}}>
+          <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>MEETING TYPES</div>
+          {MT_TYPES.filter(mt=>meetings.some(m=>m.type===mt.v)).map(mt=>{const cnt=meetings.filter(m=>m.type===mt.v).length;return<div key={mt.v} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:C.t2}}>{mt.i} {mt.l}</span>
+            <span style={{fontSize:10,fontWeight:700,color:mt.c,fontFamily:FM}}>{cnt}</span>
+          </div>;})}
+          {meetings.length===0&&<div style={{fontSize:10,color:C.t3}}>No meetings</div>}
+        </div>
+      </div>
     </div>}
-
-    {/* ═══ CRM LOADING SKELETON ═══ */}
-    {crmLoading&&<div style={{flex:1,padding:"24px"}}><div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}><Spin/><span style={{fontSize:12,color:C.t2,fontFamily:FM}}>Loading CRM data from API…</span></div><SkelTable rows={6} cols={5}/></div>}
 
     {/* ═══ DEALS ═══ */}
     {!crmLoading&&tab==="deals"&&<div style={{flex:1,display:"flex",minWidth:0,minHeight:0}}>
@@ -1104,8 +1179,8 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
 
         {/* Sidebar tabs */}
         <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`,flexShrink:0}}>
-          {[["details","📋 Details"],["agenda","📝 Agenda"],["activity","📊 Activity ("+((m.activities||[]).length)+")"]].map(([id,lb])=>(
-            <button key={id} onClick={()=>setMtSideTab(id)} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:700,fontFamily:FM,color:mtSideTab===id?C.a:C.t3,borderBottom:`2px solid ${mtSideTab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer"}}>{lb}</button>
+          {[["details","📋 Details"],["invite","📨 Invite"],["agenda","📝 Agenda"],["activity","📊 Activity ("+((m.activities||[]).length)+")"]].map(([id,lb])=>(
+            <button key={id} onClick={()=>{setMtSideTab(id);if(id==="invite")loadInvitations(m.id);}} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:700,fontFamily:FM,color:mtSideTab===id?C.a:C.t3,borderBottom:`2px solid ${mtSideTab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer"}}>{lb}</button>
           ))}
         </div>
 
@@ -1124,6 +1199,57 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
             </div>
             {m.outcome&&<><div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4,letterSpacing:".5px"}}>OUTCOME</div><div style={{background:C.gd,border:`1px solid ${C.g}33`,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.t1,lineHeight:1.5,marginBottom:14}}>✅ {m.outcome}</div></>}
             {m.notes&&<><div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4,letterSpacing:".5px"}}>NOTES</div><div style={{background:C.yd,border:`1px solid ${C.y}33`,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.t1,lineHeight:1.5}}>{m.notes}</div></>}
+          </div>}
+
+          {/* ═══ INVITE TAB — send invitations via inbox channels ═══ */}
+          {mtSideTab==="invite"&&<div style={{padding:"12px 18px"}}>
+            {/* Quick invite actions */}
+            {m.status==="scheduled"&&<>
+              <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8,letterSpacing:".5px"}}>SEND VIA CHANNEL</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
+                {activeInboxes.map(ib=>{const sel=selInvChannels.find(c=>c.id===ib.id);return(
+                  <button key={ib.id} onClick={()=>toggleInvCh(ib)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 10px",borderRadius:8,fontSize:10,fontWeight:600,background:sel?(CH_COLOR[ib.type]||C.a)+"15":"transparent",color:sel?(CH_COLOR[ib.type]||C.a):C.t3,border:`1.5px solid ${sel?(CH_COLOR[ib.type]||C.a)+"55":C.b1}`,cursor:"pointer",transition:"all .15s"}}>
+                    <span style={{fontSize:13}}>{CH_ICON[ib.type]||"📬"}</span>{ib.name}
+                    {sel&&<span style={{fontSize:9}}>✓</span>}
+                  </button>
+                );})}
+                {activeInboxes.length===0&&<div style={{fontSize:10,color:C.t3,padding:8}}>No active inboxes configured</div>}
+              </div>
+              {selInvChannels.length>0&&<div style={{background:C.bg,borderRadius:10,padding:"10px 12px",marginBottom:12,border:`1px solid ${C.b1}`}}>
+                <div style={{display:"flex",gap:8,marginBottom:6}}>
+                  <div style={{flex:1}}><div style={{fontSize:9,fontWeight:600,color:C.t3,fontFamily:FM,marginBottom:3}}>Name</div><input value={invName} onChange={e=>setInvName(e.target.value)} placeholder="Recipient" style={{width:"100%",background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:11,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/></div>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:6}}>
+                  {selInvChannels.some(c=>c.type==="email")&&<div style={{flex:1}}><div style={{fontSize:9,fontWeight:600,color:C.t3,fontFamily:FM,marginBottom:3}}>📧 Email</div><input value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="email@example.com" type="email" style={{width:"100%",background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:11,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/></div>}
+                  {selInvChannels.some(c=>["whatsapp","sms"].includes(c.type))&&<div style={{flex:1}}><div style={{fontSize:9,fontWeight:600,color:C.t3,fontFamily:FM,marginBottom:3}}>📱 Phone</div><input value={invPhone} onChange={e=>setInvPhone(e.target.value)} placeholder="+91 98765 43210" style={{width:"100%",background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:11,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/></div>}
+                </div>
+                <div style={{marginBottom:8}}><div style={{fontSize:9,fontWeight:600,color:C.t3,fontFamily:FM,marginBottom:3}}>Custom Message</div><input value={invMsg} onChange={e=>setInvMsg(e.target.value)} placeholder="Personal note…" style={{width:"100%",background:C.s1,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:11,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/></div>
+                <div style={{display:"flex",gap:6}}>
+                  <button disabled={invSending} onClick={()=>sendInvite(m.id)} style={{flex:1,padding:"8px 0",borderRadius:8,fontSize:11,fontWeight:700,background:C.a,color:"#fff",border:"none",cursor:invSending?"wait":"pointer",opacity:invSending?0.6:1}}>{invSending?"Sending…":"📨 Send Invite"}</button>
+                  <button disabled={invSending} onClick={()=>sendRemind(m.id)} style={{flex:1,padding:"8px 0",borderRadius:8,fontSize:11,fontWeight:700,background:C.y+"22",color:C.y,border:`1px solid ${C.y}44`,cursor:invSending?"wait":"pointer",opacity:invSending?0.6:1}}>{invSending?"Sending…":"⏰ Send Reminder"}</button>
+                </div>
+                <div style={{display:"flex",gap:3,flexWrap:"wrap",marginTop:6}}>
+                  {selInvChannels.map(ch=>(
+                    <span key={ch.id} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:(CH_COLOR[ch.type]||C.a)+"15",color:CH_COLOR[ch.type]||C.a,fontFamily:FM,fontWeight:600}}>{CH_ICON[ch.type]} {ch.type}</span>
+                  ))}
+                </div>
+              </div>}
+              <button onClick={()=>{prefillInvite(m);if(!selInvChannels.length&&activeInboxes.length>0)setSelInvChannels([activeInboxes[0]]);}} style={{width:"100%",padding:"7px",borderRadius:8,fontSize:10,color:C.a,background:C.ad,border:`1px solid ${C.a}33`,cursor:"pointer",fontWeight:600,fontFamily:FM,marginBottom:12}}>Auto-fill from contact</button>
+            </>}
+
+            {/* Invitation history */}
+            <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8,letterSpacing:".5px"}}>INVITATION HISTORY</div>
+            {!(meetingInvitations[m.id]||[]).length&&<div style={{padding:16,textAlign:"center",color:C.t3,fontSize:10,border:`1px dashed ${C.b1}`,borderRadius:8}}>No invitations sent yet</div>}
+            {(meetingInvitations[m.id]||[]).map((inv,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:C.s2,borderRadius:8,marginBottom:5,border:`1px solid ${C.b1}`}}>
+                <span style={{fontSize:14}}>{CH_ICON[inv.channel]||"📬"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:10,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.recipient_name||inv.recipient_email||inv.recipient_phone||"—"}</div>
+                  <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{inv.channel} · {inv.sent_at?new Date(inv.sent_at).toLocaleString("en-IN",{dateStyle:"short",timeStyle:"short"}):"—"}</div>
+                </div>
+                <span style={{fontSize:8,padding:"2px 6px",borderRadius:4,fontWeight:700,fontFamily:FM,background:inv.status==="sent"?C.g+"18":inv.status==="failed"?C.r+"18":C.y+"18",color:inv.status==="sent"?C.g:inv.status==="failed"?C.r:C.y}}>{inv.status}</span>
+              </div>
+            ))}
           </div>}
 
           {/* Agenda tab */}
@@ -1490,17 +1616,53 @@ export default function CrmScr({contacts,setContacts,convs,comps,setComps,custom
       <Fld label="Tags (comma-separated)"><Inp val={tkTags} set={setTkTags} ph="proposal, follow-up, demo"/></Fld>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowTF(false);setEditTk(null);}}/>{editTk&&<Btn ch="Delete" v="danger" onClick={()=>{delTk(editTk.id);setShowTF(false);}}/>}<Btn ch={editTk?"Save":"Create Task"} v="primary" onClick={saveTk}/></div>
     </Mdl>}
-    {showMF&&<Mdl title={editMt?"Edit Meeting":"Schedule Meeting"} onClose={()=>{setShowMF(false);setEditMt(null);}} w={580}>
+    {showMF&&<Mdl title={editMt?"Edit Meeting":"Schedule Meeting"} onClose={()=>{setShowMF(false);setEditMt(null);setSelInvChannels([]);}} w={640}>
+      <div style={{maxHeight:"70vh",overflowY:"auto",padding:"0 2px"}}>
       <Fld label="Title"><Inp val={mtTitle} set={setMtTitle} ph="e.g. TechCorp Enterprise Demo"/></Fld>
       <Fld label="Type"><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{MT_TYPES.map(t=><button key={t.v} onClick={()=>setMtType(t.v)} style={{padding:"6px 10px",borderRadius:7,fontSize:11,fontWeight:600,background:mtType===t.v?(t.c)+"18":"transparent",color:mtType===t.v?t.c:C.t3,border:`1.5px solid ${mtType===t.v?t.c+"55":C.b1}`,cursor:"pointer"}}>{t.i} {t.l}</button>)}</div></Fld>
-      <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Date"><Inp val={mtDate} set={setMtDate} ph="DD/MM/YY"/></Fld></div><div style={{flex:1}}><Fld label="Time"><Inp val={mtTime} set={setMtTime} ph="10:00 AM"/></Fld></div></div>
+      <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Date"><Inp val={mtDate} set={setMtDate} ph="DD/MM/YY" type="date"/></Fld></div><div style={{flex:1}}><Fld label="Time"><Inp val={mtTime} set={setMtTime} ph="10:00" type="time"/></Fld></div></div>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Duration"><Sel val={mtDuration} set={setMtDuration} opts={["15 min","30 min","45 min","60 min","90 min","2 hours"].map(d=>({v:d,l:d}))}/></Fld></div><div style={{flex:1}}><Fld label="Location"><Sel val={mtLocation} set={setMtLocation} opts={["Zoom","Google Meet","Teams","Phone","In-Person","Huddle","Other"].map(l=>({v:l,l}))}/></Fld></div></div>
-      <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Contact"><Inp val={mtContact} set={setMtContact} ph="Contact name"/></Fld></div><div style={{flex:1}}><Fld label="Company"><CompanyPicker val={mtCompany} set={setMtCompany} comps={comps} setComps={setComps}/></Fld></div></div>
+      <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Contact"><Inp val={mtContact} set={v=>{setMtContact(v);const ct=contacts.find(c=>c.name===v);if(ct){setInvName(ct.name);setInvEmail(ct.email||"");setInvPhone(ct.phone||"");}}} ph="Contact name"/></Fld></div><div style={{flex:1}}><Fld label="Company"><CompanyPicker val={mtCompany} set={setMtCompany} comps={comps} setComps={setComps}/></Fld></div></div>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Host"><Sel val={mtHost} set={setMtHost} opts={["Priya","Dev","Meena","Aryan"].map(n=>({v:n,l:n}))}/></Fld></div><div style={{flex:1}}><Fld label="Related Deal"><Inp val={mtDeal} set={setMtDeal} ph="Deal name"/></Fld></div></div>
-      <Fld label="Agenda"><textarea value={mtAgenda} onChange={e=>setMtAgenda(e.target.value)} rows={3} placeholder="Meeting agenda, discussion points, goals…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
+      <Fld label="Agenda"><textarea value={mtAgenda} onChange={e=>setMtAgenda(e.target.value)} rows={2} placeholder="Meeting agenda, discussion points…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
       <Fld label="Notes"><textarea value={mtNotes} onChange={e=>setMtNotes(e.target.value)} rows={2} placeholder="Prep notes, reminders…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
       {editMt?.status==="completed"&&<Fld label="Outcome"><textarea value={mtOutcome} onChange={e=>setMtOutcome(e.target.value)} rows={2} placeholder="Meeting outcome, next steps…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>}
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowMF(false);setEditMt(null);}}/>{editMt&&<Btn ch="Delete" v="danger" onClick={()=>{delMt(editMt.id);setShowMF(false);}}/>}<Btn ch={editMt?"Save":"Schedule"} v="primary" onClick={saveMt}/></div>
+      {/* ═══ SEND INVITATION VIA INBOX CHANNELS ═══ */}
+      {!editMt&&<div style={{marginTop:8,padding:"14px 16px",background:C.s2,borderRadius:12,border:`1px solid ${C.b1}`}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:700,fontFamily:FM,color:C.t2}}>📨 SEND INVITATION VIA</div>
+          <span style={{fontSize:9,color:C.t3,fontFamily:FM}}>{activeInboxes.length} channel{activeInboxes.length!==1?"s":""} available</span>
+        </div>
+        {activeInboxes.length===0&&<div style={{fontSize:11,color:C.t3,textAlign:"center",padding:8}}>No active inboxes. Configure inboxes in Settings.</div>}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+          {activeInboxes.map(ib=>{const sel=selInvChannels.find(c=>c.id===ib.id);return(
+            <button key={ib.id} onClick={()=>toggleInvCh(ib)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:600,background:sel?(CH_COLOR[ib.type]||C.a)+"15":"transparent",color:sel?(CH_COLOR[ib.type]||C.a):C.t3,border:`1.5px solid ${sel?(CH_COLOR[ib.type]||C.a)+"55":C.b1}`,cursor:"pointer",transition:"all .15s"}}>
+              <span style={{fontSize:14}}>{CH_ICON[ib.type]||"📬"}</span>
+              <span>{ib.name}</span>
+              {sel&&<span style={{fontSize:10,color:CH_COLOR[ib.type]||C.a}}>✓</span>}
+            </button>
+          );})}
+        </div>
+        {selInvChannels.length>0&&<>
+          <div style={{display:"flex",gap:10,marginBottom:8}}>
+            <div style={{flex:1}}><Fld label="Recipient Name"><Inp val={invName} set={setInvName} ph="Contact name"/></Fld></div>
+          </div>
+          <div style={{display:"flex",gap:10,marginBottom:8}}>
+            {selInvChannels.some(c=>c.type==="email")&&<div style={{flex:1}}><Fld label="📧 Email"><Inp val={invEmail} set={setInvEmail} ph="contact@email.com" type="email"/></Fld></div>}
+            {selInvChannels.some(c=>["whatsapp","sms"].includes(c.type))&&<div style={{flex:1}}><Fld label="📱 Phone"><Inp val={invPhone} set={setInvPhone} ph="+91 98765 43210"/></Fld></div>}
+          </div>
+          <Fld label="Custom Message (optional)"><Inp val={invMsg} set={setInvMsg} ph="Personal note to include in the invitation…"/></Fld>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+            {selInvChannels.map(ch=>(
+              <span key={ch.id} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,padding:"3px 8px",borderRadius:6,background:(CH_COLOR[ch.type]||C.a)+"15",color:CH_COLOR[ch.type]||C.a,fontFamily:FM,fontWeight:600}}>
+                {CH_ICON[ch.type]||"📬"} {ch.type} via {ch.name}
+              </span>
+            ))}
+          </div>
+        </>}
+      </div>}
+      </div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowMF(false);setEditMt(null);setSelInvChannels([]);}}/>{editMt&&<Btn ch="Delete" v="danger" onClick={()=>{delMt(editMt.id);setShowMF(false);}}/>}<Btn ch={editMt?"Save Changes":selInvChannels.length>0?"Schedule & Send Invite":"Schedule"} v="primary" onClick={saveMt}/></div>
     </Mdl>}
     {showAF&&<Mdl title="Log Activity" onClose={()=>setShowAF(false)} w={460}>
       <Fld label="Type"><div style={{display:"flex",gap:4}}>{Object.entries(AIC).map(([t,i])=><button key={t} onClick={()=>setAT(t)} style={{flex:1,padding:8,borderRadius:8,fontSize:12,background:aT===t?C.ad:C.s2,color:aT===t?C.a:C.t2,border:`1px solid ${aT===t?C.a+"44":C.b1}`,cursor:"pointer",textAlign:"center"}}>{i} {t}</button>)}</div></Fld>

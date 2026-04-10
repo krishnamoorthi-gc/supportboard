@@ -9,24 +9,28 @@ router.get('/pages', auth, (req, res) => {
   for (const p of pages) {
     p.booking_count = db.prepare('SELECT COUNT(*) as c FROM bookings WHERE page_id=?').get(p.id).c;
     try { p.form_fields = JSON.parse(p.form_fields||'[]'); } catch { p.form_fields=[]; }
+    try { p.availability = JSON.parse(p.availability||'[]'); } catch { p.availability=[]; }
   }
   res.json({ pages });
 });
 
 router.post('/pages', auth, (req, res) => {
-  const { name, slug, description, duration=30, buffer=0, color='#4c82fb', form_fields=[], availability={} } = req.body;
+  const { name, slug, description, duration=30, buffer=0, color='#4c82fb', form_fields=[], availability={}, location='Zoom', max_per_day=4, min_notice_hours=24 } = req.body;
   if (!name || !slug) return res.status(400).json({ error: 'name and slug required' });
   const id = uid();
-  db.prepare('INSERT INTO booking_pages (id,name,slug,description,duration,buffer,color,form_fields,availability) VALUES (?,?,?,?,?,?,?,?,?)').run(
-    id, name, slug, description||null, duration, buffer, color, JSON.stringify(form_fields), JSON.stringify(availability)
+  db.prepare('INSERT INTO booking_pages (id,name,slug,description,duration,buffer,color,form_fields,availability,location,max_per_day,min_notice_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    id, name, slug, description||null, duration, buffer, color, JSON.stringify(form_fields), JSON.stringify(availability), location, max_per_day, min_notice_hours
   );
-  res.status(201).json({ page: db.prepare('SELECT * FROM booking_pages WHERE id=?').get(id) });
+  const page = db.prepare('SELECT * FROM booking_pages WHERE id=?').get(id);
+  try { page.form_fields = JSON.parse(page.form_fields||'[]'); } catch { page.form_fields=[]; }
+  try { page.availability = JSON.parse(page.availability||'[]'); } catch { page.availability=[]; }
+  res.status(201).json({ page });
 });
 
 router.patch('/pages/:id', auth, (req, res) => {
   const p = db.prepare('SELECT * FROM booking_pages WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  const fields = ['name','slug','description','duration','buffer','color','active'];
+  const fields = ['name','slug','description','duration','buffer','color','active','location','max_per_day','min_notice_hours'];
   const updates = {};
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   if (req.body.form_fields !== undefined) updates.form_fields = JSON.stringify(req.body.form_fields);
@@ -34,7 +38,10 @@ router.patch('/pages/:id', auth, (req, res) => {
   if (!Object.keys(updates).length) return res.json({ page: p });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
   db.prepare(`UPDATE booking_pages SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ page: db.prepare('SELECT * FROM booking_pages WHERE id=?').get(req.params.id) });
+  const page = db.prepare('SELECT * FROM booking_pages WHERE id=?').get(req.params.id);
+  try { page.form_fields = JSON.parse(page.form_fields||'[]'); } catch { page.form_fields=[]; }
+  try { page.availability = JSON.parse(page.availability||'[]'); } catch { page.availability=[]; }
+  res.json({ page });
 });
 
 router.delete('/pages/:id', auth, (req, res) => {
@@ -54,6 +61,9 @@ router.get('/', auth, (req, res) => {
     LEFT JOIN booking_pages bp ON b.page_id = bp.id
     WHERE ${where} ORDER BY b.start_time DESC
   `).all(...params);
+  for (const b of bookings) {
+    try { b.form_responses = JSON.parse(b.form_responses||'{}'); } catch { b.form_responses={}; }
+  }
   res.json({ bookings });
 });
 

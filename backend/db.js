@@ -33,6 +33,7 @@ async function init() {
   await ensureSchemaColumns();
   await seed();
   await seedMarketing();
+  await cleanupSeedData();
 }
 
 async function createSchema() {
@@ -191,13 +192,20 @@ CREATE TABLE IF NOT EXISTS deals (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   value DECIMAL(15,2) DEFAULT 0,
+  weighted_value DECIMAL(15,2) DEFAULT 0,
   currency VARCHAR(10) DEFAULT 'USD',
-  stage VARCHAR(100) DEFAULT 'Prospecting',
+  stage VARCHAR(100) DEFAULT 'Open',
   probability INT DEFAULT 20,
   contact_id VARCHAR(255),
   company_id VARCHAR(255),
   owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  product VARCHAR(255),
   expected_close DATE,
+  proposal_date DATE,
+  win_reason TEXT,
+  lost_reason TEXT,
   notes TEXT,
   custom_fields TEXT,
   agent_id VARCHAR(255),
@@ -212,13 +220,23 @@ CREATE TABLE IF NOT EXISTS leads (
   email VARCHAR(255),
   phone VARCHAR(50),
   company VARCHAR(255),
+  designation VARCHAR(255),
   source VARCHAR(100),
+  campaign VARCHAR(255),
+  industry VARCHAR(255),
   status VARCHAR(50) DEFAULT 'New',
+  priority VARCHAR(50) DEFAULT 'medium',
   score INT DEFAULT 50,
   value DECIMAL(15,2) DEFAULT 0,
   owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  tags TEXT,
+  next_followup_date DATETIME,
+  remarks TEXT,
   notes TEXT,
   custom_fields TEXT,
+  converted_contact_id VARCHAR(255),
+  converted_deal_id VARCHAR(255),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -229,12 +247,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  type VARCHAR(50) DEFAULT 'task',
   due_date DATETIME,
   priority VARCHAR(50) DEFAULT 'medium',
   status VARCHAR(50) DEFAULT 'todo',
   assignee_id VARCHAR(255),
+  contact_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  recurring VARCHAR(50),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -244,15 +265,113 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE TABLE IF NOT EXISTS meetings (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
+  type VARCHAR(50) DEFAULT 'meeting',
   description TEXT,
   start_time DATETIME,
   end_time DATETIME,
   location VARCHAR(255),
   meeting_link VARCHAR(255),
+  host_id VARCHAR(255),
   attendees TEXT,
+  agenda TEXT,
+  outcome TEXT,
   status VARCHAR(50) DEFAULT 'scheduled',
+  contact_id VARCHAR(255),
+  company_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Customers (converted leads/deals)
+CREATE TABLE IF NOT EXISTS crm_customers (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  company VARCHAR(255),
+  company_id VARCHAR(255),
+  contact_id VARCHAR(255),
+  deal_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  status VARCHAR(50) DEFAULT 'active',
+  type VARCHAR(50) DEFAULT 'customer',
+  renewal_date DATE,
+  contract_value DECIMAL(15,2) DEFAULT 0,
+  notes TEXT,
+  tags TEXT,
+  custom_fields TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- CRM - Activities (activity log)
+CREATE TABLE IF NOT EXISTS crm_activities (
+  id VARCHAR(255) PRIMARY KEY,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  entity_type VARCHAR(50),
+  entity_id VARCHAR(255),
+  performer_id VARCHAR(255),
+  metadata TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Reminders
+CREATE TABLE IF NOT EXISTS crm_reminders (
+  id VARCHAR(255) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  remind_at DATETIME NOT NULL,
+  channel VARCHAR(50) DEFAULT 'in_app',
+  entity_type VARCHAR(50),
+  entity_id VARCHAR(255),
+  assignee_id VARCHAR(255),
+  recurring VARCHAR(50),
+  status VARCHAR(50) DEFAULT 'pending',
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Transfers (ownership transfer log)
+CREATE TABLE IF NOT EXISTS crm_transfers (
+  id VARCHAR(255) PRIMARY KEY,
+  entity_type VARCHAR(50) NOT NULL,
+  entity_id VARCHAR(255) NOT NULL,
+  from_user_id VARCHAR(255),
+  to_user_id VARCHAR(255),
+  from_team_id VARCHAR(255),
+  to_team_id VARCHAR(255),
+  reason TEXT,
+  notes TEXT,
+  performed_by VARCHAR(255),
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Meeting Invitations (sent via inbox channels)
+CREATE TABLE IF NOT EXISTS meeting_invitations (
+  id VARCHAR(255) PRIMARY KEY,
+  meeting_id VARCHAR(255) NOT NULL,
+  channel VARCHAR(50) NOT NULL,
+  inbox_id VARCHAR(255),
+  recipient_name VARCHAR(255),
+  recipient_email VARCHAR(255),
+  recipient_phone VARCHAR(50),
+  subject VARCHAR(500),
+  body TEXT,
+  status VARCHAR(50) DEFAULT 'sent',
+  sent_at DATETIME,
+  delivered_at DATETIME,
+  response VARCHAR(50),
+  response_at DATETIME,
+  error TEXT,
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -834,6 +953,83 @@ async function ensureSchemaColumns() {
         console.log('✅ Added description to campaign_templates');
       }
     } catch (e) { console.error('campaign_templates columns:', e.message); }
+    // ── CRM leads: add new columns ────────────────────────────────────
+    try {
+      const leadCols = new Set((await query('SHOW COLUMNS FROM leads')).map(c => c.Field));
+      const leadAdds = [
+        ['designation', "ALTER TABLE leads ADD COLUMN designation VARCHAR(255)"],
+        ['campaign', "ALTER TABLE leads ADD COLUMN campaign VARCHAR(255)"],
+        ['industry', "ALTER TABLE leads ADD COLUMN industry VARCHAR(255)"],
+        ['priority', "ALTER TABLE leads ADD COLUMN priority VARCHAR(50) DEFAULT 'medium'"],
+        ['team_id', "ALTER TABLE leads ADD COLUMN team_id VARCHAR(255)"],
+        ['tags', "ALTER TABLE leads ADD COLUMN tags TEXT"],
+        ['next_followup_date', "ALTER TABLE leads ADD COLUMN next_followup_date DATETIME"],
+        ['remarks', "ALTER TABLE leads ADD COLUMN remarks TEXT"],
+        ['converted_contact_id', "ALTER TABLE leads ADD COLUMN converted_contact_id VARCHAR(255)"],
+        ['converted_deal_id', "ALTER TABLE leads ADD COLUMN converted_deal_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of leadAdds) { if (!leadCols.has(col)) await run(sql); }
+    } catch (e) { console.error('leads columns:', e.message); }
+
+    // ── CRM deals: add new columns ──────────────────────────────────
+    try {
+      const dealCols = new Set((await query('SHOW COLUMNS FROM deals')).map(c => c.Field));
+      const dealAdds = [
+        ['weighted_value', "ALTER TABLE deals ADD COLUMN weighted_value DECIMAL(15,2) DEFAULT 0"],
+        ['team_id', "ALTER TABLE deals ADD COLUMN team_id VARCHAR(255)"],
+        ['lead_id', "ALTER TABLE deals ADD COLUMN lead_id VARCHAR(255)"],
+        ['product', "ALTER TABLE deals ADD COLUMN product VARCHAR(255)"],
+        ['proposal_date', "ALTER TABLE deals ADD COLUMN proposal_date DATE"],
+        ['win_reason', "ALTER TABLE deals ADD COLUMN win_reason TEXT"],
+        ['lost_reason', "ALTER TABLE deals ADD COLUMN lost_reason TEXT"],
+      ];
+      for (const [col, sql] of dealAdds) { if (!dealCols.has(col)) await run(sql); }
+    } catch (e) { console.error('deals columns:', e.message); }
+
+    // ── CRM tasks: add new columns ──────────────────────────────────
+    try {
+      const taskCols = new Set((await query('SHOW COLUMNS FROM tasks')).map(c => c.Field));
+      const taskAdds = [
+        ['type', "ALTER TABLE tasks ADD COLUMN type VARCHAR(50) DEFAULT 'task'"],
+        ['contact_id', "ALTER TABLE tasks ADD COLUMN contact_id VARCHAR(255)"],
+        ['recurring', "ALTER TABLE tasks ADD COLUMN recurring VARCHAR(50)"],
+      ];
+      for (const [col, sql] of taskAdds) { if (!taskCols.has(col)) await run(sql); }
+    } catch (e) { console.error('tasks columns:', e.message); }
+
+    // ── CRM meetings: add new columns ───────────────────────────────
+    try {
+      const mtCols = new Set((await query('SHOW COLUMNS FROM meetings')).map(c => c.Field));
+      const mtAdds = [
+        ['type', "ALTER TABLE meetings ADD COLUMN type VARCHAR(50) DEFAULT 'meeting'"],
+        ['host_id', "ALTER TABLE meetings ADD COLUMN host_id VARCHAR(255)"],
+        ['agenda', "ALTER TABLE meetings ADD COLUMN agenda TEXT"],
+        ['outcome', "ALTER TABLE meetings ADD COLUMN outcome TEXT"],
+        ['contact_id', "ALTER TABLE meetings ADD COLUMN contact_id VARCHAR(255)"],
+        ['company_id', "ALTER TABLE meetings ADD COLUMN company_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of mtAdds) { if (!mtCols.has(col)) await run(sql); }
+    } catch (e) { console.error('meetings columns:', e.message); }
+
+    // ── calendar_events: meeting_link column ────────────────────────
+    try {
+      const calCols = new Set((await query('SHOW COLUMNS FROM calendar_events')).map(c => c.Field));
+      if (!calCols.has('meeting_link')) {
+        await run('ALTER TABLE calendar_events ADD COLUMN meeting_link VARCHAR(512)');
+        console.log('✅ Added meeting_link to calendar_events');
+      }
+    } catch (e) { console.error('calendar_events columns:', e.message); }
+
+    // ── booking_pages: location, max_per_day, min_notice_hours ──────
+    try {
+      const bpCols = new Set((await query('SHOW COLUMNS FROM booking_pages')).map(c => c.Field));
+      const bpAdds = [
+        ['location', "ALTER TABLE booking_pages ADD COLUMN location VARCHAR(255) DEFAULT 'Zoom'"],
+        ['max_per_day', "ALTER TABLE booking_pages ADD COLUMN max_per_day INT DEFAULT 4"],
+        ['min_notice_hours', "ALTER TABLE booking_pages ADD COLUMN min_notice_hours INT DEFAULT 24"],
+      ];
+      for (const [col, sql] of bpAdds) { if (!bpCols.has(col)) await run(sql); }
+    } catch (e) { console.error('booking_pages columns:', e.message); }
 
     // ── Add missing agent_id to all tables that need it ─────────────────
     const agentIdTables = [
@@ -855,6 +1051,19 @@ async function ensureSchemaColumns() {
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
+}
+
+async function cleanupSeedData() {
+  const seedContactIds = ['ct1','ct2','ct3','ct4','ct5','ct6'];
+  const seedConvoIds = ['cv1','cv2','cv3'];
+  for (const id of seedConvoIds) {
+    await run('DELETE FROM messages WHERE conversation_id=?', [id]);
+    await run('DELETE FROM conversations WHERE id=?', [id]);
+  }
+  for (const id of seedContactIds) {
+    await run('DELETE FROM contacts WHERE id=?', [id]);
+  }
+  console.log('🧹 Cleaned up seed contacts & conversations');
 }
 
 async function seed() {
@@ -886,98 +1095,6 @@ async function seed() {
   ];
   for (const i of inboxes) {
     await run('INSERT INTO inboxes (id,name,type,color,greeting,active,agent_id) VALUES (?,?,?,?,?,?,?)', i);
-  }
-
-  // Contacts
-  const contacts = [
-    ['ct1', 'Alice Johnson', 'alice@techcorp.com', '+1 555 0101', 'TechCorp', '#4c82fb', '["vip","enterprise"]', 'a1'],
-    ['ct2', 'Bob Martinez', 'bob@startup.io', '+1 555 0102', 'StartupIO', '#1fd07a', '["trial"]', 'a1'],
-    ['ct3', 'Carol Chen', 'carol@enterprise.com', '+1 555 0103', 'Enterprise Co', '#9b6dff', '["enterprise","vip"]', 'a1'],
-    ['ct4', 'David Kim', 'david@freelance.dev', '+1 555 0104', 'Freelance', '#f5a623', '[]', 'a1'],
-    ['ct5', 'Emma Wilson', 'emma@agency.com', '+1 555 0105', 'Creative Agency', '#f04f5a', '["agency"]', 'a1'],
-    ['ct6', 'Frank Brown', 'retail@retail.com', '+1 555 0106', 'RetailCo', '#22d4e8', '[]', 'a1'],
-  ];
-  for (const c of contacts) {
-    await run('INSERT INTO contacts (id,name,email,phone,company,color,tags,agent_id) VALUES (?,?,?,?,?,?,?,?)', c);
-  }
-
-  // Conversations
-  const convos = [
-    ['cv1', 'API rate limit exceeded', 'open', 'urgent', 'ct1', 'ib2', 'a1', '["api","urgent"]', '#f04f5a', 'a1'],
-    ['cv2', 'Billing question for enterprise plan', 'open', 'high', 'ct2', 'ib1', 'a2', '["billing"]', '#f5a623', 'a1'],
-    ['cv3', 'WhatsApp integration not working', 'open', 'high', 'ct3', 'ib3', 'a3', '["bug"]', '#4c82fb', 'a1'],
-  ];
-  for (const c of convos) {
-    await run('INSERT INTO conversations (id,subject,status,priority,contact_id,inbox_id,assignee_id,labels,color,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)', c);
-  }
-
-  // ── Marketing Segments ──
-  const segs = [
-    ['sg1', 'All Contacts', 'Every contact in your database', '[]', 5200, 'a1'],
-    ['sg2', 'Active Customers', 'Purchased in last 30 days', '[{"attr":"activity","op":"less_than","val":"30d"}]', 3100, 'a1'],
-    ['sg3', 'Inactive (30d+)', 'No activity for 30+ days', '[{"attr":"activity","op":"greater_than","val":"30d"}]', 1400, 'a1'],
-    ['sg4', 'High Value (VIP)', 'Lifetime value > $500', '[{"attr":"spend","op":"greater_than","val":"500"}]', 420, 'a1'],
-    ['sg5', 'New Signups (7d)', 'Registered in the last week', '[{"attr":"activity","op":"less_than","val":"7d"}]', 180, 'a1'],
-    ['sg6', 'Cart Abandoners', 'Items in cart, no purchase', '[{"attr":"status","op":"equals","val":"cart_abandoned"}]', 640, 'a1'],
-    ['sg7', 'Newsletter Subs', 'Opted in to email marketing', '[{"attr":"tags","op":"contains","val":"newsletter"}]', 8900, 'a1'],
-    ['sg8', 'Champions', 'Top 5% by engagement + spend', '[{"attr":"spend","op":"greater_than","val":"1000"}]', 150, 'a1'],
-  ];
-  for (const s of segs) {
-    await run('INSERT INTO segments (id,name,description,conditions,contact_count,agent_id) VALUES (?,?,?,?,?,?)', s);
-  }
-
-  // ── Marketing Campaigns ──
-  const campaigns = [
-    ['mk1', 'Diwali Sale Blast', 'whatsapp', 'promotion', 'sent', null, null, 'sg1', null, null, '{"sent":4820,"delivered":4680,"opens":3210,"clicks":890,"failed":140}', 0, 'a1'],
-    ['mk2', 'March Newsletter', 'email', 'engagement', 'active', 'What\'s new in March?', null, 'sg7', null, null, '{"sent":12400,"delivered":11800,"opens":4720,"clicks":1650,"failed":600}', 1, 'a1'],
-    ['mk3', 'Flash Sale Alert', 'sms', 'promotion', 'sent', null, null, 'sg2', null, null, '{"sent":2100,"delivered":2040,"opens":1530,"clicks":410,"failed":60}', 0, 'a1'],
-    ['mk4', 'Abandoned Cart Reminder', 'whatsapp', 'retention', 'active', null, null, 'sg6', null, null, '{"sent":890,"delivered":870,"opens":620,"clicks":340,"failed":20}', 0, 'a1'],
-    ['mk5', 'Product Launch', 'email', 'promotion', 'scheduled', 'Introducing our newest product', null, 'sg1', null, null, '{}', 1, 'a1'],
-    ['mk6', 'Appointment Reminder', 'sms', 'engagement', 'draft', null, null, null, null, null, '{}', 0, 'a1'],
-    ['mk7', 'Feedback Request', 'whatsapp', 'engagement', 'paused', null, null, 'sg2', null, null, '{"sent":1600,"delivered":1560,"opens":980,"clicks":220,"failed":40}', 0, 'a1'],
-    ['mk8', 'Welcome Series #1', 'email', 'retention', 'active', 'Welcome aboard!', null, 'sg5', null, null, '{"sent":890,"delivered":860,"opens":510,"clicks":180,"failed":30}', 0, 'a1'],
-    ['mk9', 'Re-engagement Push', 'whatsapp', 'retention', 'sent', null, null, 'sg3', null, null, '{"sent":2400,"delivered":2320,"opens":1680,"clicks":520,"failed":80}', 1, 'a1'],
-    ['mk10', 'Feature Announcement', 'email', 'engagement', 'sent', 'Big update inside', null, 'sg7', null, null, '{"sent":8600,"delivered":8200,"opens":3280,"clicks":980,"failed":400}', 0, 'a1'],
-    ['mk11', 'Flash Deal Push', 'push', 'promotion', 'sent', null, null, 'sg2', null, null, '{"sent":6200,"delivered":5900,"opens":2360,"clicks":820,"failed":300}', 0, 'a1'],
-    ['mk12', 'Abandoned Cart Nudge', 'push', 'retention', 'active', null, null, 'sg6', null, null, '{"sent":1800,"delivered":1720,"opens":1030,"clicks":480,"failed":80}', 0, 'a1'],
-  ];
-  for (const c of campaigns) {
-    await run('INSERT INTO campaigns (id,name,type,goal,status,subject,body,segment_id,scheduled_at,sent_at,stats,ab_test,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', c);
-  }
-
-  // ── Marketing Templates ──
-  const tpls = [
-    ['tl1', 'Welcome Series #1', 'email', 'Onboarding', 'First-touch welcome with getting started CTA', 'Welcome to {{company}}, {{first_name}}!', 'Welcome to {{company}}, {{first_name}}! We are thrilled to have you. Get started: {{link}}', 'a1'],
-    ['tl2', 'Seasonal Sale', 'email', 'Promotion', 'Limited-time discount announcement', '{{discount}}% OFF — Limited Time!', '{{first_name}}, our biggest sale of the season is here! {{discount}}% off everything. Shop: {{link}}', 'a1'],
-    ['tl3', 'Win-Back', 'email', 'Retention', 'Re-engage inactive users with offer', 'We miss you, {{first_name}}!', 'We miss you, {{first_name}}! Come back and get {{discount}}% off your next order: {{link}}', 'a1'],
-    ['tl4', 'Payment Reminder', 'email', 'Billing', 'Upcoming payment due notification', 'Payment due on {{date}}', 'Hi {{first_name}}, your payment of {{amount}} is due on {{date}}. Pay now: {{link}}', 'a1'],
-    ['tl5', 'Newsletter', 'email', 'Engagement', 'Monthly digest with highlights', 'What is new this month at {{company}}', 'Hi {{first_name}}, here is what happened this month at {{company}}. Read more: {{link}}', 'a1'],
-    ['tl6', 'Flash Sale', 'whatsapp', 'Promotion', 'Urgency-driven time-limited offer', null, 'FLASH SALE! {{discount}}% off for {{hours}} hours only. Shop now: {{link}}\n\nReply STOP to unsubscribe', 'a1'],
-    ['tl7', 'Cart Recovery', 'whatsapp', 'Retention', 'Abandoned cart reminder with link', null, 'Hey {{first_name}}! You left {{product}} in your cart. Complete your order: {{link}}\n\nReply STOP to unsubscribe', 'a1'],
-    ['tl8', 'Feedback Request', 'whatsapp', 'Engagement', 'Post-purchase review request', null, 'Hi {{first_name}}, how was {{product}}? Share feedback: {{link}}\n\nReply STOP to unsubscribe', 'a1'],
-    ['tl9', 'Welcome Message', 'whatsapp', 'Onboarding', 'First WhatsApp touchpoint', null, 'Welcome to {{company}}, {{first_name}}! We are here to help 24/7. Get started: {{link}}\n\nReply STOP to unsubscribe', 'a1'],
-    ['tl10', 'Promo Code', 'sms', 'Promotion', 'Exclusive discount code delivery', null, '{{first_name}}, your exclusive code: {{code}}. {{discount}}% OFF. Valid {{date}}. {{link}}', 'a1'],
-    ['tl11', 'Appointment Reminder', 'sms', 'Transactional', 'Booking/appointment confirmation', null, 'Reminder: {{first_name}}, appt on {{date}} at {{time}}. Reply C to confirm.', 'a1'],
-    ['tl12', 'Payment Due SMS', 'sms', 'Billing', 'Payment deadline alert', null, 'Hi {{first_name}}, {{amount}} due on {{date}}. Pay: {{link}} Reply STOP to opt out', 'a1'],
-    ['tl13', 'Deal Alert', 'push', 'Promotion', 'Time-sensitive push offer', null, '{{discount}}% OFF everything! Ends in {{hours}} hrs. Tap to shop.', 'a1'],
-    ['tl14', 'Come Back', 'push', 'Retention', 'Re-engagement push for dormant users', null, 'We miss you, {{first_name}}! {{discount}}% off to welcome you back.', 'a1'],
-    ['tl15', 'New Feature', 'push', 'Engagement', 'Product update notification', null, 'New: {{product}} just launched! Be the first to try it.', 'a1'],
-  ];
-  for (const t of tpls) {
-    await run('INSERT INTO campaign_templates (id,name,type,category,description,subject,body,agent_id) VALUES (?,?,?,?,?,?,?,?)', t);
-  }
-
-  // ── Automations ──
-  const autos = [
-    ['auto1', 'Welcome Series', 'Contact Created', '[]', '["Send welcome email","Wait 2 days","Send tips email","Wait 3 days","Send offer email"]', 1, 1240, 'a1'],
-    ['auto2', 'Cart Recovery', 'Cart Abandoned', '[]', '["Wait 1 hour","Send WhatsApp reminder","Wait 24 hours","Send discount email"]', 1, 640, 'a1'],
-    ['auto3', 'Post-Purchase Review', 'Order Delivered', '[]', '["Wait 3 days","Send feedback WhatsApp","Wait 5 days","Send NPS email"]', 1, 2100, 'a1'],
-    ['auto4', 'Re-engagement', 'Inactive 30 days', '[]', '["Send miss-you email","Wait 7 days","Send SMS offer","Wait 14 days","Mark as churned"]', 0, 450, 'a1'],
-    ['auto5', 'Birthday Offer', 'Birthday Match', '[]', '["Send birthday WhatsApp","Apply 20% coupon"]', 1, 320, 'a1'],
-    ['auto6', 'Payment Reminder', 'Payment Due', '[]', '["Send SMS 3 days before","Send email 1 day before","Send SMS on due date"]', 1, 890, 'a1'],
-  ];
-  for (const a of autos) {
-    await run('INSERT INTO automations (id,name,trigger_type,conditions,actions,active,run_count,agent_id) VALUES (?,?,?,?,?,?,?,?)', a);
   }
 
   console.log('✅ Database seeded successfully');
