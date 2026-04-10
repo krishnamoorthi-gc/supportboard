@@ -480,7 +480,7 @@ function InboxSet({inboxes,setInboxes}){
   const [form,setForm]=useState({name:"",type:"live",greeting:"",color:C.g,active:true});
   const [cfg,setCfg]=useState({
     // Connection
-    apiKey:"",webhookUrl:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",
+    apiKey:"",webhookUrl:"",verifyToken:"",phoneNumberId:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",
     // General
     autoAssign:true,assignMethod:"round_robin",maxPerAgent:8,
     // Business Hours
@@ -510,7 +510,13 @@ function InboxSet({inboxes,setInboxes}){
   const fld=(k,v)=>setForm(p=>({...p,[k]:v}));
   const cfgFld=(k,v)=>setCfg(p=>({...p,[k]:v}));
   const chFields={
-    whatsapp:[{k:"phoneNumber",l:"Phone Number",ph:"+91 98765 43210"},{k:"apiKey",l:"WhatsApp Business API Key",ph:"EAAxxxxxxx"},{k:"webhookUrl",l:"Webhook Callback URL",ph:"https://api.yoursite.com/wa/webhook"}],
+    whatsapp:[
+      {k:"phoneNumberId",l:"Phone Number ID",ph:"101419598765432"},
+      {k:"phoneNumber",l:"Display Phone Number",ph:"+91 98765 43210"},
+      {k:"apiKey",l:"WhatsApp Access Token",ph:"EAAxxxxxxx"},
+      {k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"},
+      {k:"webhookUrl",l:"Webhook Callback URL (set in Meta)",ph:"https://api.yoursite.com/api/whatsapp/webhook"},
+    ],
     telegram:[{k:"botToken",l:"Bot Token",ph:"123456:ABCdef..."},{k:"webhookUrl",l:"Webhook URL",ph:"https://api.yoursite.com/tg/webhook"}],
     facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"}],
     instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Access Token",ph:"IGQxxxxxxx"}],
@@ -543,6 +549,18 @@ function InboxSet({inboxes,setInboxes}){
     showT(edit?"Inbox updated":"Inbox created!","success");setShowForm(false);setEdit(null);
   };
   const testConnection=async(inboxId?:string)=>{
+    const fields=chFields[form.type]||[];
+    const missing=fields.filter(f=>!String((cfg as any)[f.k]||"").trim());
+    if(form.type!=="live"&&form.type!=="whatsapp"&&missing.length>0){
+      cfgFld("connStatus","failed");
+      showT("Fill in: "+missing.map(f=>f.l).join(", "),"error");
+      return;
+    }
+    if(form.type==="email"&&!inboxId){
+      cfgFld("connStatus","failed");
+      showT("Save this email inbox first, then test IMAP/SMTP","error");
+      return;
+    }
     // Email inbox with a saved id → call the real API
     if(form.type==="email"&&inboxId){
       cfgFld("connTesting",true);cfgFld("connStatus","");
@@ -551,8 +569,23 @@ function InboxSet({inboxes,setInboxes}){
         const r=await api.post("/email/test-connection",{inboxId});
         cfgFld("connTesting",false);
         if(r?.success){cfgFld("connStatus","connected");showT("Connection successful! IMAP ✓  SMTP ✓","success");}
-        else{cfgFld("connStatus","error");showT(r?.message||"Connection failed","error");}
-      }catch(e:any){cfgFld("connTesting",false);cfgFld("connStatus","error");showT("Connection error: "+(e?.message||"unknown"),"error");}
+        else{cfgFld("connStatus","failed");showT(r?.message||"Connection failed","error");}
+      }catch(e:any){cfgFld("connTesting",false);cfgFld("connStatus","failed");showT("Connection error: "+(e?.message||"unknown"),"error");}
+      return;
+    }
+    if(form.type==="whatsapp"){
+      const waMissing=[];
+      if(!String(cfg.phoneNumberId||"").trim())waMissing.push("Phone Number ID");
+      if(!String(cfg.apiKey||cfg.accessToken||"").trim())waMissing.push("WhatsApp Access Token");
+      if(!String(cfg.verifyToken||"").trim())waMissing.push("Webhook Verify Token");
+      if(!String(cfg.webhookUrl||"").trim())waMissing.push("Webhook Callback URL");
+      if(waMissing.length){
+        cfgFld("connStatus","failed");
+        showT("Fill in: "+waMissing.join(", "),"error");
+        return;
+      }
+      cfgFld("connStatus","configured");
+      showT("WhatsApp setup looks complete. Real inbound replies start only after Meta webhook verification.","info");
       return;
     }
     // Non-email channels (or unsaved email) — keep the simulated test
@@ -566,7 +599,7 @@ function InboxSet({inboxes,setInboxes}){
   return <div style={{padding:"24px 28px"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h2 style={{fontSize:18,fontWeight:800,fontFamily:FD}}>Inboxes</h2>
-      <Btn ch="⊕ New Inbox" v="primary" onClick={()=>{setForm({name:"",type:"live",greeting:"",color:C.g,active:true});setCfg({apiKey:"",webhookUrl:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",autoAssign:true,assignMethod:"round_robin",maxPerAgent:8,bhEnabled:false,bhStart:"09:00",bhEnd:"18:00",bhDays:[1,2,3,4,5],bhOfflineMsg:"We are currently offline.",slaEnabled:true,slaFirstReply:5,slaResolution:240,csatEnabled:true,csatDelay:2,notifyNewConv:true,notifyNewMsg:true,notifyAssign:true,notifyMention:true,notifySla:true,imapHost:"",imapPort:"993",smtpHost:"",smtpPort:"587",emailUser:"",emailPass:"",autoClose:false,autoCloseDays:7,allowAttach:true,maxAttachMB:10,rateLimit:false,rateLimitPerMin:30,connStatus:"",connTesting:false,showDocs:false,formEnabled:true,formTitle:"Before we start…",formDesc:"Please fill in your details so we can assist you better.",formFields:[{id:"ff1",type:"text",label:"Full Name",placeholder:"Your name",required:true,options:[]},{id:"ff2",type:"email",label:"Email Address",placeholder:"you@company.com",required:true,options:[]},{id:"ff3",type:"select",label:"Department",placeholder:"Select department",required:true,options:["Sales","Support","Billing","Technical","Other"]},{id:"ff4",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}]});setEdit(null);setCfgTab("general");setShowForm(true);}}/>
+      <Btn ch="⊕ New Inbox" v="primary" onClick={()=>{setForm({name:"",type:"live",greeting:"",color:C.g,active:true});setCfg({apiKey:"",webhookUrl:"",verifyToken:"",phoneNumberId:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",autoAssign:true,assignMethod:"round_robin",maxPerAgent:8,bhEnabled:false,bhStart:"09:00",bhEnd:"18:00",bhDays:[1,2,3,4,5],bhOfflineMsg:"We are currently offline.",slaEnabled:true,slaFirstReply:5,slaResolution:240,csatEnabled:true,csatDelay:2,notifyNewConv:true,notifyNewMsg:true,notifyAssign:true,notifyMention:true,notifySla:true,imapHost:"",imapPort:"993",smtpHost:"",smtpPort:"587",emailUser:"",emailPass:"",autoClose:false,autoCloseDays:7,allowAttach:true,maxAttachMB:10,rateLimit:false,rateLimitPerMin:30,connStatus:"",connTesting:false,showDocs:false,formEnabled:true,formTitle:"Before we start…",formDesc:"Please fill in your details so we can assist you better.",formFields:[{id:"ff1",type:"text",label:"Full Name",placeholder:"Your name",required:true,options:[]},{id:"ff2",type:"email",label:"Email Address",placeholder:"you@company.com",required:true,options:[]},{id:"ff3",type:"select",label:"Department",placeholder:"Select department",required:true,options:["Sales","Support","Billing","Technical","Other"]},{id:"ff4",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}]});setEdit(null);setCfgTab("general");setShowForm(true);}}/>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {!inboxes.length&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12}}>
@@ -699,8 +732,8 @@ function InboxSet({inboxes,setInboxes}){
             <div style={{fontSize:11,color:C.t3}}>{form.type==="live"?"No external credentials needed":"Connect your "+form.type+" account to start receiving messages"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:cfg.connStatus==="connected"?C.g:cfg.connStatus==="failed"?C.r:C.t3}}/>
-            <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:cfg.connStatus==="connected"?C.g:cfg.connStatus==="failed"?C.r:C.t3}}>{cfg.connStatus==="connected"?"Connected":cfg.connStatus==="failed"?"Failed":"Not Connected"}</span>
+            <div style={{width:8,height:8,borderRadius:"50%",background:cfg.connStatus==="connected"?C.g:cfg.connStatus==="configured"?C.y:cfg.connStatus==="failed"||cfg.connStatus==="error"?C.r:C.t3}}/>
+            <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:cfg.connStatus==="connected"?C.g:cfg.connStatus==="configured"?C.y:cfg.connStatus==="failed"||cfg.connStatus==="error"?C.r:C.t3}}>{cfg.connStatus==="connected"?"Connected":cfg.connStatus==="configured"?"Configured":cfg.connStatus==="failed"||cfg.connStatus==="error"?"Failed":"Not Connected"}</span>
           </div>
         </div>
 
@@ -712,13 +745,7 @@ function InboxSet({inboxes,setInboxes}){
 
         {/* Action buttons */}
         {(chFields[form.type]||[]).length>0&&<div style={{display:"flex",gap:8,marginTop:10,marginBottom:14}}>
-          <Btn ch={cfg.connTesting?"Testing…":"Test Connection"} v="primary" onClick={()=>{
-            const fields=chFields[form.type]||[];const missing=fields.filter(f=>!cfg[f.k]?.trim());
-            if(missing.length>0)return showT("Fill in: "+missing.map(f=>f.l).join(", "),"error");
-            // For email inboxes, first save the config so the backend can read it, then test
-            if(form.type==="email"&&edit?.id){testConnection(edit.id);}
-            else{cfgFld("connTesting",true);cfgFld("connStatus","");setTimeout(()=>{cfgFld("connTesting",false);cfgFld("connStatus","connected");showT("Connection successful! ✓","success");},2000);}
-          }}/>
+          <Btn ch={cfg.connTesting?"Testing…":"Test Connection"} v="primary" onClick={()=>testConnection(edit?.id)}/>
           <Btn ch="View Documentation" v="ghost" onClick={()=>cfgFld("showDocs",!cfg.showDocs)}/>
           <Btn ch="Reset" v="ghost" onClick={()=>{(chFields[form.type]||[]).forEach(f=>cfgFld(f.k,""));cfgFld("connStatus","");showT("Credentials cleared","info");}}/>
         </div>}
@@ -731,7 +758,11 @@ function InboxSet({inboxes,setInboxes}){
           <div style={{width:24,height:24,borderRadius:"50%",background:C.g,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:800}}>✓</div>
           <div><div style={{fontSize:12,fontWeight:700,color:C.g}}>Connection Successful</div><div style={{fontSize:10,color:C.t3}}>Your {form.type} account is connected and ready to receive messages</div></div>
         </div>}
-        {cfg.connStatus==="failed"&&!cfg.connTesting&&<div style={{padding:"12px",background:C.rd,borderRadius:10,border:`1px solid ${C.r}33`,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        {cfg.connStatus==="configured"&&!cfg.connTesting&&<div style={{padding:"12px",background:C.yd,borderRadius:10,border:`1px solid ${C.y}33`,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:24,height:24,borderRadius:"50%",background:C.y,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:800}}>!</div>
+          <div><div style={{fontSize:12,fontWeight:700,color:C.y}}>Configuration Looks Complete</div><div style={{fontSize:10,color:C.t3}}>Meta webhook verification and a live WhatsApp message are still needed before inbox replies can sync in real time</div></div>
+        </div>}
+        {(cfg.connStatus==="failed"||cfg.connStatus==="error")&&!cfg.connTesting&&<div style={{padding:"12px",background:C.rd,borderRadius:10,border:`1px solid ${C.r}33`,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:24,height:24,borderRadius:"50%",background:C.r,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:800}}>✕</div>
           <div><div style={{fontSize:12,fontWeight:700,color:C.r}}>Connection Failed</div><div style={{fontSize:10,color:C.t3}}>Please verify your credentials and try again</div></div>
         </div>}

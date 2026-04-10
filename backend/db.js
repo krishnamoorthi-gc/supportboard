@@ -773,7 +773,26 @@ async function ensureSchemaColumns() {
         await run('ALTER TABLE messages ADD INDEX idx_email_message_id (email_message_id)');
         console.log('✅ Added email_message_id to messages');
       }
-    } catch (e) { console.error('email_message_id column:', e.message); }
+      // ── whatsapp_message_id for WA dedup ──────────────────────────────
+      if (!msgCols.has('whatsapp_message_id')) {
+        await run('ALTER TABLE messages ADD COLUMN whatsapp_message_id VARCHAR(512) NULL');
+        await run('ALTER TABLE messages ADD INDEX idx_wa_message_id (whatsapp_message_id)');
+        console.log('✅ Added whatsapp_message_id to messages');
+      }
+    } catch (e) { console.error('email/wa_message_id column:', e.message); }
+
+    // ── conversations: channel column (for non-email channels) ───────────
+    try {
+      const cvCols = new Set((await query('SHOW COLUMNS FROM conversations')).map(c => c.Field));
+      if (!cvCols.has('channel')) {
+        await run("ALTER TABLE conversations ADD COLUMN channel VARCHAR(50) DEFAULT 'live'");
+        console.log('✅ Added channel to conversations');
+      }
+      if (!cvCols.has('unread_count')) {
+        await run('ALTER TABLE conversations ADD COLUMN unread_count INT DEFAULT 0');
+        console.log('✅ Added unread_count to conversations');
+      }
+    } catch (e) { console.error('conversations column:', e.message); }
 
     // ── Add missing agent_id to all tables that need it ─────────────────
     const agentIdTables = [
