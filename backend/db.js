@@ -191,13 +191,20 @@ CREATE TABLE IF NOT EXISTS deals (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   value DECIMAL(15,2) DEFAULT 0,
+  weighted_value DECIMAL(15,2) DEFAULT 0,
   currency VARCHAR(10) DEFAULT 'USD',
-  stage VARCHAR(100) DEFAULT 'Prospecting',
+  stage VARCHAR(100) DEFAULT 'Open',
   probability INT DEFAULT 20,
   contact_id VARCHAR(255),
   company_id VARCHAR(255),
   owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  product VARCHAR(255),
   expected_close DATE,
+  proposal_date DATE,
+  win_reason TEXT,
+  lost_reason TEXT,
   notes TEXT,
   custom_fields TEXT,
   agent_id VARCHAR(255),
@@ -212,13 +219,23 @@ CREATE TABLE IF NOT EXISTS leads (
   email VARCHAR(255),
   phone VARCHAR(50),
   company VARCHAR(255),
+  designation VARCHAR(255),
   source VARCHAR(100),
+  campaign VARCHAR(255),
+  industry VARCHAR(255),
   status VARCHAR(50) DEFAULT 'New',
+  priority VARCHAR(50) DEFAULT 'medium',
   score INT DEFAULT 50,
   value DECIMAL(15,2) DEFAULT 0,
   owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  tags TEXT,
+  next_followup_date DATETIME,
+  remarks TEXT,
   notes TEXT,
   custom_fields TEXT,
+  converted_contact_id VARCHAR(255),
+  converted_deal_id VARCHAR(255),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -229,12 +246,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  type VARCHAR(50) DEFAULT 'task',
   due_date DATETIME,
   priority VARCHAR(50) DEFAULT 'medium',
   status VARCHAR(50) DEFAULT 'todo',
   assignee_id VARCHAR(255),
+  contact_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  recurring VARCHAR(50),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -244,15 +264,92 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE TABLE IF NOT EXISTS meetings (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
+  type VARCHAR(50) DEFAULT 'meeting',
   description TEXT,
   start_time DATETIME,
   end_time DATETIME,
   location VARCHAR(255),
   meeting_link VARCHAR(255),
+  host_id VARCHAR(255),
   attendees TEXT,
+  agenda TEXT,
+  outcome TEXT,
   status VARCHAR(50) DEFAULT 'scheduled',
+  contact_id VARCHAR(255),
+  company_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Customers (converted leads/deals)
+CREATE TABLE IF NOT EXISTS crm_customers (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  company VARCHAR(255),
+  company_id VARCHAR(255),
+  contact_id VARCHAR(255),
+  deal_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  status VARCHAR(50) DEFAULT 'active',
+  type VARCHAR(50) DEFAULT 'customer',
+  renewal_date DATE,
+  contract_value DECIMAL(15,2) DEFAULT 0,
+  notes TEXT,
+  tags TEXT,
+  custom_fields TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- CRM - Activities (activity log)
+CREATE TABLE IF NOT EXISTS crm_activities (
+  id VARCHAR(255) PRIMARY KEY,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  entity_type VARCHAR(50),
+  entity_id VARCHAR(255),
+  performer_id VARCHAR(255),
+  metadata TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Reminders
+CREATE TABLE IF NOT EXISTS crm_reminders (
+  id VARCHAR(255) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  remind_at DATETIME NOT NULL,
+  channel VARCHAR(50) DEFAULT 'in_app',
+  entity_type VARCHAR(50),
+  entity_id VARCHAR(255),
+  assignee_id VARCHAR(255),
+  recurring VARCHAR(50),
+  status VARCHAR(50) DEFAULT 'pending',
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Transfers (ownership transfer log)
+CREATE TABLE IF NOT EXISTS crm_transfers (
+  id VARCHAR(255) PRIMARY KEY,
+  entity_type VARCHAR(50) NOT NULL,
+  entity_id VARCHAR(255) NOT NULL,
+  from_user_id VARCHAR(255),
+  to_user_id VARCHAR(255),
+  from_team_id VARCHAR(255),
+  to_team_id VARCHAR(255),
+  reason TEXT,
+  notes TEXT,
+  performed_by VARCHAR(255),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -794,6 +891,64 @@ async function ensureSchemaColumns() {
         console.log('✅ Added unread_count to conversations');
       }
     } catch (e) { console.error('conversations column:', e.message); }
+
+    // ── CRM leads: add new columns ────────────────────────────────────
+    try {
+      const leadCols = new Set((await query('SHOW COLUMNS FROM leads')).map(c => c.Field));
+      const leadAdds = [
+        ['designation', "ALTER TABLE leads ADD COLUMN designation VARCHAR(255)"],
+        ['campaign', "ALTER TABLE leads ADD COLUMN campaign VARCHAR(255)"],
+        ['industry', "ALTER TABLE leads ADD COLUMN industry VARCHAR(255)"],
+        ['priority', "ALTER TABLE leads ADD COLUMN priority VARCHAR(50) DEFAULT 'medium'"],
+        ['team_id', "ALTER TABLE leads ADD COLUMN team_id VARCHAR(255)"],
+        ['tags', "ALTER TABLE leads ADD COLUMN tags TEXT"],
+        ['next_followup_date', "ALTER TABLE leads ADD COLUMN next_followup_date DATETIME"],
+        ['remarks', "ALTER TABLE leads ADD COLUMN remarks TEXT"],
+        ['converted_contact_id', "ALTER TABLE leads ADD COLUMN converted_contact_id VARCHAR(255)"],
+        ['converted_deal_id', "ALTER TABLE leads ADD COLUMN converted_deal_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of leadAdds) { if (!leadCols.has(col)) await run(sql); }
+    } catch (e) { console.error('leads columns:', e.message); }
+
+    // ── CRM deals: add new columns ──────────────────────────────────
+    try {
+      const dealCols = new Set((await query('SHOW COLUMNS FROM deals')).map(c => c.Field));
+      const dealAdds = [
+        ['weighted_value', "ALTER TABLE deals ADD COLUMN weighted_value DECIMAL(15,2) DEFAULT 0"],
+        ['team_id', "ALTER TABLE deals ADD COLUMN team_id VARCHAR(255)"],
+        ['lead_id', "ALTER TABLE deals ADD COLUMN lead_id VARCHAR(255)"],
+        ['product', "ALTER TABLE deals ADD COLUMN product VARCHAR(255)"],
+        ['proposal_date', "ALTER TABLE deals ADD COLUMN proposal_date DATE"],
+        ['win_reason', "ALTER TABLE deals ADD COLUMN win_reason TEXT"],
+        ['lost_reason', "ALTER TABLE deals ADD COLUMN lost_reason TEXT"],
+      ];
+      for (const [col, sql] of dealAdds) { if (!dealCols.has(col)) await run(sql); }
+    } catch (e) { console.error('deals columns:', e.message); }
+
+    // ── CRM tasks: add new columns ──────────────────────────────────
+    try {
+      const taskCols = new Set((await query('SHOW COLUMNS FROM tasks')).map(c => c.Field));
+      const taskAdds = [
+        ['type', "ALTER TABLE tasks ADD COLUMN type VARCHAR(50) DEFAULT 'task'"],
+        ['contact_id', "ALTER TABLE tasks ADD COLUMN contact_id VARCHAR(255)"],
+        ['recurring', "ALTER TABLE tasks ADD COLUMN recurring VARCHAR(50)"],
+      ];
+      for (const [col, sql] of taskAdds) { if (!taskCols.has(col)) await run(sql); }
+    } catch (e) { console.error('tasks columns:', e.message); }
+
+    // ── CRM meetings: add new columns ───────────────────────────────
+    try {
+      const mtCols = new Set((await query('SHOW COLUMNS FROM meetings')).map(c => c.Field));
+      const mtAdds = [
+        ['type', "ALTER TABLE meetings ADD COLUMN type VARCHAR(50) DEFAULT 'meeting'"],
+        ['host_id', "ALTER TABLE meetings ADD COLUMN host_id VARCHAR(255)"],
+        ['agenda', "ALTER TABLE meetings ADD COLUMN agenda TEXT"],
+        ['outcome', "ALTER TABLE meetings ADD COLUMN outcome TEXT"],
+        ['contact_id', "ALTER TABLE meetings ADD COLUMN contact_id VARCHAR(255)"],
+        ['company_id', "ALTER TABLE meetings ADD COLUMN company_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of mtAdds) { if (!mtCols.has(col)) await run(sql); }
+    } catch (e) { console.error('meetings columns:', e.message); }
 
     // ── Add missing agent_id to all tables that need it ─────────────────
     const agentIdTables = [
