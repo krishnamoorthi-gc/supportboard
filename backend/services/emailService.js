@@ -482,6 +482,16 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
     return false;
   }
 
+  // Ignore no-reply / automated senders (notifications, not real conversations)
+  const ignoredDomains = ['mail.anthropic.com', 'noreply.github.com', 'accounts.google.com'];
+  const ignoredPrefixes = ['no-reply', 'noreply', 'do-not-reply', 'donotreply', 'mailer-daemon'];
+  const fromDomain = fromAddr.split('@')[1] || '';
+  const fromLocal = fromAddr.split('@')[0] || '';
+  if (ignoredDomains.some(d => fromDomain === d) || ignoredPrefixes.some(p => fromLocal.startsWith(p))) {
+    await client.messageFlagsAdd({ uid: rawMsg.uid }, ['\\Seen'], { uid: true });
+    return false;
+  }
+
   if (!isLikelyEmail(fromAddr)) {
     await client.messageFlagsAdd({ uid: rawMsg.uid }, ['\\Seen'], { uid: true });
     return false;

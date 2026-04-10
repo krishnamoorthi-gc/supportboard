@@ -105,7 +105,52 @@ export let FS=1;
 export function setFS(v){FS=v;}
 export const uid=()=>Math.random().toString(36).slice(2,8);
 // ── Notification sound ──
-export const playNotifSound=()=>{try{const a=new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkZaQg3VjWFpne4uVmZKEcmBVWmB4jJeaj4J1");a.volume=0.3;a.play().catch(()=>{});}catch(e){}};
+let _notifAudioCtx=null;
+const _notifFallbackSrc="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkZaQg3VjWFpne4uVmZKEcmBVWmB4jJeaj4J1";
+export const playNotifSound=()=>{
+  try{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    if(AudioCtx){
+      const ctx=_notifAudioCtx||(_notifAudioCtx=new AudioCtx());
+      if(ctx.state==="suspended")ctx.resume().catch(()=>{});
+      const notes=[
+        {freq:740,start:0,dur:0.08,gain:0.04},
+        {freq:988,start:0.09,dur:0.18,gain:0.05},
+      ];
+      const base=ctx.currentTime+0.01;
+      notes.forEach(n=>{
+        const t=base+n.start;
+        const osc=ctx.createOscillator();
+        const shimmer=ctx.createOscillator();
+        const gain=ctx.createGain();
+        const filter=ctx.createBiquadFilter();
+        filter.type="lowpass";
+        filter.frequency.setValueAtTime(2400,t);
+        osc.type="triangle";
+        shimmer.type="sine";
+        osc.frequency.setValueAtTime(n.freq,t);
+        shimmer.frequency.setValueAtTime(n.freq*2,t);
+        gain.gain.setValueAtTime(0.0001,t);
+        gain.gain.linearRampToValueAtTime(n.gain,t+0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001,t+n.dur);
+        osc.connect(filter);
+        shimmer.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        shimmer.start(t);
+        osc.stop(t+n.dur+0.03);
+        shimmer.stop(t+n.dur+0.03);
+      });
+      return;
+    }
+  }catch(e){}
+  try{
+    const a=new Audio(_notifFallbackSrc);
+    a.volume=0.25;
+    a.play().catch(()=>{});
+  }catch(e){}
+};
 // ── CSV Export ──
 export const exportCSV=(rows,filename)=>{const csv=rows.map(r=>r.map(c=>'"'+String(c||"").replace(/"/g,'""')+'"').join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);};
 // ── i18n basic ──
@@ -585,7 +630,7 @@ export const ROUTES={home:{path:"",label:"Home",icon:"home"},inbox:{path:"inbox"
 export const hashToScr=()=>{const h=(window.location.hash||"").replace(/^#\/?/,"").split("/")[0]||"";return Object.keys(ROUTES).find(k=>ROUTES[k].path===h)||"home";};
 
 // ─── NOTIF PANEL ─────────────────────────────────────────────────────────
-export function NotifPanel({notifs,setNotifs,onClose}){
+export function NotifPanel({notifs,setNotifs,onClose,onOpenNotification}){
   const [nFilter,setNFilter]=useState("all");
   const [showNPrefs,setShowNPrefs]=useState(false);
   const filtered=nFilter==="all"?notifs:nFilter==="unread"?notifs.filter(n=>!n.read):notifs.filter(n=>n.type===nFilter);
@@ -615,11 +660,15 @@ export function NotifPanel({notifs,setNotifs,onClose}){
     <div style={{maxHeight:280,overflowY:"auto"}}>
       {filtered.length===0&&<div style={{padding:"20px",textAlign:"center",fontSize:11,color:C.t3}}>No notifications</div>}
       {filtered.map(n=>(
-        <div key={n.id} className="hov" onClick={()=>setNotifs(p=>p.map(x=>x.id===n.id?{...x,read:true}:x))}
+        <div key={n.id} className="hov" onClick={()=>{
+          setNotifs(p=>p.map(x=>x.id===n.id?{...x,read:true}:x));
+          onOpenNotification?.(n);
+        }}
           style={{padding:"10px 14px",borderBottom:`1px solid ${C.b1}22`,background:n.read?"transparent":C.ad,cursor:"pointer",transition:"background .12s"}} role="button" aria-label={n.text}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:14}}>{n.type==="message"?"💬":n.type==="warn"?"⚠":n.type==="error"?"🔴":"✅"}</span>
             <div style={{flex:1}}><div style={{fontSize:12,color:C.t1,marginBottom:2}}>{n.text}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{n.time} ago</div></div>
+            {n.targetScreen&&<span style={{fontSize:11,color:C.t3,flexShrink:0}}>↗</span>}
             {!n.read&&<span style={{width:7,height:7,borderRadius:"50%",background:C.a,flexShrink:0}}/>}
           </div>
         </div>

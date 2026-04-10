@@ -32,6 +32,7 @@ async function init() {
   await createSchema();
   await ensureSchemaColumns();
   await seed();
+  await seedMarketing();
   await cleanupSeedData();
 }
 
@@ -404,6 +405,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   type VARCHAR(50),
+  goal VARCHAR(50) DEFAULT 'promotion',
   status VARCHAR(50) DEFAULT 'draft',
   subject VARCHAR(255),
   body TEXT,
@@ -411,6 +413,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   scheduled_at DATETIME,
   sent_at DATETIME,
   stats TEXT,
+  ab_test TINYINT DEFAULT 0,
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -418,6 +421,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 CREATE TABLE IF NOT EXISTS segments (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  description TEXT,
   conditions TEXT,
   contact_count INT DEFAULT 0,
   agent_id VARCHAR(255),
@@ -428,6 +432,8 @@ CREATE TABLE IF NOT EXISTS campaign_templates (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   type VARCHAR(50),
+  category VARCHAR(100) DEFAULT 'General',
+  description TEXT,
   subject VARCHAR(255),
   body TEXT,
   agent_id VARCHAR(255),
@@ -913,6 +919,40 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('conversations column:', e.message); }
 
+    // ── segments: description column ─────────────────────────────────────
+    try {
+      const segCols = new Set((await query('SHOW COLUMNS FROM segments')).map(c => c.Field));
+      if (!segCols.has('description')) {
+        await run('ALTER TABLE segments ADD COLUMN description TEXT');
+        console.log('✅ Added description to segments');
+      }
+    } catch (e) { console.error('segments description column:', e.message); }
+
+    // ── campaigns: goal + ab_test columns ─────────────────────────────────
+    try {
+      const campCols = new Set((await query('SHOW COLUMNS FROM campaigns')).map(c => c.Field));
+      if (!campCols.has('goal')) {
+        await run("ALTER TABLE campaigns ADD COLUMN goal VARCHAR(50) DEFAULT 'promotion'");
+        console.log('✅ Added goal to campaigns');
+      }
+      if (!campCols.has('ab_test')) {
+        await run('ALTER TABLE campaigns ADD COLUMN ab_test TINYINT DEFAULT 0');
+        console.log('✅ Added ab_test to campaigns');
+      }
+    } catch (e) { console.error('campaigns columns:', e.message); }
+
+    // ── campaign_templates: category + description columns ───────────────
+    try {
+      const tplCols = new Set((await query('SHOW COLUMNS FROM campaign_templates')).map(c => c.Field));
+      if (!tplCols.has('category')) {
+        await run("ALTER TABLE campaign_templates ADD COLUMN category VARCHAR(100) DEFAULT 'General'");
+        console.log('✅ Added category to campaign_templates');
+      }
+      if (!tplCols.has('description')) {
+        await run('ALTER TABLE campaign_templates ADD COLUMN description TEXT');
+        console.log('✅ Added description to campaign_templates');
+      }
+    } catch (e) { console.error('campaign_templates columns:', e.message); }
     // ── CRM leads: add new columns ────────────────────────────────────
     try {
       const leadCols = new Set((await query('SHOW COLUMNS FROM leads')).map(c => c.Field));
@@ -995,7 +1035,8 @@ async function ensureSchemaColumns() {
     const agentIdTables = [
       'contacts', 'conversations', 'canned_responses',
       'automations', 'labels', 'teams',
-      'custom_fields', 'companies', 'deals', 'leads', 'campaigns', 'segments'
+      'custom_fields', 'companies', 'deals', 'leads', 'campaigns', 'segments',
+      'campaign_templates'
     ];
     for (const tbl of agentIdTables) {
       try {
@@ -1057,6 +1098,102 @@ async function seed() {
   }
 
   console.log('✅ Database seeded successfully');
+}
+
+// ── Seed marketing data for existing DBs ──
+async function seedMarketing() {
+  try {
+    const agent = await query('SELECT id FROM agents ORDER BY created_at ASC LIMIT 1', [], true);
+    if (!agent) return;
+    const aid = agent.id;
+
+    // Seed segments if empty
+    const segCount = await query('SELECT COUNT(*) as c FROM segments', [], true);
+    if (segCount.c === 0) {
+      const segs = [
+        ['sg1', 'All Contacts', 'Every contact in your database', '[]', 5200, aid],
+        ['sg2', 'Active Customers', 'Purchased in last 30 days', '[{"attr":"activity","op":"less_than","val":"30d"}]', 3100, aid],
+        ['sg3', 'Inactive (30d+)', 'No activity for 30+ days', '[{"attr":"activity","op":"greater_than","val":"30d"}]', 1400, aid],
+        ['sg4', 'High Value (VIP)', 'Lifetime value > $500', '[{"attr":"spend","op":"greater_than","val":"500"}]', 420, aid],
+        ['sg5', 'New Signups (7d)', 'Registered in the last week', '[{"attr":"activity","op":"less_than","val":"7d"}]', 180, aid],
+        ['sg6', 'Cart Abandoners', 'Items in cart, no purchase', '[{"attr":"status","op":"equals","val":"cart_abandoned"}]', 640, aid],
+        ['sg7', 'Newsletter Subs', 'Opted in to email marketing', '[{"attr":"tags","op":"contains","val":"newsletter"}]', 8900, aid],
+        ['sg8', 'Champions', 'Top 5% by engagement + spend', '[{"attr":"spend","op":"greater_than","val":"1000"}]', 150, aid],
+      ];
+      for (const s of segs) {
+        await run('INSERT INTO segments (id,name,description,conditions,contact_count,agent_id) VALUES (?,?,?,?,?,?)', s);
+      }
+      console.log('✅ Marketing segments seeded');
+    }
+
+    // Seed campaigns if empty
+    const campCount = await query('SELECT COUNT(*) as c FROM campaigns', [], true);
+    if (campCount.c === 0) {
+      const campaigns = [
+        ['mk1', 'Diwali Sale Blast', 'whatsapp', 'promotion', 'sent', null, null, 'sg1', null, null, '{"sent":4820,"delivered":4680,"opens":3210,"clicks":890,"failed":140}', 0, aid],
+        ['mk2', 'March Newsletter', 'email', 'engagement', 'active', 'What\'s new in March?', null, 'sg7', null, null, '{"sent":12400,"delivered":11800,"opens":4720,"clicks":1650,"failed":600}', 1, aid],
+        ['mk3', 'Flash Sale Alert', 'sms', 'promotion', 'sent', null, null, 'sg2', null, null, '{"sent":2100,"delivered":2040,"opens":1530,"clicks":410,"failed":60}', 0, aid],
+        ['mk4', 'Abandoned Cart Reminder', 'whatsapp', 'retention', 'active', null, null, 'sg6', null, null, '{"sent":890,"delivered":870,"opens":620,"clicks":340,"failed":20}', 0, aid],
+        ['mk5', 'Product Launch', 'email', 'promotion', 'scheduled', 'Introducing our newest product', null, 'sg1', null, null, '{}', 1, aid],
+        ['mk6', 'Appointment Reminder', 'sms', 'engagement', 'draft', null, null, null, null, null, '{}', 0, aid],
+        ['mk7', 'Feedback Request', 'whatsapp', 'engagement', 'paused', null, null, 'sg2', null, null, '{"sent":1600,"delivered":1560,"opens":980,"clicks":220,"failed":40}', 0, aid],
+        ['mk8', 'Welcome Series #1', 'email', 'retention', 'active', 'Welcome aboard!', null, 'sg5', null, null, '{"sent":890,"delivered":860,"opens":510,"clicks":180,"failed":30}', 0, aid],
+        ['mk9', 'Re-engagement Push', 'whatsapp', 'retention', 'sent', null, null, 'sg3', null, null, '{"sent":2400,"delivered":2320,"opens":1680,"clicks":520,"failed":80}', 1, aid],
+        ['mk10', 'Feature Announcement', 'email', 'engagement', 'sent', 'Big update inside', null, 'sg7', null, null, '{"sent":8600,"delivered":8200,"opens":3280,"clicks":980,"failed":400}', 0, aid],
+        ['mk11', 'Flash Deal Push', 'push', 'promotion', 'sent', null, null, 'sg2', null, null, '{"sent":6200,"delivered":5900,"opens":2360,"clicks":820,"failed":300}', 0, aid],
+        ['mk12', 'Abandoned Cart Nudge', 'push', 'retention', 'active', null, null, 'sg6', null, null, '{"sent":1800,"delivered":1720,"opens":1030,"clicks":480,"failed":80}', 0, aid],
+      ];
+      for (const c of campaigns) {
+        await run('INSERT INTO campaigns (id,name,type,goal,status,subject,body,segment_id,scheduled_at,sent_at,stats,ab_test,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', c);
+      }
+      console.log('✅ Marketing campaigns seeded');
+    }
+
+    // Seed templates if empty
+    const tplCount = await query('SELECT COUNT(*) as c FROM campaign_templates', [], true);
+    if (tplCount.c === 0) {
+      const tpls = [
+        ['tl1', 'Welcome Series #1', 'email', 'Onboarding', 'First-touch welcome with getting started CTA', 'Welcome to {{company}}, {{first_name}}!', 'Welcome to {{company}}, {{first_name}}! We are thrilled to have you. Get started: {{link}}', aid],
+        ['tl2', 'Seasonal Sale', 'email', 'Promotion', 'Limited-time discount announcement', '{{discount}}% OFF — Limited Time!', '{{first_name}}, our biggest sale of the season is here! {{discount}}% off everything. Shop: {{link}}', aid],
+        ['tl3', 'Win-Back', 'email', 'Retention', 'Re-engage inactive users with offer', 'We miss you, {{first_name}}!', 'We miss you, {{first_name}}! Come back and get {{discount}}% off your next order: {{link}}', aid],
+        ['tl4', 'Payment Reminder', 'email', 'Billing', 'Upcoming payment due notification', 'Payment due on {{date}}', 'Hi {{first_name}}, your payment of {{amount}} is due on {{date}}. Pay now: {{link}}', aid],
+        ['tl5', 'Newsletter', 'email', 'Engagement', 'Monthly digest with highlights', 'What is new this month at {{company}}', 'Hi {{first_name}}, here is what happened this month at {{company}}. Read more: {{link}}', aid],
+        ['tl6', 'Flash Sale', 'whatsapp', 'Promotion', 'Urgency-driven time-limited offer', null, 'FLASH SALE! {{discount}}% off for {{hours}} hours only. Shop now: {{link}}\n\nReply STOP to unsubscribe', aid],
+        ['tl7', 'Cart Recovery', 'whatsapp', 'Retention', 'Abandoned cart reminder with link', null, 'Hey {{first_name}}! You left {{product}} in your cart. Complete your order: {{link}}\n\nReply STOP to unsubscribe', aid],
+        ['tl8', 'Feedback Request', 'whatsapp', 'Engagement', 'Post-purchase review request', null, 'Hi {{first_name}}, how was {{product}}? Share feedback: {{link}}\n\nReply STOP to unsubscribe', aid],
+        ['tl9', 'Welcome Message', 'whatsapp', 'Onboarding', 'First WhatsApp touchpoint', null, 'Welcome to {{company}}, {{first_name}}! We are here to help 24/7. Get started: {{link}}\n\nReply STOP to unsubscribe', aid],
+        ['tl10', 'Promo Code', 'sms', 'Promotion', 'Exclusive discount code delivery', null, '{{first_name}}, your exclusive code: {{code}}. {{discount}}% OFF. Valid {{date}}. {{link}}', aid],
+        ['tl11', 'Appointment Reminder', 'sms', 'Transactional', 'Booking/appointment confirmation', null, 'Reminder: {{first_name}}, appt on {{date}} at {{time}}. Reply C to confirm.', aid],
+        ['tl12', 'Payment Due SMS', 'sms', 'Billing', 'Payment deadline alert', null, 'Hi {{first_name}}, {{amount}} due on {{date}}. Pay: {{link}} Reply STOP to opt out', aid],
+        ['tl13', 'Deal Alert', 'push', 'Promotion', 'Time-sensitive push offer', null, '{{discount}}% OFF everything! Ends in {{hours}} hrs. Tap to shop.', aid],
+        ['tl14', 'Come Back', 'push', 'Retention', 'Re-engagement push for dormant users', null, 'We miss you, {{first_name}}! {{discount}}% off to welcome you back.', aid],
+        ['tl15', 'New Feature', 'push', 'Engagement', 'Product update notification', null, 'New: {{product}} just launched! Be the first to try it.', aid],
+      ];
+      for (const t of tpls) {
+        await run('INSERT INTO campaign_templates (id,name,type,category,description,subject,body,agent_id) VALUES (?,?,?,?,?,?,?,?)', t);
+      }
+      console.log('✅ Marketing templates seeded');
+    }
+
+    // Seed automations if empty
+    const autoCount = await query('SELECT COUNT(*) as c FROM automations', [], true);
+    if (autoCount.c === 0) {
+      const autos = [
+        ['auto1', 'Welcome Series', 'Contact Created', '[]', '["Send welcome email","Wait 2 days","Send tips email","Wait 3 days","Send offer email"]', 1, 1240, aid],
+        ['auto2', 'Cart Recovery', 'Cart Abandoned', '[]', '["Wait 1 hour","Send WhatsApp reminder","Wait 24 hours","Send discount email"]', 1, 640, aid],
+        ['auto3', 'Post-Purchase Review', 'Order Delivered', '[]', '["Wait 3 days","Send feedback WhatsApp","Wait 5 days","Send NPS email"]', 1, 2100, aid],
+        ['auto4', 'Re-engagement', 'Inactive 30 days', '[]', '["Send miss-you email","Wait 7 days","Send SMS offer","Wait 14 days","Mark as churned"]', 0, 450, aid],
+        ['auto5', 'Birthday Offer', 'Birthday Match', '[]', '["Send birthday WhatsApp","Apply 20% coupon"]', 1, 320, aid],
+        ['auto6', 'Payment Reminder', 'Payment Due', '[]', '["Send SMS 3 days before","Send email 1 day before","Send SMS on due date"]', 1, 890, aid],
+      ];
+      for (const a of autos) {
+        await run('INSERT INTO automations (id,name,trigger_type,conditions,actions,active,run_count,agent_id) VALUES (?,?,?,?,?,?,?,?)', a);
+      }
+      console.log('✅ Marketing automations seeded');
+    }
+  } catch (e) {
+    console.error('Marketing seed error:', e.message);
+  }
 }
 
 // ── Generic API ──

@@ -29,11 +29,11 @@ router.get('/campaigns/:id', auth, async (req, res) => {
 
 router.post('/campaigns', auth, async (req, res) => {
   try {
-    const { name, type='email', subject, body, segment_id, scheduled_at } = req.body;
+    const { name, type='email', goal='promotion', subject, body, segment_id, scheduled_at, ab_test=false } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const id = uid();
-    await db.prepare('INSERT INTO campaigns (id,name,type,subject,body,segment_id,scheduled_at,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?)').run(
-      id, name, type, subject||null, body||null, segment_id||null, scheduled_at||null, '{}', req.agent.id
+    await db.prepare('INSERT INTO campaigns (id,name,type,goal,subject,body,segment_id,scheduled_at,ab_test,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+      id, name, type, goal, subject||null, body||null, segment_id||null, scheduled_at||null, ab_test?1:0, '{}', req.agent.id
     );
     const campaign = await db.prepare('SELECT * FROM campaigns WHERE id=?').get(id);
     res.status(201).json({ campaign });
@@ -47,7 +47,7 @@ router.patch('/campaigns/:id', auth, async (req, res) => {
   try {
     const c = await db.prepare('SELECT * FROM campaigns WHERE id=?').get(req.params.id);
     if (!c) return res.status(404).json({ error: 'Not found' });
-    const fields = ['name','type','status','subject','body','segment_id','scheduled_at'];
+    const fields = ['name','type','goal','status','subject','body','segment_id','scheduled_at','ab_test'];
     const updates = {};
     for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
     if (req.body.status === 'sent') {
@@ -93,12 +93,12 @@ router.get('/segments', auth, async (req, res) => {
 
 router.post('/segments', auth, async (req, res) => {
   try {
-    const { name, conditions=[] } = req.body;
+    const { name, conditions=[], description='' } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const id = uid();
     const countResult = await db.prepare('SELECT COUNT(*) as c FROM contacts WHERE agent_id=?').get(req.agent.id);
     const count = countResult?.c || 0;
-    await db.prepare('INSERT INTO segments (id,name,conditions,contact_count,agent_id) VALUES (?,?,?,?,?)').run(id, name, JSON.stringify(conditions), count, req.agent.id);
+    await db.prepare('INSERT INTO segments (id,name,description,conditions,contact_count,agent_id) VALUES (?,?,?,?,?,?)').run(id, name, description, JSON.stringify(conditions), count, req.agent.id);
     const segment = await db.prepare('SELECT * FROM segments WHERE id=?').get(id);
     res.status(201).json({ segment });
   } catch (e) {
@@ -113,6 +113,7 @@ router.patch('/segments/:id', auth, async (req, res) => {
     if (!s) return res.status(404).json({ error: 'Not found' });
     const updates = {};
     if (req.body.name !== undefined) updates.name = req.body.name;
+    if (req.body.description !== undefined) updates.description = req.body.description;
     if (req.body.conditions !== undefined) updates.conditions = JSON.stringify(req.body.conditions);
     if (req.body.contact_count !== undefined) updates.contact_count = req.body.contact_count;
     if (!Object.keys(updates).length) return res.json({ segment: s });
@@ -160,10 +161,10 @@ router.get('/templates/:id', auth, async (req, res) => {
 
 router.post('/templates', auth, async (req, res) => {
   try {
-    const { name, type='email', subject, body } = req.body;
+    const { name, type='email', category='General', description='', subject, body } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const id = uid();
-    await db.prepare('INSERT INTO campaign_templates (id,name,type,subject,body,agent_id) VALUES (?,?,?,?,?,?)').run(id, name, type, subject||null, body||null, req.agent.id);
+    await db.prepare('INSERT INTO campaign_templates (id,name,type,category,description,subject,body,agent_id) VALUES (?,?,?,?,?,?,?,?)').run(id, name, type, category, description, subject||null, body||null, req.agent.id);
     const template = await db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(id);
     res.status(201).json({ template });
   } catch (e) {
@@ -176,7 +177,7 @@ router.patch('/templates/:id', auth, async (req, res) => {
   try {
     const t = await db.prepare('SELECT * FROM campaign_templates WHERE id=?').get(req.params.id);
     if (!t) return res.status(404).json({ error: 'Not found' });
-    const fields = ['name','type','subject','body'];
+    const fields = ['name','type','category','description','subject','body'];
     const updates = {};
     for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
     if (!Object.keys(updates).length) return res.json({ template: t });

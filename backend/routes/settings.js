@@ -52,7 +52,7 @@ router.delete('/agents/:id', auth, wrap(async (req, res) => {
 
 // ── TEAMS ──────────────────────────────────────────────────────────────────
 router.get('/teams', auth, wrap(async (req, res) => {
-  const teams = await db.prepare('SELECT * FROM teams WHERE agent_id=?').all(req.agent.id);
+  const teams = await db.prepare('SELECT * FROM teams ORDER BY name ASC').all();
   for (const t of teams) {
     t.members = (await db.prepare('SELECT agent_id FROM team_members WHERE team_id=?').all(t.id)).map(r=>r.agent_id);
   }
@@ -64,8 +64,12 @@ router.post('/teams', auth, wrap(async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
   await db.prepare('INSERT INTO teams (id,name,description,agent_id) VALUES (?,?,?,?)').run(id, name, description||null, req.agent.id);
-  for (const m of members) await db.prepare('INSERT INTO team_members VALUES (?,?)').run(id, m);
-  res.status(201).json({ team: { ...await db.prepare('SELECT * FROM teams WHERE id=?').get(id), members } });
+  for (const m of members) {
+    try { await db.prepare('INSERT INTO team_members (team_id,agent_id) VALUES (?,?)').run(id, m); } catch {}
+  }
+  const team = await db.prepare('SELECT * FROM teams WHERE id=?').get(id);
+  team.members = members;
+  res.status(201).json({ team });
 }));
 
 router.patch('/teams/:id', auth, wrap(async (req, res) => {
@@ -75,9 +79,13 @@ router.patch('/teams/:id', auth, wrap(async (req, res) => {
   if (req.body.description !== undefined) await db.prepare('UPDATE teams SET description=? WHERE id=?').run(req.body.description, req.params.id);
   if (req.body.members) {
     await db.prepare('DELETE FROM team_members WHERE team_id=?').run(req.params.id);
-    for (const m of req.body.members) await db.prepare('INSERT INTO team_members VALUES (?,?)').run(req.params.id, m);
+    for (const m of req.body.members) {
+      try { await db.prepare('INSERT INTO team_members (team_id,agent_id) VALUES (?,?)').run(req.params.id, m); } catch {}
+    }
   }
-  res.json({ team: await db.prepare('SELECT * FROM teams WHERE id=?').get(req.params.id) });
+  const updated = await db.prepare('SELECT * FROM teams WHERE id=?').get(req.params.id);
+  updated.members = (await db.prepare('SELECT agent_id FROM team_members WHERE team_id=?').all(req.params.id)).map(r=>r.agent_id);
+  res.json({ team: updated });
 }));
 
 router.delete('/teams/:id', auth, wrap(async (req, res) => {

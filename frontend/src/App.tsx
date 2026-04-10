@@ -320,6 +320,48 @@ export default function App(){
   const navigate=useCallback(id=>{startTransition(()=>setScr(id));const r=ROUTES[id];if(r)window.location.hash=r.path?"/"+r.path:"/";},[]);
   useEffect(()=>{const handler=()=>setScr(hashToScr());window.addEventListener("hashchange",handler);return()=>window.removeEventListener("hashchange",handler);},[]);
   useEffect(()=>{if(!showProfileMenu)return;const h=(e)=>{if(!(e.target as Element).closest?.("[data-profile-menu]"))setShowProfileMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[showProfileMenu]);
+  const [soundOn,setSoundOn]=useState(true);
+  const [notifs,setNotifs]=useState([]);
+  const [showN,setShowN]=useState(false);
+  const [stab,setStab]=useState("inboxes");
+  const unread=notifs.filter(n=>!n.read).length;
+  const notifSoundAtRef=useRef(0);
+  const normalizeNotifConversation=useCallback((cv:any)=>{
+    if(!cv?.id)return null;
+    const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
+    return {...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:cv.unread_count||cv.unread||0,time:cv.updated_at||cv.created_at||"",color:cv.contact_color||cv.color||"#4c82fb"};
+  },[]);
+  const pushNotification=useCallback((notif:any)=>{
+    if(soundOn&&notif?.playSound!==false){
+      const nowTs=Date.now();
+      if(nowTs-notifSoundAtRef.current>250){
+        notifSoundAtRef.current=nowTs;
+        playNotifSound();
+      }
+    }
+    setNotifs(p=>[{id:"n"+uid(),read:false,time:"now",...notif},...p.slice(0,19)]);
+  },[soundOn]);
+  const openNotification=useCallback((notif:any)=>{
+    if(!notif)return;
+    if(notif.targetConversation){
+      const nextConv=normalizeNotifConversation(notif.targetConversation);
+      if(nextConv){
+        setConvs(prev=>{
+          const exists=prev.find((c:any)=>c.id===nextConv.id);
+          if(exists)return prev.map((c:any)=>c.id===nextConv.id?{...c,...nextConv,unread:Math.max(c.unread||0,nextConv.unread||0)}:c);
+          return [nextConv,...prev];
+        });
+      }
+    }
+    if(notif.targetScreen){
+      navigate(notif.targetScreen);
+    }
+    if(notif.conversationId){
+      setAid(notif.conversationId);
+    }
+    setShowN(false);
+    setNotifs(prev=>prev.map((n:any)=>n.id===notif.id?{...n,read:true}:n));
+  },[navigate,normalizeNotifConversation]);
   // ── Dark/Light mode ──
   const [isDark,setIsDark]=useState(false);
   const [autoTheme,setAutoTheme]=useState(false);
@@ -411,7 +453,6 @@ export default function App(){
   const [showMiniChat,setShowMiniChat]=useState(false);
   const tcUnread=TC_CHANNELS.reduce((s,c)=>s+c.unread,0)+TC_DMS.reduce((s,d)=>s+d.unread,0);
   // ── Sound toggle ──
-  const [soundOn,setSoundOn]=useState(true);
   const normalizeWsAttachments=(value:any)=>{
     if(Array.isArray(value))return value.filter(Boolean);
     if(!value)return [];
@@ -435,7 +476,7 @@ export default function App(){
       ws.onopen=()=>{showT("Live connected","success");};
       ws.onmessage=e=>{try{const m=JSON.parse(e.data);
         if(m.type==="chat_message"&&m.message){
-          setNotifs(p=>[{id:"n"+uid(),text:m.message.author+" sent a message in "+m.channel,type:"message",read:false,time:"now"},...p.slice(0,19)]);
+          pushNotification({text:m.message.author+" sent a message in "+m.channel,type:"message",targetScreen:"teamchat"});
         }
         if(m.type==="conversation_update"){
           // If bot handoff, reload conversations to pick up new ones
@@ -443,21 +484,36 @@ export default function App(){
             api.get("/conversations").then(r=>{
               if(r?.conversations)setConvs(r.conversations.map(c=>{const labels=typeof c.labels==="string"?JSON.parse(c.labels||"[]"):c.labels||[];return{...c,cid:c.contact_id,iid:c.inbox_id,ch:c.inbox_type||c.channel||c.type||"live",agent:c.assignee_id,team:c.team_id,labels,unread:c.unread_count||0,time:c.updated_at||c.created_at||"",color:c.color||"#4c82fb"};}));
             }).catch(()=>{});
-            setNotifs(p=>[{id:"n"+uid(),text:"🤖 Bot handoff: "+(m.updates.visitor_name||"Visitor")+" needs a live agent",type:"message",read:false,time:"now"},...p.slice(0,19)]);
+            pushNotification({text:"🤖 Bot handoff: "+(m.updates.visitor_name||"Visitor")+" needs a live agent",type:"message",targetScreen:"inbox",conversationId:m.conversationId||null});
             showT("🤖 Bot handoff — a visitor needs a live agent!","info");
+          } else if(m.conversation){
+            // Real-time update from broadcast — apply directly without re-fetching
+            const cv=m.conversation;
+            const labels=typeof cv.labels==="string"?(() => { try { return JSON.parse(cv.labels||"[]"); } catch { return []; } })():cv.labels||[];
+            setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||c.ch||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:cv.unread_count||c.unread||0,time:cv.updated_at||c.time||""}:c));
+            // Notification for assignment changes
+            const upd=m.updates||{};
+            if(upd.assignee_id!==undefined){
+              const agName=cv.assignee_name||"someone";
+              pushNotification({text:upd.assignee_id?`Assigned to ${agName}`:"Conversation unassigned",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            } else if(upd.team_id!==undefined){
+              pushNotification({text:"Conversation transferred to another team",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            } else {
+              pushNotification({text:"Conversation updated"+(m.agent_name?" by "+m.agent_name:""),type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            }
           } else {
             api.get(`/conversations/${m.conversationId}`).then(r=>{
               const cv=r?.conversation;
               if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||"live",agent:cv.assignee_id,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
             }).catch(()=>{});
+            pushNotification({text:"Conversation updated",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
           }
-          setNotifs(p=>[{id:"n"+uid(),text:"Conversation updated",type:"info",read:false,time:"now"},...p.slice(0,19)]);
         }
         if(m.type==="presence"){
           setAgents(p=>p.map(a=>a.id===m.agent_id?{...a,status:m.status}:a));
         }
         if(m.type==="sla_breach"){
-          setNotifs(p=>[{id:"n"+uid(),text:"⚠ SLA breach: "+m.conversation_id,type:"error",read:false,time:"now"},...p.slice(0,19)]);
+          pushNotification({text:"⚠ SLA breach: "+m.conversation_id,type:"error",targetScreen:"inbox",conversationId:m.conversation_id||null});
           showT("SLA breach warning!","error");
         }
         // ── Real-time: new message posted (agent reply / customer widget msg) ──
@@ -493,8 +549,7 @@ export default function App(){
           });
           // Sound + notification for customer messages
           if(msg.role==="customer"||msg.role==="contact"){
-            setNotifs((p:any)=>[{id:"n"+uid(),text:"💬 New message in conversation",type:"message",read:false,time:"now"},...p.slice(0,19)]);
-            if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
+            pushNotification({text:"💬 New message in conversation",type:"message",targetScreen:"inbox",conversationId:m.conversationId||null,targetConversation:m.conversation||null});
           }
         }
         // ── Real-time: inbound email received via IMAP polling ────────────
@@ -513,8 +568,7 @@ export default function App(){
           // Append message
           setMsgs((p:any)=>({...p,[cv.id]:[...(p[cv.id]||[]).filter((x:any)=>x.id!==msg.id),msg]}));
           // Notification + sound
-          setNotifs((p:any)=>[{id:"n"+uid(),text:`📧 New email from ${cv.contact_name||cv.contact_email}`,type:"message",read:false,time:"now"},...p.slice(0,19)]);
-          if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
+          pushNotification({text:`📧 New email from ${cv.contact_name||cv.contact_email}`,type:"message",targetScreen:"inbox",conversationId:cv.id,targetConversation:cv});
         }
         if(m.type==="new_conversation"){
           // ── Immediately add to conversation list ──
@@ -536,8 +590,7 @@ export default function App(){
               return [...p,{id:cid,name:m.contact_name||"Customer",email:m.contact_email||"",av,color:m.contact_color||"#4c82fb",tags:[],convs:1}];
             });
           }
-          setNotifs((p:any)=>[{id:"n"+uid(),text:"💬 New conversation from "+(m.contact_name||"visitor"),type:"message",read:false,time:"now"},...p.slice(0,19)]);
-          if(soundOn){try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==").play();}catch{}}
+          pushNotification({text:"💬 New conversation from "+(m.contact_name||"visitor"),type:"message",targetScreen:"inbox",conversationId:cv?.id||m.conversation_id||null,targetConversation:cv||null});
           // AI Auto-Tag — classify new conversation
           const convId=cv?.id||m.conversation_id;
           const convSubject=cv?.subject||m.subject||"";
@@ -548,7 +601,7 @@ export default function App(){
       ws.onerror=()=>{};
       wsRef.current=ws;
     }catch{}
-  },[apiOk,soundOn]);
+  },[apiOk,pushNotification,soundOn]);
   useEffect(()=>{if(isLoggedIn&&apiOk)wsConnect();return()=>{wsRef.current?.close();};},[isLoggedIn,apiOk,wsConnect]);
 
   // ══ Auto-refresh: silently sync conversations + contacts every 30 s ══
@@ -620,10 +673,6 @@ export default function App(){
     if((e.metaKey||e.ctrlKey)&&e.key==="3"){e.preventDefault();navigate("reports");}
     if(e.key==="?"&&!e.target.matches("input,textarea")){e.preventDefault();setShowShortcuts(p=>!p);}
   };window.addEventListener("keydown",handler);return()=>window.removeEventListener("keydown",handler);},[]);
-  const [notifs,setNotifs]=useState([]);
-  const [showN,setShowN]=useState(false);
-  const [stab,setStab]=useState("inboxes");
-  const unread=notifs.filter(n=>!n.read).length;
   // ═══ CUSTOM FIELDS — App-level state, shared across all screens ═══
   const [customFields,setCustomFields]=useState([]);
   const [cfValues,setCfValues]=useState({});
@@ -734,7 +783,7 @@ export default function App(){
       @keyframes badgePop{0%{transform:scale(1)}50%{transform:scale(1.3)}100%{transform:scale(1)}}
       @keyframes countUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
       @keyframes confetti{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(80px) rotate(360deg);opacity:0}}
-      .hov:hover{background:${C.s3}!important}.nav:hover{background:${C.s2}!important;color:${C.t1}!important}
+      .hov:hover{background:${C.s3}!important}.nav:hover{background:${C.s2}!important;color:${C.t1}!important}.nav.nav-active:hover{background:${C.ad}!important;color:${C.a}!important}
       .msg-row:hover .msg-actions{display:flex!important}
       .btn-press:active{transform:scale(0.97)!important;filter:brightness(0.95)!important}
       .card-lift{transition:all .2s ease!important}.card-lift:hover{transform:translateY(-2px)!important;box-shadow:0 8px 24px rgba(0,0,0,.15)!important}
@@ -771,7 +820,7 @@ export default function App(){
     <nav role="navigation" aria-label="Main navigation" className="sd-nav-rail" style={{width:82,background:C.s1,borderRight:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",alignItems:"center",padding:"14px 0 10px",gap:3,flexShrink:0,zIndex:20,overflowY:"auto",overflowX:"hidden"}}>
       <div style={{flexShrink:0,marginBottom:14}}><SDLogo s={42}/></div>
       {pinnedNav.filter(id=>ROUTES[id]).map(id=>(
-        <button key={id} className="nav" onClick={()=>navigate(id)} title={ROUTES[id]?.label||id} style={{width:70,padding:"8px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:scr===id?C.a:C.t1,background:scr===id?C.ad:"transparent",border:`1.5px solid ${scr===id?C.a+"44":"transparent"}`,cursor:"pointer",transition:"all .15s",position:"relative",flexShrink:0,marginBottom:1}}>
+        <button key={id} className={`nav${scr===id?" nav-active":""}`} onClick={()=>navigate(id)} title={ROUTES[id]?.label||id} style={{width:70,padding:"8px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:scr===id?C.a:C.t1,background:scr===id?C.ad:"transparent",border:`1.5px solid ${scr===id?C.a+"44":"transparent"}`,cursor:"pointer",transition:"all .15s",position:"relative",flexShrink:0,marginBottom:1}}>
           <NavIcon id={id} s={22} col={scr===id?C.a:C.t2}/>
           <span style={{fontSize:10.5,fontWeight:scr===id?700:600,fontFamily:FD,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:66,textAlign:"center",lineHeight:1.15,letterSpacing:-.1,color:scr===id?C.a:C.t1}}>{(ROUTES[id]?.label||id).replace("Knowledge Base","KB").replace("Integrations & API","Integr.").replace("Live Monitor","Monitor").replace("Widget Builder","Widget").replace("Team Chat","Chat")}</span>
           {id==="teamchat"&&tcUnread>0&&scr!=="teamchat"&&<span style={{position:"absolute",top:2,right:2,width:16,height:16,borderRadius:"50%",background:C.r,color:"#fff",fontSize:8,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.s1}`}}>{tcUnread}</span>}
@@ -780,19 +829,19 @@ export default function App(){
       {allNavIds.filter(id=>!pinnedNav.includes(id)).length>0&&<>
         <div style={{width:48,height:1,background:C.b2,margin:"8px 0"}}/>
         {allNavIds.filter(id=>!pinnedNav.includes(id)).map(id=>(
-          <button key={"m_"+id} className="nav" onClick={()=>navigate(id)} title={ROUTES[id]?.label||id} style={{width:70,padding:"7px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:scr===id?C.a:C.t1,background:scr===id?C.ad:"transparent",border:`1.5px solid ${scr===id?C.a+"44":"transparent"}`,cursor:"pointer",transition:"all .15s",flexShrink:0,marginBottom:1}}>
+          <button key={"m_"+id} className={`nav${scr===id?" nav-active":""}`} onClick={()=>navigate(id)} title={ROUTES[id]?.label||id} style={{width:70,padding:"7px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:scr===id?C.a:C.t1,background:scr===id?C.ad:"transparent",border:`1.5px solid ${scr===id?C.a+"44":"transparent"}`,cursor:"pointer",transition:"all .15s",flexShrink:0,marginBottom:1}}>
             <NavIcon id={id} s={20} col={scr===id?C.a:C.t2}/>
             <span style={{fontSize:10,fontWeight:scr===id?700:600,fontFamily:FD,whiteSpace:"nowrap",maxWidth:66,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",lineHeight:1.15,color:scr===id?C.a:C.t1}}>{(ROUTES[id]?.label||id).replace("Knowledge Base","KB").replace("Integrations & API","Integr.").replace("Live Monitor","Monitor").replace("Widget Builder","Widget").replace("Team Chat","Chat")}</span>
           </button>
         ))}
       </>}
       <div style={{flex:1}}/>
-      <button className="nav" onClick={()=>setShowN(p=>!p)} title="Notifications" style={{width:70,padding:"8px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,background:showN?C.ad:"transparent",border:`1.5px solid ${showN?C.a+"44":"transparent"}`,cursor:"pointer",color:showN?C.a:C.t1,transition:"all .15s",position:"relative",flexShrink:0}}>
+      <button className={`nav${showN?" nav-active":""}`} onClick={()=>setShowN(p=>!p)} title="Notifications" aria-pressed={showN} style={{width:70,padding:"8px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,background:showN?C.ad:"transparent",border:`1.5px solid ${showN?C.a+"44":"transparent"}`,cursor:"pointer",color:showN?C.a:C.t1,transition:"all .15s",position:"relative",flexShrink:0}}>
         <NavIcon id="bell" s={22} col={showN?C.a:C.t2}/>
-        <span style={{fontSize:10.5,fontWeight:showN?700:600,fontFamily:FD}}>Alerts</span>
+        <span style={{fontSize:10.5,fontWeight:showN?700:600,fontFamily:FD,color:showN?C.a:C.t1}}>Alerts</span>
         {unread>0&&<span style={{position:"absolute",top:2,right:6,minWidth:16,height:16,background:C.r,borderRadius:"50%",fontSize:8,color:"#fff",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.s1}`}}>{unread}</span>}
       </button>
-      {showN&&<div style={{position:"absolute",left:82,bottom:40,zIndex:100}}><NotifPanel notifs={notifs} setNotifs={setNotifs} onClose={()=>setShowN(false)}/></div>}
+      {showN&&<div style={{position:"absolute",left:82,bottom:40,zIndex:100}}><NotifPanel notifs={notifs} setNotifs={setNotifs} onClose={()=>setShowN(false)} onOpenNotification={openNotification}/></div>}
       <div data-profile-menu style={{padding:"7px 0",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,position:"relative"}} onClick={()=>setShowProfileMenu(!showProfileMenu)}>
         <Av i="PS" c={C.a} s={30} dot={true}/>
         <span style={{fontSize:8.5,color:C.t2,fontWeight:600,fontFamily:FD}}>Priya</span>

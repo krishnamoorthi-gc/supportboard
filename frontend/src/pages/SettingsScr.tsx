@@ -1157,8 +1157,12 @@ function AgentSet({agents,setAgents,teams,setTeams}){
   const removeMember=id=>{setAgents(p=>p.filter(a=>a.id!==id));showT("Removed","success");if(api.isConnected())api.del(`/settings/agents/${id}`).catch(()=>{});};
   const openEdit=a=>{setEmName(a.name);setEmEmail(a.email||"");setEmRole(a.role);setEmStatus(a.status);setEmMaxConvs(a.maxConvs||8);setEmPerms(rolePerms[a.role]||{});setEmAvail(a.availability||{start:"09:00",end:"18:00",tz:"Asia/Kolkata",autoAway:true,awayMin:15});setEmTab("profile");setEditMbr(a);};
   const saveEdit=()=>{if(!emName.trim())return showT("Name required","error");setAgents(p=>p.map(a=>a.id===editMbr.id?{...a,name:emName,email:emEmail,role:emRole,status:emStatus,av:emName.slice(0,2).toUpperCase(),maxConvs:emMaxConvs,availability:emAvail}:a));showT("Saved","success");if(api.isConnected())api.patch(`/settings/agents/${editMbr.id}`,{name:emName,email:emEmail,role:emRole,status:emStatus}).catch(()=>{});setEditMbr(null);};
-  const createTeam=()=>{if(!tName.trim())return showT("Name required","error");const payload={id:"t"+uid(),name:tName,desc:tDesc,members:tMembers,autoAssign:tAutoAssign,routing:tRouting,schedule:tSchedule};if(editTeam){setTeams(p=>p.map(t=>t.id===editTeam.id?{...t,...payload,id:editTeam.id}:t));if(api.isConnected())api.patch(`/settings/teams/${editTeam.id}`,{name:tName,members:tMembers}).catch(()=>{});}else{setTeams(p=>[...p,payload]);if(api.isConnected())api.post("/settings/teams",{name:tName,description:tDesc,members:tMembers}).catch(()=>{});}showT(editTeam?"Updated":"Created!","success");setShowTeamForm(false);setEditTeam(null);setTName("");setTDesc("");setTMembers([]);};
-  const openEditTeam=t=>{setTName(t.name);setTDesc(t.desc);setTMembers(t.members||[]);setTAutoAssign(t.autoAssign!==false);setTRouting(t.routing||"round_robin");setTSchedule(t.schedule||{on:false,start:"09:00",end:"18:00",days:[1,2,3,4,5]});setEditTeam(t);setShowTeamForm(true);};
+  const loadTeams=()=>{if(!api.isConnected())return;api.get("/settings/teams").then(r=>{if(r?.teams)setTeams(r.teams.map(t=>({...t,desc:t.description||"",members:t.members||[]})));}).catch(()=>{});};
+  const createTeam=async()=>{if(!tName.trim())return showT("Name required","error");if(editTeam){const payload={name:tName,description:tDesc,members:tMembers};setTeams(p=>p.map(t=>t.id===editTeam.id?{...t,name:tName,desc:tDesc,members:tMembers}:t));if(api.isConnected()){try{await api.patch(`/settings/teams/${editTeam.id}`,payload);loadTeams();}catch{}}showT("Updated!","success");}else{const tempId="t"+uid();setTeams(p=>[...p,{id:tempId,name:tName,desc:tDesc,members:tMembers,autoAssign:tAutoAssign,routing:tRouting}]);if(api.isConnected()){try{const r=await api.post("/settings/teams",{name:tName,description:tDesc,members:tMembers});if(r?.team?.id)setTeams(p=>p.map(t=>t.id===tempId?{...t,id:r.team.id}:t));loadTeams();}catch{}}showT("Created!","success");}setShowTeamForm(false);setEditTeam(null);setTName("");setTDesc("");setTMembers([]);};
+  const openEditTeam=t=>{setTName(t.name);setTDesc(t.desc||t.description||"");setTMembers(t.members||[]);setTAutoAssign(t.autoAssign!==false);setTRouting(t.routing||"round_robin");setTSchedule(t.schedule||{on:false,start:"09:00",end:"18:00",days:[1,2,3,4,5]});setEditTeam(t);setShowTeamForm(true);};
+  const addMemberToTeam=(teamId,agentId)=>{setTeams(p=>p.map(tm=>tm.id===teamId?{...tm,members:[...(tm.members||[]),agentId]}:tm));showT("Added","success");const t=teams.find(x=>x.id===teamId);if(api.isConnected()&&t)api.patch(`/settings/teams/${teamId}`,{members:[...(t.members||[]),agentId]}).catch(()=>{});};
+  const removeMemberFromTeam=(teamId,agentId)=>{setTeams(p=>p.map(tm=>tm.id===teamId?{...tm,members:(tm.members||[]).filter(x=>x!==agentId)}:tm));showT("Removed","info");const t=teams.find(x=>x.id===teamId);if(api.isConnected()&&t)api.patch(`/settings/teams/${teamId}`,{members:(t.members||[]).filter(x=>x!==agentId)}).catch(()=>{});};
+  const deleteTeam=(teamId)=>{setTeams(p=>p.filter(x=>x.id!==teamId));showT("Deleted","success");if(api.isConnected())api.del(`/settings/teams/${teamId}`).catch(()=>{});};
 
   const filtered=members.filter(a=>{
     if(search&&!a.name.toLowerCase().includes(search.toLowerCase())&&!(a.email||"").toLowerCase().includes(search.toLowerCase()))return false;
@@ -1244,7 +1248,7 @@ function AgentSet({agents,setAgents,teams,setTeams}){
         <span style={{fontSize:12,color:C.t2}}>Only members promoted to <strong>Agent</strong>, <strong>Admin</strong>, or <strong>Owner</strong> appear here. Go to "All Members" → click <strong>"→ Agent"</strong> to promote.</span>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-        {[{l:"Active Agents",v:activeAgents.length,c:C.a},{l:"Online",v:activeAgents.filter(a=>a.status==="online").length,c:C.g},{l:"In Teams",v:activeAgents.filter(a=>teams.some(t=>(t.members||[]).includes(a.id))).length,c:C.cy},{l:"Unassigned",v:activeAgents.filter(a=>!teams.some(t=>(t.members||[]).includes(a.id))).length,c:C.y}].map(k=>(
+        {[{l:"Active Agents",v:activeAgents.length,c:C.a},{l:"Online",v:agents.filter(a=>a.status==="online").length,c:C.g},{l:"In Teams",v:agents.filter(a=>teams.some(t=>(t.members||[]).includes(a.id))).length,c:C.cy},{l:"Unassigned",v:agents.filter(a=>!teams.some(t=>(t.members||[]).includes(a.id))).length,c:C.y}].map(k=>(
           <div key={k.l} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,padding:"10px",textAlign:"center"}}>
             <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:k.c}}>{k.v}</div>
             <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{k.l}</div>
@@ -1277,7 +1281,7 @@ function AgentSet({agents,setAgents,teams,setTeams}){
     {tab==="teams"&&<>
       <div style={{background:C.ad,border:`1px solid ${C.a}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:14}}>ℹ</span>
-        <span style={{fontSize:12,color:C.t2}}>Teams are groups of <strong>Agents</strong>. Only promoted agents can be added to teams. Conversations are auto-routed to teams based on channel rules.</span>
+        <span style={{fontSize:12,color:C.t2}}>Teams are groups of registered users. Add any user to a team, then assign conversations to teams for organized routing.</span>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
         <span style={{fontSize:15,fontWeight:700,fontFamily:FD}}>Teams ({teams.length})</span>
@@ -1291,32 +1295,32 @@ function AgentSet({agents,setAgents,teams,setTeams}){
               <Tag text={t.autoAssign!==false?"Auto":"Manual"} color={t.autoAssign!==false?C.g:C.t3}/>
               <Tag text={(t.routing||"round_robin").replace("_"," ")} color={C.cy}/>
               <Btn ch="Edit" v="ghost" sm onClick={()=>openEditTeam(t)}/>
-              <button onClick={()=>{setTeams(p=>p.filter(x=>x.id!==t.id));showT("Deleted","success");if(api.isConnected())api.del(`/settings/teams/${t.id}`).catch(()=>{});}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>✕</button>
+              <button onClick={()=>deleteTeam(t.id)} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>✕</button>
             </div>
           </div>
           <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>AGENTS ({(t.members||[]).length})</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
             {(t.members||[]).map(mid=>{const ag=agents.find(a=>a.id===mid);return ag?<div key={mid} style={{display:"flex",alignItems:"center",gap:5,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,padding:"5px 8px"}}>
               <Av i={ag.av} c={ag.color} s={20} dot={ag.status==="online"}/><div><div style={{fontSize:11,fontWeight:600}}>{ag.name}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>{ag.role}</div></div>
-              <button onClick={()=>{setTeams(p=>p.map(tm=>tm.id===t.id?{...tm,members:tm.members.filter(x=>x!==mid)}:tm));showT("Removed from team","info");}} style={{fontSize:8,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+              <button onClick={()=>removeMemberFromTeam(t.id,mid)} style={{fontSize:8,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
             </div>:null;})}
             {(!t.members||t.members.length===0)&&<span style={{fontSize:11,color:C.t3,fontStyle:"italic"}}>No agents in this team</span>}
           </div>
-          {/* unassigned agents quick-add */}
-          {activeAgents.filter(a=>!(t.members||[]).includes(a.id)).length>0&&<div>
-            <div style={{fontSize:9,fontFamily:FM,color:C.t3,marginBottom:4}}>AVAILABLE TO ADD:</div>
+          {/* all agents available to add */}
+          {agents.filter(a=>!(t.members||[]).includes(a.id)).length>0&&<div>
+            <div style={{fontSize:9,fontFamily:FM,color:C.t3,marginBottom:4}}>AVAILABLE TO ADD ({agents.filter(a=>!(t.members||[]).includes(a.id)).length}):</div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-              {activeAgents.filter(a=>!(t.members||[]).includes(a.id)).map(a=>(
-                <button key={a.id} onClick={()=>{setTeams(p=>p.map(tm=>tm.id===t.id?{...tm,members:[...(tm.members||[]),a.id]}:tm));showT(a.name+" added","success");}} className="hov" style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,background:C.s2,border:`1px dashed ${C.a}44`,cursor:"pointer",fontSize:10,color:C.a}}>
-                  <Av i={a.av} c={a.color} s={16}/>{a.name.split(" ")[0]}
+              {agents.filter(a=>!(t.members||[]).includes(a.id)).map(a=>(
+                <button key={a.id} onClick={()=>addMemberToTeam(t.id,a.id)} className="hov" style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,background:C.s2,border:`1px dashed ${C.a}44`,cursor:"pointer",fontSize:10,color:C.a}}>
+                  <div style={{position:"relative"}}><Av i={a.av} c={a.color} s={16}/>{a.status==="online"&&<span style={{position:"absolute",bottom:-1,right:-1,width:5,height:5,borderRadius:"50%",background:C.g,border:`1px solid ${C.s2}`}}/>}</div>
+                  {a.name.split(" ")[0]} <span style={{fontSize:8,color:C.t3}}>({a.role})</span>
                 </button>
               ))}
             </div>
           </div>}
           <div style={{display:"flex",gap:10,marginTop:8,fontSize:9,color:C.t3,fontFamily:FM}}>
-            <span>Open: <strong style={{color:C.y}}>7</strong></span>
-            <span>Resolved today: <strong style={{color:C.g}}>11</strong></span>
-            <span>Avg reply: <strong style={{color:C.a}}>2.8m</strong></span>
+            <span>Members: <strong style={{color:C.a}}>{(t.members||[]).length}</strong></span>
+            <span>Online: <strong style={{color:C.g}}>{(t.members||[]).filter(mid=>agents.find(a=>a.id===mid)?.status==="online").length}</strong></span>
           </div>
         </div>
       ))}
@@ -1491,16 +1495,20 @@ function AgentSet({agents,setAgents,teams,setTeams}){
     {/* ═══ TEAM FORM ═══ */}
     {showTeamForm&&<Mdl title={editTeam?"Edit Team":"New Team"} onClose={()=>{setShowTeamForm(false);setEditTeam(null);}} w={520}>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Name"><Inp val={tName} set={setTName} ph="e.g. Technical Support"/></Fld></div><div style={{flex:1}}><Fld label="Description"><Inp val={tDesc} set={setTDesc} ph="What does this team handle?"/></Fld></div></div>
-      <Fld label={"Add Agents ("+tMembers.length+" selected)"}>
-        {activeAgents.length===0&&<div style={{padding:"12px",background:C.yd,borderRadius:8,fontSize:12,color:C.y}}>No agents available. Promote members first.</div>}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
-          {activeAgents.map(a=>(
-            <label key={a.id} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 9px",borderRadius:7,cursor:"pointer",background:tMembers.includes(a.id)?C.ad:C.s2,border:`1px solid ${tMembers.includes(a.id)?C.a+"44":C.b1}`}}>
-              <input type="checkbox" checked={tMembers.includes(a.id)} onChange={e=>setTMembers(p=>e.target.checked?[...p,a.id]:p.filter(x=>x!==a.id))} style={{accentColor:C.a,width:13,height:13}}/>
-              <Av i={a.av} c={a.color} s={20} dot={a.status==="online"}/><div><div style={{fontSize:11,fontWeight:600}}>{a.name}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>{a.role}</div></div>
-            </label>
-          ))}
+      <Fld label={"Add Members ("+tMembers.length+" of "+agents.length+" selected)"}>
+        {agents.length===0&&<div style={{padding:"12px",background:C.yd,borderRadius:8,fontSize:12,color:C.y}}>No registered users found.</div>}
+        <div style={{maxHeight:220,overflowY:"auto",border:`1px solid ${C.b1}`,borderRadius:8,padding:4}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+            {agents.map(a=>(
+              <label key={a.id} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 9px",borderRadius:7,cursor:"pointer",background:tMembers.includes(a.id)?C.ad:C.s2,border:`1px solid ${tMembers.includes(a.id)?C.a+"44":C.b1}`}}>
+                <input type="checkbox" checked={tMembers.includes(a.id)} onChange={e=>setTMembers(p=>e.target.checked?[...p,a.id]:p.filter(x=>x!==a.id))} style={{accentColor:C.a,width:13,height:13}}/>
+                <div style={{position:"relative"}}><Av i={a.av} c={a.color} s={20}/><span style={{position:"absolute",bottom:-1,right:-1,width:6,height:6,borderRadius:"50%",border:`1.5px solid ${C.s2}`,background:a.status==="online"?C.g:a.status==="busy"?C.y:C.t3}}/></div>
+                <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>{a.role} · {a.email||""}</div></div>
+              </label>
+            ))}
+          </div>
         </div>
+        {tMembers.length>0&&<div style={{marginTop:6,fontSize:10,color:C.t2,fontFamily:FM}}>Selected: {tMembers.map(id=>agents.find(a=>a.id===id)?.name).filter(Boolean).join(", ")}</div>}
       </Fld>
       <Fld label="Routing"><div style={{display:"flex",gap:6}}>
         {[["round_robin","Round Robin"],["load_balanced","Load Balanced"],["manual","Manual"]].map(([v,l])=>(
