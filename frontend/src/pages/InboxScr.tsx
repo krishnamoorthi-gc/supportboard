@@ -105,6 +105,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const [showNewConv,setShowNewConv]=useState(false);
   const [showLblPick,setShowLblPick]=useState(false);
   const [aiReplying,setAiReplying]=useState(false);
+  const [convBotOff,setConvBotOff]=useState<Set<string>>(new Set());
   const [isNote,setIsNote]=useState(false);
   const [showEmoji,setShowEmoji]=useState(false);
   const [refreshing,setRefreshing]=useState(false);
@@ -394,6 +395,25 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     setAiReplying(false);
   };
 
+  // ── AI Auto-Reply trigger: fires on new customer messages when bot is enabled ──
+  useEffect(()=>{
+    if(!aiAutoReply||replyingRef.current)return;
+    for(const[convId,convMsgsArr]of Object.entries(msgs)){
+      const allMsgs=convMsgsArr as any[];
+      const prev=(prevCounts.current as any)[convId];
+      const curr=allMsgs.length;
+      (prevCounts.current as any)[convId]=curr;
+      if(prev!==undefined&&curr>prev){
+        const last=allMsgs[allMsgs.length-1];
+        if(last&&(last.role==="customer"||last.role==="contact")){
+          const cv=convs.find((c:any)=>c.id===convId);
+          const ch=cv?.ch||"live";
+          if(aiChannels[ch]!==false&&!convBotOff.has(convId)){doAiAutoReply(allMsgs,convId);break;}
+        }
+      }
+    }
+  },[msgs]);
+
   useEffect(()=>{
     if(aid==="cv1"&&(msgs.cv1||[]).length<6){
       const t=setTimeout(()=>{
@@ -681,6 +701,12 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
             <button onClick={()=>setShowNewConv(true)} style={{height:27,padding:"0 10px",borderRadius:7,fontSize:11,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.a,color:"#fff",border:"none"}}>+ New</button>
           </div>
         </div>
+        {/* AI Bot indicator */}
+        {aiAutoReply&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 9px",background:`${C.p}18`,border:`1px solid ${C.p}44`,borderRadius:7,marginBottom:8,animation:"fadeUp .2s ease"}}>
+          <span style={{width:6,height:6,borderRadius:"50%",background:C.p,animation:"pulse 1.5s infinite",flexShrink:0}}/>
+          <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.p,letterSpacing:"0.3px",flex:1}}>✦ AI Bot Active</span>
+          <Toggle val={aiAutoReply} set={v=>{setAiAutoReply(v);api.patch("/aibot/config",{ai_auto_reply:v?1:0}).catch(()=>{});showT(v?"✦ AI Bot ON":"AI Bot OFF",v?"success":"info");}}/>
+        </div>}
         {/* Search */}
         <div style={{display:"flex",alignItems:"center",gap:7,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"7px 10px"}}>
           <span style={{color:C.t3,fontSize:13}}>⌕</span>
@@ -723,9 +749,11 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         {([["all","All",null],["live","Live","#1fd07a"],["email","Email",C.a],["whatsapp","WA","#25d366"],["facebook","FB","#1877f2"],["instagram","IG","#e1306c"],["sms","SMS",C.y]] as [string,string,string|null][]).map(([ch,lbl,col])=>{
           const active=fCh===ch;
           const c2=col||C.a;
-          return <button key={ch} onClick={()=>setFCh(ch)} style={{padding:"3px 8px",borderRadius:14,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:active?c2+"22":"transparent",color:active?c2:C.t3,border:`1px solid ${active?c2+"55":"transparent"}`,flexShrink:0,whiteSpace:"nowrap",transition:"all .15s",display:"flex",alignItems:"center",gap:3}}>
+          const botOn=aiAutoReply&&ch!=="all"&&aiChannels[ch];
+          return <button key={ch} onClick={()=>setFCh(ch)} style={{padding:"3px 8px",borderRadius:14,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:active?c2+"22":"transparent",color:active?c2:C.t3,border:`1px solid ${active?c2+"55":botOn?"${C.p}44":"transparent"}`,flexShrink:0,whiteSpace:"nowrap",transition:"all .15s",display:"flex",alignItems:"center",gap:3}}>
             {ch!=="all"&&<span style={{fontSize:11}}>{chI(ch)}</span>}
             {lbl}
+            {botOn&&<span style={{fontSize:7,color:C.p,fontWeight:900,lineHeight:1}}>✦</span>}
           </button>;
         })}
       </div>
@@ -782,6 +810,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                   {cv.status==="resolved"&&<Tag text="done" color={C.g}/>}
                   {cv.status==="snoozed"&&<Tag text="snoozed" color={C.y}/>}
                   {(cv.labels||[]).includes("bot-handoff")&&<Tag text="🤖 bot" color="#ef4444"/>}
+                  {aiAutoReply&&aiChannels[cv.ch]&&!convBotOff.has(cv.id)&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:C.p,background:C.pd,padding:"1px 5px",borderRadius:3,flexShrink:0}}>✦ Bot</span>}
+                  {aiAutoReply&&aiChannels[cv.ch]&&convBotOff.has(cv.id)&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:C.t3,background:C.s3,padding:"1px 5px",borderRadius:3,flexShrink:0,textDecoration:"line-through"}}>Bot off</span>}
                   {cv.labels.filter((l:string)=>l!=="bot-handoff").slice(0,1).map((l:string)=><Tag key={l} text={l} color={lc(l)}/>)}
                   {sla&&cv.status==="open"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:getSlaColor(sla.firstReply,sla.target),background:getSlaColor(sla.firstReply,sla.target)+"18",padding:"1px 5px",borderRadius:3}}>{getSlaText(sla.firstReply,sla.target)}</span>}
                   {agAv&&<div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:3}} title={agAv.name}><Av i={agAv.av} c={agAv.color} s={14}/></div>}
@@ -834,43 +864,52 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,position:"relative"}}>
 
       {/* ── Conversation Header ── */}
-      <div style={{padding:"6px 10px",borderBottom:`1px solid ${C.b1}`,background:C.s1,display:"flex",alignItems:"center",gap:8,position:"relative"}}>
-        {contact&&<Av i={contact.av} c={conv?.color||C.a} s={28}/>}
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
-            <span style={{fontSize:13,fontWeight:700,fontFamily:FD,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{contact?.name||"Select a conversation"}</span>
-            {conv&&<><Tag text={conv.status||"open"} color={conv.status==="resolved"?C.g:conv.status==="snoozed"?C.y:C.a}/>
-            {conv.priority!=="normal"&&<Tag text={conv.priority||""} color={prC(conv.priority)}/>}
-            <span style={{fontSize:10,color:chC(conv.ch)}}>{chI(conv.ch)}</span></>}
+      <div style={{borderBottom:`1px solid ${C.b1}`,background:C.s1,position:"relative"}}>
+        {/* Row 1: contact info */}
+        <div style={{padding:"7px 10px 5px",display:"flex",alignItems:"center",gap:8}}>
+          {contact&&<Av i={contact.av} c={conv?.color||C.a} s={28}/>}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+              <span style={{fontSize:13,fontWeight:700,fontFamily:FD,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{contact?.name||"Select a conversation"}</span>
+              {conv&&<><Tag text={conv.status||"open"} color={conv.status==="resolved"?C.g:conv.status==="snoozed"?C.y:C.a}/>
+              {conv.priority!=="normal"&&<Tag text={conv.priority||""} color={prC(conv.priority)}/>}
+              <span style={{fontSize:10,color:chC(conv.ch)}}>{chI(conv.ch)}</span></>}
+            </div>
+            {conv&&<div style={{fontSize:10,color:C.t3,fontFamily:FM,display:"flex",gap:5,alignItems:"center",overflow:"hidden",whiteSpace:"nowrap"}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{conv.subject}</span>
+              <span style={{color:C.b1}}>·</span>
+              <span style={{color:assignedAg?C.a:C.y,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:2,flexShrink:0}} onClick={()=>setShowAssign(true)}>
+                {assignedAg?<><Av i={assignedAg.av} c={assignedAg.color} s={11}/>{assignedAg.name}</>:<>⚠ Unassigned</>}
+              </span>
+              {inboxes.find((ib:any)=>ib.id===conv.iid)&&<><span style={{color:C.b1}}>·</span><span style={{flexShrink:0}}>{inboxes.find((ib:any)=>ib.id===conv.iid)?.name}</span></>}
+            </div>}
           </div>
-          {conv&&<div style={{fontSize:10,color:C.t3,fontFamily:FM,display:"flex",gap:5,alignItems:"center",overflow:"hidden",whiteSpace:"nowrap"}}>
-            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{conv.subject}</span>
-            <span style={{color:C.b1}}>·</span>
-            <span style={{color:assignedAg?C.a:C.y,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:2,flexShrink:0}} onClick={()=>setShowAssign(true)}>
-              {assignedAg?<><Av i={assignedAg.av} c={assignedAg.color} s={11}/>{assignedAg.name}</>:<>⚠ Unassigned</>}
-            </span>
-            {inboxes.find((ib:any)=>ib.id===conv.iid)&&<><span style={{color:C.b1}}>·</span><span style={{flexShrink:0}}>{inboxes.find((ib:any)=>ib.id===conv.iid)?.name}</span></>}
-          </div>}
-        </div>
-        {/* Action buttons */}
-        {conv&&<div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
-          <Btn ch="✦ Summarize" v="ai" sm onClick={genSum}/>
-          <Btn ch="✦ Classify" v="ai" sm onClick={classifyAI}/>
-          <div style={{width:1,height:16,background:C.b1,margin:"0 1px"}}/>
-          {conv.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}
-          <Btn ch="👤 Assign" v="ghost" sm onClick={()=>{setAssignTab("agents");setAssignSearch("");setShowAssign(true);}}/>
-          <Btn ch="👥 Team" v="ghost" sm onClick={()=>{setAssignTab("teams");setAssignSearch("");setShowAssign(true);}}/>
-          <Btn ch="⊖ Snooze" v="ghost" sm onClick={()=>setShowSnooze(true)}/>
-          <div style={{width:1,height:16,background:C.b1,margin:"0 1px"}}/>
-          <button onClick={()=>setShowMsgSearch(p=>!p)} title="Search messages" style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,background:showMsgSearch?C.ad:C.s3,color:showMsgSearch?C.a:C.t3,border:`1px solid ${showMsgSearch?C.a+"44":C.b1}`,cursor:"pointer"}} className="hov">⌕</button>
-          <button onClick={()=>setShowConvConfig(p=>!p)} title="More options" style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,background:showConvConfig?C.s3:C.s3,color:C.t3,border:`1px solid ${C.b1}`,cursor:"pointer"}} className="hov">⋯</button>
-          {showConvConfig&&<div style={{position:"absolute",top:52,right:14,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",zIndex:60,boxShadow:"0 10px 40px rgba(0,0,0,.5)",animation:"fadeUp .15s ease",minWidth:190}}>
+          {/* compact icon buttons — top right */}
+          <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
+            <button onClick={()=>setShowMsgSearch(p=>!p)} title="Search messages" style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,background:showMsgSearch?C.ad:C.s3,color:showMsgSearch?C.a:C.t3,border:`1px solid ${showMsgSearch?C.a+"44":C.b1}`,cursor:"pointer"}} className="hov">⌕</button>
+            <button onClick={()=>setShowConvConfig(p=>!p)} title="More options" style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,background:showConvConfig?C.s3:C.s3,color:C.t3,border:`1px solid ${C.b1}`,cursor:"pointer"}} className="hov">⋯</button>
+          </div>
+          {showConvConfig&&<div style={{position:"absolute",top:46,right:10,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",zIndex:60,boxShadow:"0 10px 40px rgba(0,0,0,.5)",animation:"fadeUp .15s ease",minWidth:190}}>
             {[{l:"Export Chat",navId:"download",fn:exportChat},{l:"Merge Conversations",navId:"merge",fn:()=>setShowMerge(true)},{l:"Mark as Spam",navId:"spam",fn:markSpam,c:C.y},{l:"Delete Conversation",navId:"spam",fn:deleteConv,c:C.r},{l:"Block Contact",navId:"block",fn:blockContact,c:C.r}].map(opt=>(
               <button key={opt.l} onClick={()=>{opt.fn();setShowConvConfig(false);}} className="hov" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",color:opt.c||C.t2,fontSize:12,fontFamily:FB,textAlign:"left"}}>
                 <NavIcon id={opt.navId} s={14} col={opt.c||C.t2}/>{opt.l}
               </button>
             ))}
           </div>}
+        </div>
+        {/* Row 2: action toolbar */}
+        {conv&&<div style={{padding:"4px 10px 5px",borderTop:`1px solid ${C.b1}22`,display:"flex",gap:4,alignItems:"center",flexWrap:"nowrap",overflowX:"auto"}}>
+          <Btn ch="✦ Summarize" v="ai" sm onClick={genSum}/>
+          <Btn ch="✦ Classify" v="ai" sm onClick={classifyAI}/>
+          {aiAutoReply&&aiChannels[conv?.ch]&&<button onClick={()=>setConvBotOff(p=>{const n=new Set(p);n.has(aid)?n.delete(aid):n.add(aid);showT(n.has(aid)?"Bot paused for this conversation":"Bot resumed for this conversation",n.has(aid)?"warn":"success");return n;})} style={{display:"flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:convBotOff.has(aid)?C.s3:C.pd,color:convBotOff.has(aid)?C.t3:C.p,border:`1px solid ${convBotOff.has(aid)?C.b1:C.p+"44"}`,transition:"all .15s",flexShrink:0}} title={convBotOff.has(aid)?"Resume AI bot":"Pause AI bot"}>
+            <span style={{width:5,height:5,borderRadius:"50%",background:convBotOff.has(aid)?C.t3:C.p,flexShrink:0}}/>
+            ✦ Bot {convBotOff.has(aid)?"Off":"On"}
+          </button>}
+          <div style={{width:1,height:16,background:C.b1,flexShrink:0}}/>
+          {conv.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}
+          <Btn ch="👤 Assign" v="ghost" sm onClick={()=>{setAssignTab("agents");setAssignSearch("");setShowAssign(true);}}/>
+          <Btn ch="👥 Team" v="ghost" sm onClick={()=>{setAssignTab("teams");setAssignSearch("");setShowAssign(true);}}/>
+          <Btn ch="⊖ Snooze" v="ghost" sm onClick={()=>setShowSnooze(true)}/>
         </div>}
       </div>
 
