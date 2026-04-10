@@ -32,6 +32,7 @@ async function init() {
   await createSchema();
   await ensureSchemaColumns();
   await seed();
+  await cleanupSeedData();
 }
 
 async function createSchema() {
@@ -190,13 +191,20 @@ CREATE TABLE IF NOT EXISTS deals (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   value DECIMAL(15,2) DEFAULT 0,
+  weighted_value DECIMAL(15,2) DEFAULT 0,
   currency VARCHAR(10) DEFAULT 'USD',
-  stage VARCHAR(100) DEFAULT 'Prospecting',
+  stage VARCHAR(100) DEFAULT 'Open',
   probability INT DEFAULT 20,
   contact_id VARCHAR(255),
   company_id VARCHAR(255),
   owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  product VARCHAR(255),
   expected_close DATE,
+  proposal_date DATE,
+  win_reason TEXT,
+  lost_reason TEXT,
   notes TEXT,
   custom_fields TEXT,
   agent_id VARCHAR(255),
@@ -211,13 +219,23 @@ CREATE TABLE IF NOT EXISTS leads (
   email VARCHAR(255),
   phone VARCHAR(50),
   company VARCHAR(255),
+  designation VARCHAR(255),
   source VARCHAR(100),
+  campaign VARCHAR(255),
+  industry VARCHAR(255),
   status VARCHAR(50) DEFAULT 'New',
+  priority VARCHAR(50) DEFAULT 'medium',
   score INT DEFAULT 50,
   value DECIMAL(15,2) DEFAULT 0,
   owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  tags TEXT,
+  next_followup_date DATETIME,
+  remarks TEXT,
   notes TEXT,
   custom_fields TEXT,
+  converted_contact_id VARCHAR(255),
+  converted_deal_id VARCHAR(255),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -228,12 +246,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  type VARCHAR(50) DEFAULT 'task',
   due_date DATETIME,
   priority VARCHAR(50) DEFAULT 'medium',
   status VARCHAR(50) DEFAULT 'todo',
   assignee_id VARCHAR(255),
+  contact_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  recurring VARCHAR(50),
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -243,15 +264,113 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE TABLE IF NOT EXISTS meetings (
   id VARCHAR(255) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
+  type VARCHAR(50) DEFAULT 'meeting',
   description TEXT,
   start_time DATETIME,
   end_time DATETIME,
   location VARCHAR(255),
   meeting_link VARCHAR(255),
+  host_id VARCHAR(255),
   attendees TEXT,
+  agenda TEXT,
+  outcome TEXT,
   status VARCHAR(50) DEFAULT 'scheduled',
+  contact_id VARCHAR(255),
+  company_id VARCHAR(255),
   related_type VARCHAR(50),
   related_id VARCHAR(255),
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Customers (converted leads/deals)
+CREATE TABLE IF NOT EXISTS crm_customers (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  company VARCHAR(255),
+  company_id VARCHAR(255),
+  contact_id VARCHAR(255),
+  deal_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  owner_id VARCHAR(255),
+  team_id VARCHAR(255),
+  status VARCHAR(50) DEFAULT 'active',
+  type VARCHAR(50) DEFAULT 'customer',
+  renewal_date DATE,
+  contract_value DECIMAL(15,2) DEFAULT 0,
+  notes TEXT,
+  tags TEXT,
+  custom_fields TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- CRM - Activities (activity log)
+CREATE TABLE IF NOT EXISTS crm_activities (
+  id VARCHAR(255) PRIMARY KEY,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  entity_type VARCHAR(50),
+  entity_id VARCHAR(255),
+  performer_id VARCHAR(255),
+  metadata TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Reminders
+CREATE TABLE IF NOT EXISTS crm_reminders (
+  id VARCHAR(255) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  remind_at DATETIME NOT NULL,
+  channel VARCHAR(50) DEFAULT 'in_app',
+  entity_type VARCHAR(50),
+  entity_id VARCHAR(255),
+  assignee_id VARCHAR(255),
+  recurring VARCHAR(50),
+  status VARCHAR(50) DEFAULT 'pending',
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Transfers (ownership transfer log)
+CREATE TABLE IF NOT EXISTS crm_transfers (
+  id VARCHAR(255) PRIMARY KEY,
+  entity_type VARCHAR(50) NOT NULL,
+  entity_id VARCHAR(255) NOT NULL,
+  from_user_id VARCHAR(255),
+  to_user_id VARCHAR(255),
+  from_team_id VARCHAR(255),
+  to_team_id VARCHAR(255),
+  reason TEXT,
+  notes TEXT,
+  performed_by VARCHAR(255),
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CRM - Meeting Invitations (sent via inbox channels)
+CREATE TABLE IF NOT EXISTS meeting_invitations (
+  id VARCHAR(255) PRIMARY KEY,
+  meeting_id VARCHAR(255) NOT NULL,
+  channel VARCHAR(50) NOT NULL,
+  inbox_id VARCHAR(255),
+  recipient_name VARCHAR(255),
+  recipient_email VARCHAR(255),
+  recipient_phone VARCHAR(50),
+  subject VARCHAR(500),
+  body TEXT,
+  status VARCHAR(50) DEFAULT 'sent',
+  sent_at DATETIME,
+  delivered_at DATETIME,
+  response VARCHAR(50),
+  response_at DATETIME,
+  error TEXT,
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -794,6 +913,84 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('conversations column:', e.message); }
 
+    // ── CRM leads: add new columns ────────────────────────────────────
+    try {
+      const leadCols = new Set((await query('SHOW COLUMNS FROM leads')).map(c => c.Field));
+      const leadAdds = [
+        ['designation', "ALTER TABLE leads ADD COLUMN designation VARCHAR(255)"],
+        ['campaign', "ALTER TABLE leads ADD COLUMN campaign VARCHAR(255)"],
+        ['industry', "ALTER TABLE leads ADD COLUMN industry VARCHAR(255)"],
+        ['priority', "ALTER TABLE leads ADD COLUMN priority VARCHAR(50) DEFAULT 'medium'"],
+        ['team_id', "ALTER TABLE leads ADD COLUMN team_id VARCHAR(255)"],
+        ['tags', "ALTER TABLE leads ADD COLUMN tags TEXT"],
+        ['next_followup_date', "ALTER TABLE leads ADD COLUMN next_followup_date DATETIME"],
+        ['remarks', "ALTER TABLE leads ADD COLUMN remarks TEXT"],
+        ['converted_contact_id', "ALTER TABLE leads ADD COLUMN converted_contact_id VARCHAR(255)"],
+        ['converted_deal_id', "ALTER TABLE leads ADD COLUMN converted_deal_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of leadAdds) { if (!leadCols.has(col)) await run(sql); }
+    } catch (e) { console.error('leads columns:', e.message); }
+
+    // ── CRM deals: add new columns ──────────────────────────────────
+    try {
+      const dealCols = new Set((await query('SHOW COLUMNS FROM deals')).map(c => c.Field));
+      const dealAdds = [
+        ['weighted_value', "ALTER TABLE deals ADD COLUMN weighted_value DECIMAL(15,2) DEFAULT 0"],
+        ['team_id', "ALTER TABLE deals ADD COLUMN team_id VARCHAR(255)"],
+        ['lead_id', "ALTER TABLE deals ADD COLUMN lead_id VARCHAR(255)"],
+        ['product', "ALTER TABLE deals ADD COLUMN product VARCHAR(255)"],
+        ['proposal_date', "ALTER TABLE deals ADD COLUMN proposal_date DATE"],
+        ['win_reason', "ALTER TABLE deals ADD COLUMN win_reason TEXT"],
+        ['lost_reason', "ALTER TABLE deals ADD COLUMN lost_reason TEXT"],
+      ];
+      for (const [col, sql] of dealAdds) { if (!dealCols.has(col)) await run(sql); }
+    } catch (e) { console.error('deals columns:', e.message); }
+
+    // ── CRM tasks: add new columns ──────────────────────────────────
+    try {
+      const taskCols = new Set((await query('SHOW COLUMNS FROM tasks')).map(c => c.Field));
+      const taskAdds = [
+        ['type', "ALTER TABLE tasks ADD COLUMN type VARCHAR(50) DEFAULT 'task'"],
+        ['contact_id', "ALTER TABLE tasks ADD COLUMN contact_id VARCHAR(255)"],
+        ['recurring', "ALTER TABLE tasks ADD COLUMN recurring VARCHAR(50)"],
+      ];
+      for (const [col, sql] of taskAdds) { if (!taskCols.has(col)) await run(sql); }
+    } catch (e) { console.error('tasks columns:', e.message); }
+
+    // ── CRM meetings: add new columns ───────────────────────────────
+    try {
+      const mtCols = new Set((await query('SHOW COLUMNS FROM meetings')).map(c => c.Field));
+      const mtAdds = [
+        ['type', "ALTER TABLE meetings ADD COLUMN type VARCHAR(50) DEFAULT 'meeting'"],
+        ['host_id', "ALTER TABLE meetings ADD COLUMN host_id VARCHAR(255)"],
+        ['agenda', "ALTER TABLE meetings ADD COLUMN agenda TEXT"],
+        ['outcome', "ALTER TABLE meetings ADD COLUMN outcome TEXT"],
+        ['contact_id', "ALTER TABLE meetings ADD COLUMN contact_id VARCHAR(255)"],
+        ['company_id', "ALTER TABLE meetings ADD COLUMN company_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of mtAdds) { if (!mtCols.has(col)) await run(sql); }
+    } catch (e) { console.error('meetings columns:', e.message); }
+
+    // ── calendar_events: meeting_link column ────────────────────────
+    try {
+      const calCols = new Set((await query('SHOW COLUMNS FROM calendar_events')).map(c => c.Field));
+      if (!calCols.has('meeting_link')) {
+        await run('ALTER TABLE calendar_events ADD COLUMN meeting_link VARCHAR(512)');
+        console.log('✅ Added meeting_link to calendar_events');
+      }
+    } catch (e) { console.error('calendar_events columns:', e.message); }
+
+    // ── booking_pages: location, max_per_day, min_notice_hours ──────
+    try {
+      const bpCols = new Set((await query('SHOW COLUMNS FROM booking_pages')).map(c => c.Field));
+      const bpAdds = [
+        ['location', "ALTER TABLE booking_pages ADD COLUMN location VARCHAR(255) DEFAULT 'Zoom'"],
+        ['max_per_day', "ALTER TABLE booking_pages ADD COLUMN max_per_day INT DEFAULT 4"],
+        ['min_notice_hours', "ALTER TABLE booking_pages ADD COLUMN min_notice_hours INT DEFAULT 24"],
+      ];
+      for (const [col, sql] of bpAdds) { if (!bpCols.has(col)) await run(sql); }
+    } catch (e) { console.error('booking_pages columns:', e.message); }
+
     // ── Add missing agent_id to all tables that need it ─────────────────
     const agentIdTables = [
       'contacts', 'conversations', 'canned_responses',
@@ -813,6 +1010,19 @@ async function ensureSchemaColumns() {
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
+}
+
+async function cleanupSeedData() {
+  const seedContactIds = ['ct1','ct2','ct3','ct4','ct5','ct6'];
+  const seedConvoIds = ['cv1','cv2','cv3'];
+  for (const id of seedConvoIds) {
+    await run('DELETE FROM messages WHERE conversation_id=?', [id]);
+    await run('DELETE FROM conversations WHERE id=?', [id]);
+  }
+  for (const id of seedContactIds) {
+    await run('DELETE FROM contacts WHERE id=?', [id]);
+  }
+  console.log('🧹 Cleaned up seed contacts & conversations');
 }
 
 async function seed() {
@@ -844,29 +1054,6 @@ async function seed() {
   ];
   for (const i of inboxes) {
     await run('INSERT INTO inboxes (id,name,type,color,greeting,active,agent_id) VALUES (?,?,?,?,?,?,?)', i);
-  }
-
-  // Contacts
-  const contacts = [
-    ['ct1', 'Alice Johnson', 'alice@techcorp.com', '+1 555 0101', 'TechCorp', '#4c82fb', '["vip","enterprise"]', 'a1'],
-    ['ct2', 'Bob Martinez', 'bob@startup.io', '+1 555 0102', 'StartupIO', '#1fd07a', '["trial"]', 'a1'],
-    ['ct3', 'Carol Chen', 'carol@enterprise.com', '+1 555 0103', 'Enterprise Co', '#9b6dff', '["enterprise","vip"]', 'a1'],
-    ['ct4', 'David Kim', 'david@freelance.dev', '+1 555 0104', 'Freelance', '#f5a623', '[]', 'a1'],
-    ['ct5', 'Emma Wilson', 'emma@agency.com', '+1 555 0105', 'Creative Agency', '#f04f5a', '["agency"]', 'a1'],
-    ['ct6', 'Frank Brown', 'retail@retail.com', '+1 555 0106', 'RetailCo', '#22d4e8', '[]', 'a1'],
-  ];
-  for (const c of contacts) {
-    await run('INSERT INTO contacts (id,name,email,phone,company,color,tags,agent_id) VALUES (?,?,?,?,?,?,?,?)', c);
-  }
-
-  // Conversations
-  const convos = [
-    ['cv1', 'API rate limit exceeded', 'open', 'urgent', 'ct1', 'ib2', 'a1', '["api","urgent"]', '#f04f5a', 'a1'],
-    ['cv2', 'Billing question for enterprise plan', 'open', 'high', 'ct2', 'ib1', 'a2', '["billing"]', '#f5a623', 'a1'],
-    ['cv3', 'WhatsApp integration not working', 'open', 'high', 'ct3', 'ib3', 'a3', '["bug"]', '#4c82fb', 'a1'],
-  ];
-  for (const c of convos) {
-    await run('INSERT INTO conversations (id,subject,status,priority,contact_id,inbox_id,assignee_id,labels,color,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)', c);
   }
 
   console.log('✅ Database seeded successfully');
