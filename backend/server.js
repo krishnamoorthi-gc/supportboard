@@ -162,7 +162,7 @@ app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req,
     // Sync new visitor messages to linked inbox conversation
     if (messages) {
       try {
-        const chat = await db.prepare('SELECT conversation_id FROM bot_chats WHERE id=?').get(req.params.chatId);
+        const chat = await db.prepare('SELECT conversation_id, visitor_name FROM bot_chats WHERE id=?').get(req.params.chatId);
         if (chat && chat.conversation_id) {
           const newMsgs = messages.filter(m => m.f === 'user');
           // Get count of existing customer messages in inbox
@@ -171,10 +171,27 @@ app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req,
           // Only add messages that are new (beyond what we already have)
           const toAdd = newMsgs.slice(existingCount);
           const { uid } = require('./utils/helpers');
+          const { broadcastToAll } = require('./ws');
           for (const m of toAdd) {
-            await db.prepare('INSERT INTO messages (id,conversation_id,role,text,is_read) VALUES (?,?,?,?,?)').run(
-              uid(), chat.conversation_id, 'customer', m.t, 0
+            const msgId = uid();
+            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            await db.prepare('INSERT INTO messages (id,conversation_id,role,text,is_read,created_at) VALUES (?,?,?,?,?,?)').run(
+              msgId, chat.conversation_id, 'customer', m.t, 0, createdAt
             );
+            // Broadcast to dashboard so inbox updates in real-time
+            broadcastToAll({
+              type: 'new_message',
+              conversationId: chat.conversation_id,
+              message: {
+                id: msgId,
+                conversation_id: chat.conversation_id,
+                role: 'customer',
+                text: m.t,
+                is_read: 0,
+                created_at: createdAt,
+                agent_id: null,
+              }
+            });
           }
           if (toAdd.length > 0) {
             await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, chat.conversation_id);
@@ -616,6 +633,84 @@ app.get('/widget/bot.js', widgetCors, (req, res) => {
 })();`);
 });
 
+// ── Standalone form page ──
+app.get('/form/:id', async (req, res) => {
+  const BACKEND = process.env.BACKEND_URL || 'http://localhost:4002';
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Form</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:16px}
+#form-box{width:480px;background:#fff;border-radius:20px;box-shadow:0 24px 80px rgba(0,0,0,.35);padding:28px 32px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:13px;font-weight:600;color:#333;margin-bottom:5px}
+.field label .req{color:#e11;margin-left:2px}
+.field input,.field textarea,.field select{width:100%;padding:10px 14px;border:1.5px solid #ddd;border-radius:10px;font-size:13px;color:#333;background:#f9f9fb;outline:none;transition:border .2s;font-family:inherit}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent,#4c82fb)}
+.field textarea{resize:vertical;min-height:80px}
+.radio-group{display:flex;flex-direction:column;gap:8px}
+.radio-group label{display:flex;align-items:center;gap:8px;font-size:13px;color:#333;cursor:pointer;font-weight:400}
+.heading{font-size:20px;font-weight:800;color:#111;margin-bottom:4px}
+.subtitle{font-size:12px;color:#777}
+.file-drop{padding:20px;border:2px dashed #ddd;border-radius:10px;text-align:center;font-size:12px;color:#999;cursor:pointer}
+.submit-btn{width:100%;padding:13px;border-radius:10px;color:#fff;font-size:14px;font-weight:700;border:none;cursor:pointer;margin-top:8px;transition:opacity .2s}
+.submit-btn:hover{opacity:.9}
+.submit-btn:disabled{opacity:.5;cursor:wait}
+.success{text-align:center;padding:40px 20px}
+.success h2{font-size:20px;margin-bottom:8px;color:#111}
+.success p{font-size:13px;color:#666}
+.error{color:#e11;font-size:11px;margin-top:4px}
+</style></head><body>
+<div id="form-box"><div style="text-align:center;color:#999;padding:40px">Loading form…</div></div>
+<script>
+const FORM_ID="${req.params.id}";
+const API="${BACKEND}/api/forms/public";
+async function loadForm(){
+  try{
+    const r=await fetch(API+"/"+FORM_ID);
+    if(!r.ok)throw new Error("Form not found");
+    const d=await r.json();renderForm(d);
+  }catch(e){document.getElementById("form-box").innerHTML='<div style="text-align:center;padding:40px;color:#e11">'+e.message+'</div>';}
+}
+function renderForm({name,fields,settings}){
+  const accent=settings.accentColor||"#4c82fb";
+  document.documentElement.style.setProperty("--accent",accent);
+  let html="";
+  fields.forEach(f=>{
+    if(f.type==="heading"){html+='<div class="field"><div class="heading">'+esc(f.label)+'</div>'+(f.placeholder?'<div class="subtitle">'+esc(f.placeholder)+'</div>':'')+'</div>';return;}
+    if(f.type==="paragraph"){html+='<div class="field" style="font-size:13px;color:#555;line-height:1.5">'+esc(f.label)+'</div>';return;}
+    const req=f.required?'<span class="req">*</span>':"";
+    html+='<div class="field"><label>'+esc(f.label)+req+'</label>';
+    if(f.type==="textarea")html+='<textarea name="'+f.id+'" placeholder="'+esc(f.placeholder||"")+'"'+(f.required?" required":"")+'></textarea>';
+    else if(f.type==="select"){html+='<select name="'+f.id+'"'+(f.required?" required":"")+'><option value="">'+esc(f.placeholder||"Select…")+'</option>';(f.options||[]).forEach(o=>{html+='<option value="'+esc(o)+'">'+esc(o)+'</option>';});html+='</select>';}
+    else if(f.type==="radio"){html+='<div class="radio-group">';(f.options||[]).forEach(o=>{html+='<label><input type="radio" name="'+f.id+'" value="'+esc(o)+'"'+(f.required?" required":"")+'>'+esc(o)+'</label>';});html+='</div>';}
+    else if(f.type==="checkbox")html+='<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" name="'+f.id+'"'+(f.required?" required":"")+'>'+esc(f.label)+'</label>';
+    else if(f.type==="file")html+='<div class="file-drop">📎 Click to upload<input type="file" name="'+f.id+'" style="display:none"'+(f.required?" required":"")+'></div>';
+    else{const t=f.type==="email"?"email":f.type==="phone"?"tel":f.type==="number"?"number":f.type==="url"?"url":f.type==="date"?"date":"text";html+='<input type="'+t+'" name="'+f.id+'" placeholder="'+esc(f.placeholder||"")+'"'+(f.required?" required":"")+'>';}
+    html+='</div>';
+  });
+  html+='<button type="submit" class="submit-btn" style="background:'+accent+'">'+esc(settings.submitText||"Submit")+'</button>';
+  const box=document.getElementById("form-box");
+  box.innerHTML='<form id="sd-form">'+html+'</form>';
+  box.querySelector(".file-drop")?.addEventListener("click",function(){this.querySelector("input").click();});
+  document.getElementById("sd-form").addEventListener("submit",async function(e){
+    e.preventDefault();const btn=this.querySelector(".submit-btn");btn.disabled=true;btn.textContent="Sending…";
+    const fd=new FormData(this);const data={};for(const[k,v]of fd.entries())data[k]=v;
+    try{
+      const r=await fetch(API+"/"+FORM_ID+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data})});
+      const j=await r.json();
+      if(!r.ok)throw new Error(j.error||"Failed");
+      box.innerHTML='<div class="success"><h2>✓</h2><p>'+esc(j.message||settings.successMsg||"Thank you!")+'</p></div>';
+      if(settings.redirectUrl)setTimeout(()=>window.location.href=settings.redirectUrl,2000);
+    }catch(err){btn.disabled=false;btn.textContent=settings.submitText||"Submit";let el=this.querySelector(".error");if(!el){el=document.createElement("div");el.className="error";this.appendChild(el);}el.textContent=err.message;}
+  });
+}
+function esc(s){const d=document.createElement("div");d.textContent=s;return d.innerHTML;}
+loadForm();
+</script></body></html>`);
+});
+
 // ── Standalone bot chat page ──
 app.get('/chat', widgetCors, (req, res) => {
   const token = req.query.bot || '';
@@ -1011,6 +1106,9 @@ app.use('/api/kb', require('./routes/kb'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/sales-agent', require('./routes/sales-agent'));
+app.use('/api/forms', require('./routes/forms'));
+app.use('/api/aibot', require('./routes/aibot'));
 app.use('/api/email', require('./routes/email'));
 
 // Live monitor - visitor sessions

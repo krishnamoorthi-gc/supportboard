@@ -10,7 +10,7 @@ import BillingScr from "./BillingScr";
 export default function SettingsScr({inboxes,setInboxes,agents,setAgents,labels,setLabels,teams,setTeams,canned,setCanned,autos,setAutos,contacts,convs,stab,setStab,fontKey,applyFont,fontScale,applySize,themeKey,applyTheme,autoTheme,setAutoTheme,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,setCustomFields}){
   const tabs=[{id:"inboxes",label:"Inboxes",iconId:"inbox"},{id:"agents",label:"Agents & Teams",iconId:"contacts"},{id:"labels",label:"Labels",iconId:"labels"},{id:"canned",label:"Canned Responses",iconId:"canned"},{id:"automations",label:"Automations",iconId:"automations"},{id:"workflows",label:"Workflows",iconId:"automations"},{id:"aibot",label:"AI Bot",iconId:"aibot"},{id:"botbuilder",label:"Bot Builder",iconId:"aibot"},{id:"salesagent",label:"AI Sales Agent",iconId:"marketing"},{id:"formbuilder",label:"Form Builder",iconId:"widget"},{id:"widget",label:"Widget Builder",iconId:"widget"},{id:"customfields",label:"Custom Fields",iconId:"widget"},{id:"signatures",label:"Email Signatures",iconId:"send"},{id:"notifications",label:"Notifications",iconId:"bell"},{id:"brands",label:"Multi-Brand",iconId:"marketing"},{id:"auditlog",label:"Audit Log",iconId:"reports"},{id:"theme",label:"Theme",iconId:"theme"},{id:"fonts",label:"Fonts",iconId:"fonts"},{id:"billing",label:"Billing",iconId:"billing"},{id:"account",label:"Account",iconId:"settings"}];
   return <div style={{flex:1,display:"flex",minWidth:0}}>
-    <div style={{width:200,background:C.s1,borderRight:`1px solid ${C.b1}`,padding:"20px 0",flexShrink:0}}>
+    <div style={{width:200,background:C.s1,borderRight:`1px solid ${C.b1}`,padding:"20px 0",flexShrink:0,overflowY:"auto"}}>
       <div style={{padding:"0 14px",marginBottom:16,fontSize:11,color:C.t3,fontFamily:FM,letterSpacing:"0.5px"}}>SETTINGS</div>
       {tabs.map(t=>(
         <button key={t.id} onClick={()=>setStab(t.id)} className="nav" style={{width:"100%",padding:"9px 14px",textAlign:"left",fontSize:13,color:stab===t.id?C.a:C.t2,background:stab===t.id?C.ad:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"all .12s",fontFamily:FB,fontWeight:stab===t.id?600:400}}>
@@ -45,19 +45,46 @@ export default function SettingsScr({inboxes,setInboxes,agents,setAgents,labels,
 
 function FormBuilderSet(){
   const FTYPES=[["text","📝","Short Text"],["email","📧","Email"],["phone","📞","Phone"],["number","🔢","Number"],["textarea","📄","Long Text"],["select","📋","Dropdown"],["radio","🔘","Radio"],["checkbox","☑","Checkbox"],["date","📅","Date"],["url","🔗","URL"],["file","📎","File Upload"],["heading","📌","Heading"],["paragraph","📃","Paragraph"]];
-  const [forms,setForms]=useState([
-    {id:"wf1",name:"Contact Us",status:"active",submissions:47,created:"10/03/26",fields:[{id:"f1",type:"heading",label:"Get in Touch",placeholder:"We'd love to hear from you",required:false,options:[]},{id:"f2",type:"text",label:"Full Name",placeholder:"John Doe",required:true,options:[]},{id:"f3",type:"email",label:"Email Address",placeholder:"john@company.com",required:true,options:[]},{id:"f4",type:"phone",label:"Phone Number",placeholder:"+91 90001 22334",required:false,options:[]},{id:"f5",type:"select",label:"Inquiry Type",placeholder:"Select type…",required:true,options:["General Inquiry","Sales","Support","Partnership","Other"]},{id:"f6",type:"textarea",label:"Message",placeholder:"Tell us how we can help…",required:true,options:[]}],settings:{submitText:"Send Message",successMsg:"Thank you! We'll get back to you within 24 hours.",redirectUrl:"",notifyEmail:"support@supportdesk.app",accentColor:C.a}},
-    {id:"wf2",name:"Lead Capture",status:"active",submissions:128,created:"15/02/26",fields:[{id:"f1",type:"text",label:"Name",placeholder:"Your name",required:true,options:[]},{id:"f2",type:"email",label:"Work Email",placeholder:"name@company.com",required:true,options:[]},{id:"f3",type:"text",label:"Company",placeholder:"Company name",required:true,options:[]},{id:"f4",type:"select",label:"Company Size",placeholder:"Select…",required:true,options:["1-10","11-50","51-200","201-500","500+"]},{id:"f5",type:"select",label:"Interest",placeholder:"Select…",required:false,options:["Product Demo","Pricing","Free Trial","Partnership"]}],settings:{submitText:"Get Started",successMsg:"Thanks! Our team will reach out shortly.",redirectUrl:"",notifyEmail:"sales@supportdesk.app",accentColor:C.p}},
-    {id:"wf3",name:"Feedback Survey",status:"draft",submissions:0,created:"25/03/26",fields:[{id:"f1",type:"heading",label:"We Value Your Feedback",placeholder:"Help us improve",required:false,options:[]},{id:"f2",type:"radio",label:"How satisfied are you?",placeholder:"",required:true,options:["Very Satisfied","Satisfied","Neutral","Dissatisfied","Very Dissatisfied"]},{id:"f3",type:"textarea",label:"What can we improve?",placeholder:"Share your thoughts…",required:false,options:[]},{id:"f4",type:"email",label:"Email (optional)",placeholder:"your@email.com",required:false,options:[]}],settings:{submitText:"Submit Feedback",successMsg:"Thank you for your feedback!",redirectUrl:"",notifyEmail:"cx@supportdesk.app",accentColor:C.g}}
-  ]);
+  const backendUrl=import.meta.env.VITE_BACKEND_URL||"http://localhost:4002";
+  const [forms,setForms]=useState([]);const [loading,setLoading]=useState(true);
   const [selForm,setSelForm]=useState(null);const [editMode,setEditMode]=useState("fields");const [newOpt,setNewOpt]=useState("");const [showNew,setShowNew]=useState(false);const [newName,setNewName]=useState("");
+  const [submissions,setSubmissions]=useState([]);const [subTotal,setSubTotal]=useState(0);const [saveTimer,setSaveTimer]=useState(null);
+
+  // ── Load forms from backend ──
+  const loadForms=useCallback(async()=>{try{const r=await api.get("/forms");setForms(r.forms||[]);}catch(e){console.error("Load forms:",e);}finally{setLoading(false);};},[]);
+  useEffect(()=>{loadForms();},[loadForms]);
+
   const fm=forms.find(f=>f.id===selForm);
-  const updateForm=(key,val)=>setForms(p=>p.map(f=>f.id===selForm?{...f,[key]:val}:f));
-  const updateField=(idx,key,val)=>{const ff=[...(fm?.fields||[])];ff[idx]={...ff[idx],[key]:val};updateForm("fields",ff);};
-  const updateSettings=(key,val)=>updateForm("settings",{...(fm?.settings||{}),[key]:val});
-  const moveField=(idx,dir)=>{const ff=[...(fm?.fields||[])];const t=idx+dir;if(t<0||t>=ff.length)return;[ff[idx],ff[t]]=[ff[t],ff[idx]];updateForm("fields",ff);};
-  const addField=(type="text")=>updateForm("fields",[...(fm?.fields||[]),{id:"f"+uid(),type,label:FTYPES.find(t=>t[0]===type)?.[2]||"Field",placeholder:"",required:false,options:type==="select"||type==="radio"?["Option 1","Option 2","Option 3"]:[]}]);
-  const createForm=()=>{if(!newName.trim())return showT("Name required","error");const nf={id:"wf"+uid(),name:newName,status:"draft",submissions:0,created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),fields:[{id:"f"+uid(),type:"text",label:"Name",placeholder:"Your name",required:true,options:[]},{id:"f"+uid(),type:"email",label:"Email",placeholder:"you@company.com",required:true,options:[]},{id:"f"+uid(),type:"textarea",label:"Message",placeholder:"Your message…",required:false,options:[]}],settings:{submitText:"Submit",successMsg:"Thank you!",redirectUrl:"",notifyEmail:"",accentColor:C.a}};setForms(p=>[nf,...p]);setShowNew(false);setNewName("");setSelForm(nf.id);setEditMode("fields");showT("Form created!","success");};
+
+  // ── Auto-save: debounce PATCH on field/settings changes ──
+  const autoSave=useCallback((formId,patch)=>{
+    if(saveTimer)clearTimeout(saveTimer);
+    setSaveTimer(setTimeout(async()=>{try{await api.patch(`/forms/${formId}`,patch);}catch(e){console.error("Auto-save:",e);}},800));
+  },[saveTimer]);
+
+  const updateForm=(key,val)=>{setForms(p=>p.map(f=>f.id===selForm?{...f,[key]:val}:f));autoSave(selForm,{[key]:val});};
+  const updateField=(idx,key,val)=>{const ff=[...(fm?.fields||[])];ff[idx]={...ff[idx],[key]:val};setForms(p=>p.map(f=>f.id===selForm?{...f,fields:ff}:f));autoSave(selForm,{fields:ff});};
+  const updateSettings=(key,val)=>{const ns={...(fm?.settings||{}),[key]:val};setForms(p=>p.map(f=>f.id===selForm?{...f,settings:ns}:f));autoSave(selForm,{settings:ns});};
+  const moveField=(idx,dir)=>{const ff=[...(fm?.fields||[])];const t=idx+dir;if(t<0||t>=ff.length)return;[ff[idx],ff[t]]=[ff[t],ff[idx]];setForms(p=>p.map(f=>f.id===selForm?{...f,fields:ff}:f));autoSave(selForm,{fields:ff});};
+  const addField=(type="text")=>{const ff=[...(fm?.fields||[]),{id:"f"+uid(),type,label:FTYPES.find(t=>t[0]===type)?.[2]||"Field",placeholder:"",required:false,options:type==="select"||type==="radio"?["Option 1","Option 2","Option 3"]:[]}];setForms(p=>p.map(f=>f.id===selForm?{...f,fields:ff}:f));autoSave(selForm,{fields:ff});};
+
+  // ── Create form via API ──
+  const createForm=async()=>{if(!newName.trim())return showT("Name required","error");
+    try{const r=await api.post("/forms",{name:newName,fields:[{id:"f"+uid(),type:"text",label:"Name",placeholder:"Your name",required:true,options:[]},{id:"f"+uid(),type:"email",label:"Email",placeholder:"you@company.com",required:true,options:[]},{id:"f"+uid(),type:"textarea",label:"Message",placeholder:"Your message…",required:false,options:[]}],settings:{submitText:"Submit",successMsg:"Thank you!",redirectUrl:"",notifyEmail:"",accentColor:"#4c82fb"}});
+      loadForms();setShowNew(false);setNewName("");setSelForm(r.form.id);setEditMode("fields");showT("Form created!","success");
+    }catch{showT("Failed to create","error");}};
+
+  // ── Delete form ──
+  const deleteForm=async(id)=>{try{await api.del(`/forms/${id}`);loadForms();if(selForm===id)setSelForm(null);showT("Deleted","success");}catch{showT("Failed","error");}};
+
+  // ── Toggle publish ──
+  const togglePublish=async(f)=>{const ns=f.status==="active"?"draft":"active";try{await api.patch(`/forms/${f.id}`,{status:ns});loadForms();showT(ns==="active"?"Published!":"Unpublished","info");}catch{showT("Failed","error");}};
+
+  // ── Load submissions ──
+  const loadSubs=useCallback(async(formId)=>{try{const r=await api.get(`/forms/${formId}/submissions`);setSubmissions(r.submissions||[]);setSubTotal(r.total||0);}catch{setSubmissions([]);setSubTotal(0);}},[]);
+  useEffect(()=>{if(selForm&&editMode==="submissions")loadSubs(selForm);},[selForm,editMode,loadSubs]);
+
+  if(loading)return <div style={{padding:"24px 28px"}}><SkelCards/></div>;
 
   // ─── LIST VIEW ───
   if(!selForm)return <div style={{padding:"24px 28px"}}>
@@ -66,27 +93,28 @@ function FormBuilderSet(){
       <Btn ch="+ New Form" v="primary" onClick={()=>{setShowNew(true);setNewName("");}}/>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
-      {[{l:"Total Forms",v:forms.length,c:C.a,i:"📝"},{l:"Active",v:forms.filter(f=>f.status==="active").length,c:C.g,i:"✅"},{l:"Draft",v:forms.filter(f=>f.status==="draft").length,c:C.y,i:"📋"},{l:"Submissions",v:forms.reduce((s,f)=>s+f.submissions,0),c:C.p,i:"📊"}].map(k=>(
+      {[{l:"Total Forms",v:forms.length,c:C.a,i:"📝"},{l:"Active",v:forms.filter(f=>f.status==="active").length,c:C.g,i:"✅"},{l:"Draft",v:forms.filter(f=>f.status==="draft").length,c:C.y,i:"📋"},{l:"Submissions",v:forms.reduce((s,f)=>s+(f.submissions||0),0),c:C.p,i:"📊"}].map(k=>(
         <div key={k.l} style={{padding:"12px",background:k.c+"10",border:`1px solid ${k.c}22`,borderRadius:10,textAlign:"center"}}><div style={{fontSize:14,marginBottom:2}}>{k.i}</div><div style={{fontSize:22,fontWeight:800,fontFamily:FD,color:k.c}}>{k.v}</div><div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{k.l}</div></div>
       ))}
     </div>
+    {forms.length===0&&<EmptyState icon="📝" title="No forms yet" desc="Create your first form to start collecting responses"/>}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       {forms.map(f=>(
         <div key={f.id} onClick={()=>{setSelForm(f.id);setEditMode("fields");}} style={{background:C.s1,border:`1.5px solid ${C.b1}`,borderRadius:14,overflow:"hidden",cursor:"pointer"}} className="card-lift">
           <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div><div style={{fontSize:15,fontWeight:700}}>{f.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{f.fields.length} fields · Created {f.created}</div></div>
+            <div><div style={{fontSize:15,fontWeight:700}}>{f.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{(f.fields||[]).length} fields</div></div>
             <Tag text={f.status} color={f.status==="active"?C.g:C.y}/>
           </div>
           <div style={{padding:"12px 16px"}}>
             <div style={{display:"flex",gap:8,marginBottom:10}}>
-              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.p}}>{f.submissions}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Submissions</div></div>
-              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.a}}>{f.fields.filter(x=>x.required).length}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Required</div></div>
+              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.p}}>{f.submissions||0}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Submissions</div></div>
+              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.a}}>{(f.fields||[]).filter(x=>x.required).length}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Required</div></div>
             </div>
-            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{f.fields.filter(x=>x.type!=="heading"&&x.type!=="paragraph").slice(0,5).map(fl=><span key={fl.id} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:C.s3,color:C.t3,fontFamily:FM}}>{fl.label}</span>)}</div>
+            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(f.fields||[]).filter(x=>x.type!=="heading"&&x.type!=="paragraph").slice(0,5).map(fl=><span key={fl.id} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:C.s3,color:C.t3,fontFamily:FM}}>{fl.label}</span>)}</div>
             <div style={{display:"flex",gap:4,marginTop:10,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
               <Btn ch="✎ Edit" v="ghost" sm onClick={()=>{setSelForm(f.id);setEditMode("fields");}}/>
-              <Btn ch={f.status==="active"?"Unpublish":"Publish"} v={f.status==="active"?"ghost":"success"} sm onClick={()=>{setForms(p=>p.map(x=>x.id===f.id?{...x,status:x.status==="active"?"draft":"active"}:x));showT(f.status==="active"?"Unpublished":"Published!","info");}}/>
-              <button onClick={()=>{if(window.confirm("Delete?")){setForms(p=>p.filter(x=>x.id!==f.id));showT("Deleted","success");}}} style={{fontSize:12,color:C.r,background:"none",border:"none",cursor:"pointer"}}>🗑</button>
+              <Btn ch={f.status==="active"?"Unpublish":"Publish"} v={f.status==="active"?"ghost":"success"} sm onClick={()=>togglePublish(f)}/>
+              <button onClick={()=>{if(window.confirm("Delete form and all submissions?")){deleteForm(f.id);}}} style={{fontSize:12,color:C.r,background:"none",border:"none",cursor:"pointer"}}>🗑</button>
             </div>
           </div>
         </div>
@@ -105,15 +133,16 @@ function FormBuilderSet(){
   </div>;
 
   // ─── EDITOR VIEW ───
+  if(!fm){setSelForm(null);return null;}
   const st=fm.settings||{};
   return <div style={{padding:"24px 28px"}}>
     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-      <button onClick={()=>setSelForm(null)} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
-      <div style={{flex:1}}><h2 style={{fontSize:18,fontWeight:800,fontFamily:FD,margin:0}}>{fm.name}</h2><p style={{fontSize:10,color:C.t3,fontFamily:FM}}>{fm.fields.length} fields · {fm.submissions} submissions</p></div>
-      <Btn ch={fm.status==="active"?"✅ Active":"Publish"} v={fm.status==="active"?"success":"primary"} onClick={()=>{updateForm("status",fm.status==="active"?"draft":"active");showT(fm.status==="active"?"Unpublished":"Published!","success");}}/>
+      <button onClick={()=>{setSelForm(null);loadForms();}} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
+      <div style={{flex:1}}><h2 style={{fontSize:18,fontWeight:800,fontFamily:FD,margin:0}}>{fm.name}</h2><p style={{fontSize:10,color:C.t3,fontFamily:FM}}>{fm.fields.length} fields · {fm.submissions||0} submissions · Auto-saves</p></div>
+      <Btn ch={fm.status==="active"?"✅ Active":"Publish"} v={fm.status==="active"?"success":"primary"} onClick={()=>togglePublish(fm)}/>
     </div>
     <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.b1}`,marginBottom:16}}>
-      {[["fields","📝 Fields"],["settings","⚙ Settings"],["submissions","📊 Submissions ("+fm.submissions+")"],["embed","</> Embed Code"]].map(([id,l])=>(
+      {[["fields","📝 Fields"],["settings","⚙ Settings"],["submissions","📊 Submissions ("+(fm.submissions||0)+")"],["embed","</> Embed Code"]].map(([id,l])=>(
         <button key={id} onClick={()=>setEditMode(id)} style={{padding:"10px 16px",fontSize:12,fontWeight:700,fontFamily:FM,color:editMode===id?C.a:C.t3,borderBottom:`2.5px solid ${editMode===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer"}}>{l}</button>
       ))}
     </div>
@@ -127,8 +156,8 @@ function FormBuilderSet(){
               <span style={{fontSize:16}}>{ft?.[1]||"📝"}</span>
               <input value={f.label||""} onChange={e=>updateField(idx,"label",e.target.value)} style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:13,fontWeight:600,color:C.t1,outline:"none",fontFamily:FB}} placeholder="Field label"/>
               {!["heading","paragraph"].includes(f.type)&&<button onClick={()=>updateField(idx,"required",!f.required)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,fontWeight:700,fontFamily:FM,background:f.required?C.r+"15":"transparent",color:f.required?C.r:C.t3,border:`1px solid ${f.required?C.r+"33":C.b1}`,cursor:"pointer"}}>{f.required?"Required":"Optional"}</button>}
-              <button onClick={()=>updateForm("fields",[...fm.fields,{...f,id:"f"+uid(),label:f.label+" (copy)"}])} style={{fontSize:11,color:C.a,background:"none",border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 6px",cursor:"pointer"}}>⧉</button>
-              <button onClick={()=>updateForm("fields",fm.fields.filter(x=>x.id!==f.id))} style={{fontSize:13,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+              <button onClick={()=>{const ff=[...fm.fields,{...f,id:"f"+uid(),label:f.label+" (copy)"}];setForms(p=>p.map(x=>x.id===selForm?{...x,fields:ff}:x));autoSave(selForm,{fields:ff});}} style={{fontSize:11,color:C.a,background:"none",border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 6px",cursor:"pointer"}}>⧉</button>
+              <button onClick={()=>{const ff=fm.fields.filter(x=>x.id!==f.id);setForms(p=>p.map(x=>x.id===selForm?{...x,fields:ff}:x));autoSave(selForm,{fields:ff});}} style={{fontSize:13,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <select value={f.type} onChange={e=>updateField(idx,"type",e.target.value)} style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 8px",fontSize:11,color:C.t1,fontFamily:FB,cursor:"pointer",outline:"none"}}>{FTYPES.map(([v,ic,l])=><option key={v} value={v}>{ic} {l}</option>)}</select>
@@ -183,28 +212,35 @@ function FormBuilderSet(){
       </div>}
 
       {editMode==="submissions"&&<div style={{flex:1}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><span style={{fontSize:13,fontWeight:700}}>{fm.submissions} Total Submissions</span><Btn ch="📤 Export CSV" v="ghost" sm onClick={()=>showT("Exported!","success")}/></div>
-        {fm.submissions>0?<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 100px 80px",padding:"10px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>{["#","Name","Email","Date","Status"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,textTransform:"uppercase"}}>{h}</span>)}</div>
-          {[...Array(Math.min(fm.submissions,8))].map((_,i)=>(<div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 100px 80px",padding:"10px 14px",borderBottom:`1px solid ${C.b1}22`,alignItems:"center"}}><span style={{fontSize:11,color:C.t3,fontFamily:FM}}>#{fm.submissions-i}</span><span style={{fontSize:11,color:C.t1}}>{["Arjun M.","Sneha I.","David C.","Meera K.","Rahul K.","Vikram S.","Ananya R.","James W."][i%8]}</span><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{["arjun@tech.io","sneha@wave.io","david@ret.com","meera@xyz.com","rahul@pay.in","vikram@cn.io","ananya@fm.com","james@gx.us"][i%8]}</span><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{["Today","Yesterday","25/03","24/03","23/03","22/03","21/03","20/03"][i%8]}</span><Tag text="New" color={C.g}/></div>))}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><span style={{fontSize:13,fontWeight:700}}>{subTotal} Total Submissions</span><Btn ch="🔄 Refresh" v="ghost" sm onClick={()=>loadSubs(selForm)}/></div>
+        {submissions.length>0?<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
+          {submissions.map((s,i)=>{const data=s.data||{};const values=Object.values(data);return(
+            <div key={s.id} style={{padding:"12px 16px",borderBottom:`1px solid ${C.b1}22`,display:"flex",alignItems:"center",gap:12}}>
+              <span style={{fontSize:11,color:C.t3,fontFamily:FM,width:30}}>#{subTotal-i}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,color:C.t1,marginBottom:2}}>{values.slice(0,3).join(" · ")||"(empty)"}</div>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{s.created_at?.slice(0,16).replace("T"," ")||""}{s.ip?" · "+s.ip:""}</div>
+              </div>
+              <button onClick={async()=>{try{await api.del(`/forms/${selForm}/submissions/${s.id}`);loadSubs(selForm);showT("Deleted","success");}catch{}}} style={{fontSize:10,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+            </div>
+          );})}
         </div>:<div style={{padding:40,textAlign:"center",color:C.t3}}><div style={{fontSize:28,marginBottom:8}}>📊</div><div style={{fontSize:14,fontWeight:700}}>No submissions yet</div><div style={{fontSize:11,marginTop:4}}>Publish and embed your form to start collecting responses.</div></div>}
       </div>}
 
       {editMode==="embed"&&<div style={{flex:1,maxWidth:600}}>
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"18px 20px",marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Embed Code</div>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Embed via iframe</div>
           <div style={{fontSize:11,color:C.t3,marginBottom:12}}>Paste this into your website HTML.</div>
-          <div style={{background:C.bg,borderRadius:8,padding:"14px",fontFamily:FM,fontSize:10,color:C.a,lineHeight:1.8,border:`1px solid ${C.b1}`,wordBreak:"break-all"}}>{`<script src="https://cdn.supportdesk.app/forms.js"></script>`}<br/>{`<div id="sd-form-${fm.id}" data-form="${fm.id}"></div>`}<br/>{`<script>SDForms.render("${fm.id}");</script>`}</div>
-          <Btn ch="📋 Copy Code" v="primary" sm onClick={()=>showT("Copied!","success")}/>
+          <div style={{background:C.bg,borderRadius:8,padding:"14px",fontFamily:FM,fontSize:10,color:C.a,lineHeight:1.8,border:`1px solid ${C.b1}`,wordBreak:"break-all"}}>{`<iframe src="${backendUrl}/form/${fm.id}" style="width:100%;min-height:600px;border:none;border-radius:16px" title="${fm.name}"></iframe>`}</div>
+          <Btn ch="📋 Copy Code" v="primary" sm onClick={()=>{navigator.clipboard.writeText(`<iframe src="${backendUrl}/form/${fm.id}" style="width:100%;min-height:600px;border:none;border-radius:16px" title="${fm.name}"></iframe>`);showT("Copied!","success");}}/>
         </div>
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"18px 20px",marginBottom:14}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Direct Link</div>
-          <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",fontFamily:FM,fontSize:11,color:C.a,border:`1px solid ${C.b1}`}}>https://forms.supportdesk.app/{fm.id}</div>
-          <Btn ch="📋 Copy Link" v="ghost" sm onClick={()=>showT("Copied!","success")}/>
-        </div>
-        <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"18px 20px"}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>WordPress</div>
-          <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",fontFamily:FM,fontSize:11,color:C.p,border:`1px solid ${C.b1}`}}>[supportdesk_form id="{fm.id}"]</div>
+          <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",fontFamily:FM,fontSize:11,color:C.a,border:`1px solid ${C.b1}`}}>{backendUrl}/form/{fm.id}</div>
+          <div style={{display:"flex",gap:6,marginTop:6}}>
+            <Btn ch="📋 Copy" v="ghost" sm onClick={()=>{navigator.clipboard.writeText(`${backendUrl}/form/${fm.id}`);showT("Copied!","success");}}/>
+            <Btn ch="Open ↗" v="primary" sm onClick={()=>window.open(`${backendUrl}/form/${fm.id}`,"_blank")}/>
+          </div>
         </div>
       </div>}
     </div>
@@ -1665,6 +1701,9 @@ function AutoSet({autos,setAutos}){
 function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels}){
   const CHANNELS=["live","email","whatsapp","telegram","facebook","instagram","viber","apple","line","tiktok","x","sms","voice","video","api"];
   const CH_LABELS={live:"Live Chat",email:"Email",whatsapp:"WhatsApp",telegram:"Telegram",facebook:"Facebook",instagram:"Instagram",viber:"Viber",apple:"Apple Business Chat",line:"LINE",tiktok:"TikTok",x:"X (Twitter)",sms:"SMS",voice:"Voice Call",video:"Video Call",api:"API"};
+
+  // ── Config state ──
+  const [loading,setLoading]=useState(true);
   const [botName,setBotName]=useState("Aria");
   const [botTone,setBotTone]=useState("professional");
   const [botLang,setBotLang]=useState("EN");
@@ -1673,27 +1712,23 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
   const [autoResolve,setAutoResolve]=useState(false);
   const [autoResolveH,setAutoResolveH]=useState("24");
   const [sysPrompt,setSysPrompt]=useState("You are Aria, a friendly and professional customer support assistant. Your job is to help customers resolve their issues quickly. Always be empathetic, concise, and solution-focused. If you cannot resolve an issue, collect details and escalate to a human agent.");
+  const [promptDirty,setPromptDirty]=useState(false);
+  const [savingPrompt,setSavingPrompt]=useState(false);
+  const cfgTimer=useRef(null);
+
+  // ── KB state ──
   const [kbTab,setKbTab]=useState("faq");
-  const [faqs,setFaqs]=useState([
-    {id:"f1",q:"How do I reset my password?",a:"Click Forgot Password on the login page and follow the email instructions. The reset link expires in 24 hours."},
-    {id:"f2",q:"Where can I find my invoices?",a:"Go to Settings then Billing then Invoices. All past invoices are available to download as PDF."},
-    {id:"f3",q:"How do I upgrade my plan?",a:"Navigate to Settings then Billing and click Upgrade. Changes take effect immediately on your next billing cycle."},
-    {id:"f4",q:"Can I export my data?",a:"Yes! Go to Reports then Export Data. You can export conversations, contacts, and analytics as CSV."},
-  ]);
+  const [faqs,setFaqs]=useState([]);
   const [showFaqForm,setShowFaqForm]=useState(false);
   const [faqQ,setFaqQ]=useState("");
   const [faqA,setFaqA]=useState("");
   const [editFaq,setEditFaq]=useState(null);
-  const [docs,setDocs]=useState([
-    {id:"d1",name:"Product Manual v2.4.pdf",size:"2.1 MB",added:"10/01/26",status:"trained"},
-    {id:"d2",name:"Pricing & Plans 2026.docx",size:"340 KB",added:"15/02/26",status:"trained"},
-    {id:"d3",name:"API Documentation.pdf",size:"4.8 MB",added:"01/03/26",status:"training"},
-  ]);
-  const [urls,setUrls]=useState([
-    {id:"u1",url:"https://docs.acme.com",added:"10/02/26",status:"trained"},
-    {id:"u2",url:"https://acme.com/pricing",added:"12/02/26",status:"trained"},
-  ]);
+  const [savingFaq,setSavingFaq]=useState(false);
+  const [docs,setDocs]=useState([]);
+  const [urls,setUrls]=useState([]);
   const [newUrl,setNewUrl]=useState("");
+
+  // ── Live tester ──
   const [testing,setTesting]=useState(false);
   const [testInp,setTestInp]=useState("");
   const [testMsgs,setTestMsgs]=useState([{from:"bot",text:"Hi! I am Aria, your AI support assistant. How can I help you today?"}]);
@@ -1701,68 +1736,103 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
   const testEnd=useRef(null);
   useEffect(()=>{testEnd.current?.scrollIntoView({behavior:"smooth"});},[testMsgs]);
 
-  const saveFaq=()=>{
+  // ── Load all data ──
+  useEffect(()=>{(async()=>{
+    try{
+      const [cfgR,faqR,docR,urlR]=await Promise.all([api.get("/aibot/config"),api.get("/aibot/faqs"),api.get("/aibot/docs"),api.get("/aibot/urls")]);
+      const c=cfgR.config||{};
+      setBotName(c.bot_name||"Aria");setBotTone(c.bot_tone||"professional");setBotLang(c.bot_lang||"EN");
+      setHandoff(c.handoff_after||"3");setWorkingHours(!!c.working_hours);setAutoResolve(!!c.auto_resolve);
+      setAutoResolveH(c.auto_resolve_hours||"24");
+      if(c.sys_prompt)setSysPrompt(c.sys_prompt);
+      // Sync channels from backend config
+      if(c.channels&&Object.keys(c.channels).length){setAiChannels(c.channels);}
+      setFaqs(faqR.faqs||[]);
+      setDocs(docR.docs||[]);
+      setUrls(urlR.urls||[]);
+    }catch(e){console.error("Load aibot:",e);}
+    finally{setLoading(false);}
+  })();},[]);
+
+  // ── Auto-save config (debounced) ──
+  const saveConfig=useCallback((patch)=>{
+    if(cfgTimer.current)clearTimeout(cfgTimer.current);
+    cfgTimer.current=setTimeout(async()=>{try{await api.patch("/aibot/config",patch);}catch(e){console.error("Config save:",e);}},600);
+  },[]);
+
+  const setAndSave=(setter,key,val)=>{setter(val);saveConfig({[key]:val});};
+
+  const saveChannels=(newCh)=>{setAiChannels(newCh);saveConfig({channels:newCh});};
+  const toggleCh=(ch,v)=>{const nc={...aiChannels,[ch]:v};saveChannels(nc);showT("AI "+(v?"enabled":"disabled")+" for "+CH_LABELS[ch],v?"success":"info");};
+
+  // ── Save system prompt ──
+  const savePrompt=async()=>{setSavingPrompt(true);try{await api.patch("/aibot/config",{sys_prompt:sysPrompt});setPromptDirty(false);showT("System prompt saved","success");}catch{showT("Save failed","error");}finally{setSavingPrompt(false);}};
+
+  // ── FAQ CRUD ──
+  const saveFaq=async()=>{
     if(!faqQ.trim()||!faqA.trim()){showT("Both fields required","error");return;}
-    if(editFaq)setFaqs(p=>p.map(f=>f.id===editFaq.id?{...f,q:faqQ,a:faqA}:f));
-    else setFaqs(p=>[...p,{id:"f"+uid(),q:faqQ,a:faqA}]);
-    showT(editFaq?"FAQ updated":"FAQ added","success");
-    setShowFaqForm(false);setFaqQ("");setFaqA("");setEditFaq(null);
+    setSavingFaq(true);
+    try{
+      if(editFaq){
+        const r=await api.patch(`/aibot/faqs/${editFaq.id}`,{question:faqQ,answer:faqA});
+        setFaqs(p=>p.map(f=>f.id===editFaq.id?r.faq:f));showT("FAQ updated","success");
+      }else{
+        const r=await api.post("/aibot/faqs",{question:faqQ,answer:faqA});
+        setFaqs(p=>[...p,r.faq]);showT("FAQ added","success");
+      }
+      setShowFaqForm(false);setFaqQ("");setFaqA("");setEditFaq(null);
+    }catch{showT("Failed to save FAQ","error");}
+    setSavingFaq(false);
   };
-  const addUrl=()=>{
+  const deleteFaq=async(id)=>{try{await api.del(`/aibot/faqs/${id}`);setFaqs(p=>p.filter(f=>f.id!==id));showT("FAQ removed","success");}catch{showT("Failed","error");}};
+
+  // ── Docs ──
+  const uploadDoc=async(file=null)=>{
+    const name=file?file.name:["Help Center.pdf","Support Guide.docx","Product FAQ.pdf"][Math.floor(Math.random()*3)];
+    const sizeLabel=file?((file.size/1024/1024).toFixed(1)+" MB"):"1.2 MB";
+    try{const r=await api.post("/aibot/docs",{name,size_label:sizeLabel});setDocs(p=>[...p,r.doc]);showT("Document added","success");}
+    catch{showT("Failed to add doc","error");}
+  };
+  const deleteDoc=async(id)=>{try{await api.del(`/aibot/docs/${id}`);setDocs(p=>p.filter(d=>d.id!==id));showT("Document removed","success");}catch{showT("Failed","error");}};
+
+  // ── URLs ──
+  const addUrl=async()=>{
     if(!newUrl.startsWith("http")){showT("Enter a valid URL","error");return;}
-    setUrls(p=>[...p,{id:"u"+uid(),url:newUrl,added:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),status:"crawling"}]);
-    setNewUrl("");showT("URL added - crawling started","success");
-    setTimeout(()=>setUrls(p=>p.map(u=>u.status==="crawling"?{...u,status:"trained"}:u)),2500);
+    try{
+      const r=await api.post("/aibot/urls",{url:newUrl});
+      setUrls(p=>[...p,r.url]);setNewUrl("");showT("URL added — crawling started","success");
+      // Poll after 3.5s to refresh status
+      setTimeout(async()=>{try{const upd=await api.get("/aibot/urls");setUrls(upd.urls||[]);}catch{}},3500);
+    }catch{showT("Failed to add URL","error");}
   };
-  const uploadDoc=()=>{
-    const names=["Help Center.pdf","Support Guide.docx","Product FAQ.pdf"];
-    const nm=names[Math.floor(Math.random()*names.length)];
-    setDocs(p=>[...p,{id:"d"+uid(),name:nm,size:"1.2 MB",added:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),status:"training"}]);
-    showT("Document uploaded - training in progress","info");
-    setTimeout(()=>setDocs(p=>p.map(d=>d.status==="training"?{...d,status:"trained"}:d)),3000);
-  };
+  const deleteUrl=async(id)=>{try{await api.del(`/aibot/urls/${id}`);setUrls(p=>p.filter(u=>u.id!==id));showT("URL removed","success");}catch{showT("Failed","error");}};
+
+  // ── Live test via backend ──
   const sendTest=async()=>{
     if(!testInp.trim())return;
     const txt=testInp;setTestInp("");
     const history=[...testMsgs,{from:"user",text:txt}];
     setTestMsgs(history);setTestTyping(true);
     try{
-      const apiMsgs=history.filter(m=>m.from!=="sys").map(m=>({role:m.from==="user"?"user":"assistant",content:m.text}));
-      const merged=[];
-      for(const m of apiMsgs){
-        if(merged.length&&merged[merged.length-1].role===m.role)merged[merged.length-1].content+="\n"+m.content;
-        else merged.push({...m});
-      }
-      if(!merged.length||merged[0].role!=="user")merged.unshift({role:"user",content:"Hello"});
-      if(merged[merged.length-1].role==="assistant")merged.pop();
-      const faqCtx=faqs.map(f=>"Q: "+f.q+"\nA: "+f.a).join("\n\n");
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:400,
-          system:sysPrompt+"\n\nBot name: "+botName+". Tone: "+botTone+". Language: "+botLang+".\nAfter "+handoff+" unanswered messages, offer to connect to a human agent.\n\nKnowledge Base FAQs:\n"+faqCtx+"\n\nAnswer using the knowledge base first. Be concise. Do not use markdown.",
-          messages:merged
-        })
-      });
-      const data=await res.json();
-      const reply=data.content?.[0]?.text||"Let me connect you with a human agent for further assistance.";
-      setTestMsgs(p=>[...p,{from:"bot",text:reply}]);
-    }catch(e){
+      const r=await api.post("/aibot/test-chat",{messages:history,botName,botTone,botLang,handoffAfter:handoff,sysPrompt});
+      setTestMsgs(p=>[...p,{from:"bot",text:r.reply||"Let me connect you with a human agent."}]);
+    }catch{
       setTestMsgs(p=>[...p,{from:"bot",text:"I am having trouble connecting. Please try again."}]);
     }
     setTestTyping(false);
   };
+
   const stC=s=>({trained:C.g,training:C.y,crawling:C.y,error:C.r}[s]||C.t3);
-  const stI=s=>({trained:"checkmark",training:"rotating",crawling:"rotating",error:"x"}[s]||"dot");
+  const fmtDate=s=>s?new Date(s).toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}):"";
+
+  if(loading)return <div style={{padding:"24px 28px"}}><SkelCards/></div>;
 
   return <div style={{padding:"24px 28px",maxWidth:920}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
       <h2 style={{fontSize:18,fontWeight:800,fontFamily:FD}}>AI Bot</h2>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <button onClick={()=>setTesting(p=>!p)} style={{padding:"7px 16px",borderRadius:8,fontSize:12,fontWeight:700,fontFamily:FM,cursor:"pointer",background:testing?C.s3:C.pd,color:testing?C.t2:C.p,border:"1.5px solid "+(testing?C.b1:C.p+"55"),display:"flex",alignItems:"center",gap:6,transition:"all .2s"}}>
-          {testing?"x Close Tester":"Play Test Bot Live"}
+          {testing?"✕ Close Tester":"▶ Test Bot Live"}
         </button>
       </div>
     </div>
@@ -1777,7 +1847,7 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
           {aiAutoReply?Object.values(aiChannels).filter(Boolean).length+" channels active · Synced with Inbox toolbar":"Toggle on to enable AI responses · Currently off in Inbox too"}
         </div>
       </div>
-      <Toggle val={aiAutoReply} set={v=>{setAiAutoReply(v);showT(v?"✦ AI Auto-Reply ON — active in Inbox too":"AI Auto-Reply OFF — disabled in Inbox too",v?"success":"info");}}/>
+      <Toggle val={aiAutoReply} set={v=>{setAiAutoReply(v);saveConfig({ai_auto_reply:v?1:0});showT(v?"✦ AI Auto-Reply ON — active in Inbox too":"AI Auto-Reply OFF — disabled in Inbox too",v?"success":"info");}}/>
     </div>
 
     <div style={{opacity:aiAutoReply?1:.45,pointerEvents:aiAutoReply?"auto":"none",transition:"opacity .25s"}}>
@@ -1789,8 +1859,8 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <div style={{fontSize:13,fontWeight:700,fontFamily:FD}}>Auto-Reply Channels</div>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{const a={};CHANNELS.forEach(c=>{a[c]=true;});setAiChannels(a);showT("All channels enabled","success");}} style={{fontSize:11,color:C.g,background:C.gd,border:"1px solid "+C.g+"44",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontWeight:600}}>Enable All</button>
-              <button onClick={()=>{const a={};CHANNELS.forEach(c=>{a[c]=false;});setAiChannels(a);showT("All channels disabled","info");}} style={{fontSize:11,color:C.r,background:C.rd,border:"1px solid "+C.r+"44",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontWeight:600}}>Disable All</button>
+              <button onClick={()=>{const a={};CHANNELS.forEach(c=>{a[c]=true;});saveChannels(a);showT("All channels enabled","success");}} style={{fontSize:11,color:C.g,background:C.gd,border:"1px solid "+C.g+"44",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontWeight:600}}>Enable All</button>
+              <button onClick={()=>{const a={};CHANNELS.forEach(c=>{a[c]=false;});saveChannels(a);showT("All channels disabled","info");}} style={{fontSize:11,color:C.r,background:C.rd,border:"1px solid "+C.r+"44",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontWeight:600}}>Disable All</button>
             </div>
           </div>
           <p style={{fontSize:12,color:C.t2,marginBottom:16}}>Enable AI auto-reply per channel. The bot responds instantly and agents can take over at any time.</p>
@@ -1805,7 +1875,7 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
                       <div style={{fontSize:11.5,fontWeight:600,color:aiChannels[ch]?C.t1:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CH_LABELS[ch]}</div>
                       <div style={{fontSize:9.5,color:aiChannels[ch]?chC(ch):C.t3,fontFamily:FM,marginTop:1}}>{aiChannels[ch]?"● Active":"○ Off"}</div>
                     </div>
-                    <Toggle val={aiChannels[ch]} set={v=>{setAiChannels(p=>({...p,[ch]:v}));showT("AI "+(v?"enabled":"disabled")+" for "+CH_LABELS[ch],v?"success":"info");}}/>
+                    <Toggle val={aiChannels[ch]} set={v=>toggleCh(ch,v)}/>
                   </div>;
                 })}
               </div>
@@ -1821,46 +1891,46 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
         <section style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"20px",marginBottom:16}}>
           <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:16}}>Bot Identity and Behaviour</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
-            <Fld label="Bot Name"><Inp val={botName} set={setBotName} ph="e.g. Aria"/></Fld>
+            <Fld label="Bot Name"><Inp val={botName} set={v=>setAndSave(setBotName,"bot_name",v)} ph="e.g. Aria"/></Fld>
             <Fld label="Response Tone">
-              <Sel val={botTone} set={setBotTone} opts={[{v:"professional",l:"Professional"},{v:"friendly",l:"Friendly and Casual"},{v:"formal",l:"Formal"},{v:"concise",l:"Concise"}]}/>
+              <Sel val={botTone} set={v=>setAndSave(setBotTone,"bot_tone",v)} opts={[{v:"professional",l:"Professional"},{v:"friendly",l:"Friendly and Casual"},{v:"formal",l:"Formal"},{v:"concise",l:"Concise"}]}/>
             </Fld>
             <Fld label="Default Language">
-              <Sel val={botLang} set={setBotLang} opts={[{v:"EN",l:"English"},{v:"HI",l:"Hindi"},{v:"ES",l:"Spanish"},{v:"FR",l:"French"},{v:"JA",l:"Japanese"},{v:"DE",l:"German"}]}/>
+              <Sel val={botLang} set={v=>setAndSave(setBotLang,"bot_lang",v)} opts={[{v:"EN",l:"English"},{v:"HI",l:"Hindi"},{v:"ES",l:"Spanish"},{v:"FR",l:"French"},{v:"JA",l:"Japanese"},{v:"DE",l:"German"}]}/>
             </Fld>
             <Fld label="Hand-off to Agent After">
-              <Sel val={handoff} set={setHandoff} opts={[{v:"2",l:"2 unanswered messages"},{v:"3",l:"3 unanswered messages"},{v:"5",l:"5 unanswered messages"},{v:"never",l:"Never - AI only"}]}/>
+              <Sel val={handoff} set={v=>setAndSave(setHandoff,"handoff_after",v)} opts={[{v:"2",l:"2 unanswered messages"},{v:"3",l:"3 unanswered messages"},{v:"5",l:"5 unanswered messages"},{v:"never",l:"Never - AI only"}]}/>
             </Fld>
           </div>
           <div style={{display:"flex",gap:24,marginTop:8,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <Toggle val={workingHours} set={setWorkingHours}/>
+              <Toggle val={workingHours} set={v=>{setWorkingHours(v);saveConfig({working_hours:v?1:0});}}/>
               <div>
                 <div style={{fontSize:13,fontWeight:500}}>Active only during working hours</div>
                 <div style={{fontSize:11,color:C.t3}}>Mon to Fri, 9 AM to 6 PM</div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <Toggle val={autoResolve} set={setAutoResolve}/>
+              <Toggle val={autoResolve} set={v=>{setAutoResolve(v);saveConfig({auto_resolve:v?1:0});}}/>
               <div>
                 <div style={{fontSize:13,fontWeight:500}}>Auto-resolve after inactivity</div>
                 <div style={{fontSize:11,color:C.t3}}>Close AI-handled tickets automatically</div>
               </div>
             </div>
           </div>
-          {autoResolve&&<div style={{marginTop:12}}><Fld label="Auto-resolve after (hours)"><Sel val={autoResolveH} set={setAutoResolveH} opts={["6","12","24","48","72"].map(h=>({v:h,l:h+" hours"}))} sx={{width:200}}/></Fld></div>}
+          {autoResolve&&<div style={{marginTop:12}}><Fld label="Auto-resolve after (hours)"><Sel val={autoResolveH} set={v=>setAndSave(setAutoResolveH,"auto_resolve_hours",v)} opts={["6","12","24","48","72"].map(h=>({v:h,l:h+" hours"}))} sx={{width:200}}/></Fld></div>}
         </section>
 
         {/* SYSTEM PROMPT */}
         <section style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"20px",marginBottom:16}}>
           <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:4}}>System Prompt</div>
           <div style={{fontSize:11.5,color:C.t2,marginBottom:12}}>Instructions that define how your bot behaves. Sent with every conversation.</div>
-          <textarea value={sysPrompt} onChange={e=>setSysPrompt(e.target.value)} rows={5} style={{width:"100%",background:C.bg,border:"1px solid "+C.b1,borderRadius:10,padding:"12px 14px",fontSize:12.5,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.65}}/>
+          <textarea value={sysPrompt} onChange={e=>{setSysPrompt(e.target.value);setPromptDirty(true);}} rows={5} style={{width:"100%",background:C.bg,border:"1px solid "+(promptDirty?C.a:C.b1),borderRadius:10,padding:"12px 14px",fontSize:12.5,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.65,transition:"border-color .2s"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
-            <span style={{fontSize:11,color:C.t3,fontFamily:FM}}>{sysPrompt.length} chars</span>
+            <span style={{fontSize:11,color:promptDirty?C.a:C.t3,fontFamily:FM}}>{sysPrompt.length} chars{promptDirty?" · unsaved changes":""}</span>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setSysPrompt("You are a helpful customer support assistant. Be concise, polite, and solution-focused. Escalate complex issues to human agents.");showT("Reset to default","info");}} style={{fontSize:11,color:C.t3,background:"none",border:"1px solid "+C.b1,borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>Reset</button>
-              <Btn ch="Save Prompt" v="primary" sm onClick={()=>showT("System prompt saved","success")}/>
+              <button onClick={()=>{setSysPrompt("You are a helpful customer support assistant. Be concise, polite, and solution-focused. Escalate complex issues to human agents.");setPromptDirty(true);showT("Reset to default — click Save to apply","info");}} style={{fontSize:11,color:C.t3,background:"none",border:"1px solid "+C.b1,borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>Reset</button>
+              <Btn ch={savingPrompt?"Saving...":"Save Prompt"} v="primary" sm onClick={savePrompt}/>
             </div>
           </div>
         </section>
@@ -1870,7 +1940,7 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
           <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:4}}>Knowledge Base</div>
           <p style={{fontSize:12,color:C.t2,marginBottom:14}}>Train your AI bot with FAQs, documents and URLs so it can answer customer questions accurately.</p>
           <div style={{display:"flex",gap:0,marginBottom:16,borderBottom:"1px solid "+C.b1}}>
-            {[["faq","FAQs"],["docs","Documents"],["urls","Websites"]].map(([id,lbl])=>(
+            {[["faq","FAQs ("+faqs.length+")"],["docs","Documents ("+docs.length+")"],["urls","Websites ("+urls.length+")"]].map(([id,lbl])=>(
               <button key={id} onClick={()=>setKbTab(id)} style={{padding:"8px 18px",fontSize:11,fontWeight:700,fontFamily:FM,letterSpacing:"0.4px",color:kbTab===id?C.a:C.t3,borderBottom:"2px solid "+(kbTab===id?C.a:"transparent"),background:"transparent",border:"none",cursor:"pointer",textTransform:"uppercase"}}>{lbl}</button>
             ))}
           </div>
@@ -1879,16 +1949,17 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
               <span style={{fontSize:12,color:C.t2}}>{faqs.length} Q&A pairs in knowledge base</span>
               <Btn ch="+ Add FAQ" v="primary" sm onClick={()=>{setFaqQ("");setFaqA("");setEditFaq(null);setShowFaqForm(true);}}/>
             </div>
+            {faqs.length===0&&<EmptyState icon="💬" title="No FAQs yet" desc="Add Q&A pairs to train your bot"/>}
             {faqs.map(f=>(
               <div key={f.id} style={{background:C.s2,border:"1px solid "+C.b1,borderRadius:10,padding:"12px 14px",marginBottom:9}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:12.5,fontWeight:700,color:C.a,marginBottom:5}}>{f.q}</div>
-                    <div style={{fontSize:12,color:C.t2,lineHeight:1.55,paddingLeft:12,borderLeft:"2px solid "+C.b1}}>{f.a}</div>
+                    <div style={{fontSize:12.5,fontWeight:700,color:C.a,marginBottom:5}}>{f.question}</div>
+                    <div style={{fontSize:12,color:C.t2,lineHeight:1.55,paddingLeft:12,borderLeft:"2px solid "+C.b1}}>{f.answer}</div>
                   </div>
                   <div style={{display:"flex",gap:5,flexShrink:0}}>
-                    <button onClick={()=>{setFaqQ(f.q);setFaqA(f.a);setEditFaq(f);setShowFaqForm(true);}} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:14}}>edit</button>
-                    <button onClick={()=>{setFaqs(p=>p.filter(x=>x.id!==f.id));showT("FAQ removed","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>del</button>
+                    <button onClick={()=>{setFaqQ(f.question);setFaqA(f.answer);setEditFaq(f);setShowFaqForm(true);}} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:14}}>✏</button>
+                    <button onClick={()=>deleteFaq(f.id)} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>✕</button>
                   </div>
                 </div>
               </div>
@@ -1897,23 +1968,25 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
           {kbTab==="docs"&&<div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <span style={{fontSize:12,color:C.t2}}>Upload PDF, DOCX, or TXT files</span>
-              <Btn ch="Upload Document" v="primary" sm onClick={uploadDoc}/>
+              <Btn ch="+ Add Document" v="primary" sm onClick={()=>uploadDoc()}/>
             </div>
-            <div style={{border:"2px dashed "+C.b2,borderRadius:10,padding:"28px",textAlign:"center",marginBottom:14,cursor:"pointer",background:C.s2}} onClick={uploadDoc}>
+            <label style={{display:"block",border:"2px dashed "+C.b2,borderRadius:10,padding:"28px",textAlign:"center",marginBottom:14,cursor:"pointer",background:C.s2}}>
+              <input type="file" accept=".pdf,.docx,.txt" style={{display:"none"}} onChange={e=>{if(e.target.files?.[0])uploadDoc(e.target.files[0]);}}/>
               <div style={{marginBottom:8}}><NavIcon id="knowledgebase" s={28} col={C.t3}/></div>
               <div style={{fontSize:13,color:C.t2,marginBottom:4}}>Drop files here or click to upload</div>
               <div style={{fontSize:11,color:C.t3,fontFamily:FM}}>PDF, DOCX, TXT up to 10 MB per file</div>
-            </div>
+            </label>
+            {docs.length===0&&<EmptyState icon="📄" title="No documents yet" desc="Upload files to train your bot"/>}
             {docs.map(d=>(
               <div key={d.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:C.s2,border:"1px solid "+C.b1,borderRadius:10,marginBottom:8}}>
                 <span><NavIcon id="knowledgebase" s={22} col={C.a}/></span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
-                  <div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>{d.size} - Added {d.added}</div>
+                  <div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>{d.size_label} · Added {fmtDate(d.created_at)}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <Tag text={d.status} color={stC(d.status)}/>
-                  <button onClick={()=>{setDocs(p=>p.filter(x=>x.id!==d.id));showT("Document removed","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:14}}>del</button>
+                  <button onClick={()=>deleteDoc(d.id)} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:14}}>✕</button>
                 </div>
               </div>
             ))}
@@ -1921,19 +1994,20 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
           {kbTab==="urls"&&<div>
             <div style={{fontSize:12,color:C.t2,marginBottom:12}}>Add website URLs to crawl and train the bot with your online content.</div>
             <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <Inp val={newUrl} set={setNewUrl} ph="https://docs.yoursite.com" sx={{flex:1}}/>
+              <input value={newUrl} onChange={e=>setNewUrl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addUrl()} placeholder="https://docs.yoursite.com" style={{flex:1,background:C.bg,border:"1px solid "+C.b1,borderRadius:8,padding:"8px 11px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/>
               <Btn ch="Add URL" v="primary" onClick={addUrl}/>
             </div>
+            {urls.length===0&&<EmptyState icon="🌐" title="No URLs yet" desc="Add URLs to crawl and train the bot"/>}
             {urls.map(u=>(
               <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:C.s2,border:"1px solid "+C.b1,borderRadius:10,marginBottom:8}}>
                 <span style={{fontSize:20}}>🌐</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12,fontFamily:FM,color:C.a,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.url}</div>
-                  <div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>Added {u.added}</div>
+                  <div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>Added {fmtDate(u.created_at)}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <Tag text={u.status} color={stC(u.status)}/>
-                  <button onClick={()=>{setUrls(p=>p.filter(x=>x.id!==u.id));showT("URL removed","success");}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:14}}>del</button>
+                  <button onClick={()=>deleteUrl(u.id)} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:14}}>✕</button>
                 </div>
               </div>
             ))}
@@ -1971,10 +2045,10 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
         </div>
         <div style={{padding:10,borderTop:"1px solid "+C.p+"22",display:"flex",gap:8}}>
           <input value={testInp} onChange={e=>setTestInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendTest()} placeholder={"Message "+botName+"..."} style={{flex:1,background:C.bg,border:"1px solid "+C.p+"44",borderRadius:8,padding:"8px 11px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none"}}/>
-          <button onClick={sendTest} style={{width:34,height:34,borderRadius:8,background:"linear-gradient(135deg,"+C.p+",#6b3fc0)",border:"none",color:"#fff",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>up</button>
+          <button onClick={sendTest} disabled={testTyping} style={{width:34,height:34,borderRadius:8,background:"linear-gradient(135deg,"+C.p+",#6b3fc0)",border:"none",color:"#fff",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",opacity:testTyping?.6:1}}>▲</button>
         </div>
         <div style={{padding:"8px 12px",background:C.s2,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{faqs.length} FAQs - {docs.filter(d=>d.status==="trained").length} docs - {urls.filter(u=>u.status==="trained").length} URLs trained</span>
+          <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{faqs.length} FAQs · {docs.filter(d=>d.status==="trained").length} docs · {urls.filter(u=>u.status==="trained").length} URLs trained</span>
           <button onClick={()=>setTestMsgs([{from:"bot",text:"Hi! I am "+botName+", your AI support assistant. How can I help you today?"}])} style={{fontSize:10,color:C.t3,background:"none",border:"none",cursor:"pointer",fontFamily:FM}}>Reset</button>
         </div>
       </div>}
@@ -1988,7 +2062,7 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
       </Fld>
       <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
         <Btn ch="Cancel" v="ghost" onClick={()=>{setShowFaqForm(false);setEditFaq(null);}}/>
-        <Btn ch={editFaq?"Save FAQ":"Add to Knowledge Base"} v="primary" onClick={saveFaq}/>
+        <Btn ch={savingFaq?"Saving...":(editFaq?"Save FAQ":"Add to Knowledge Base")} v="primary" onClick={saveFaq}/>
       </div>
     </Mdl>}
   </div>;
