@@ -900,7 +900,7 @@ export default function App(){
         {scr==="home"&&<HomeScr convs={convs} contacts={contacts} agents={agents} labels={labels} inboxes={inboxes} setScr={navigate} setAid={setAid} msgs={msgs} dashWidgets={dashWidgets} hiddenWidgets={hiddenWidgets} onDashConfig={()=>setShowDashConfig(true)}/>}
         <LazyMount active={scr==="inbox"}><InboxScr {...sp} aid={aid} setAid={setAid} soundOn={soundOn} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} csatPending={csatPending} setCsatPending={setCsatPending} snoozeConv={snoozeConv} convViewers={convViewers} savedViews={savedViews} setSavedViews={setSavedViews} isActive={scr==="inbox"}/></LazyMount>
         <LazyMount active={scr==="teamchat"}><TeamChatScr agents={agents} setAgents={setAgents} fontKey={fontKey} themeKey={themeKey}/></LazyMount>
-        <LazyMount active={scr==="crm"}><CrmScr contacts={contacts} setContacts={setContacts} convs={convs} comps={comps} setComps={setComps} customFields={customFields} getCfVal={getCfVal} setCfVal={setCfVal}/></LazyMount>
+        <LazyMount active={scr==="crm"}><CrmScr contacts={contacts} setContacts={setContacts} convs={convs} comps={comps} setComps={setComps} customFields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} inboxes={inboxes}/></LazyMount>
         <LazyMount active={scr==="contacts"}><ContactsScr {...sp}/></LazyMount>
         <LazyMount active={scr==="marketing"}><MarketingScr contacts={contacts}/></LazyMount>
         <LazyMount active={scr==="monitor"}><MonitorScr contacts={contacts} inboxes={inboxes} setConvs={setConvs} setMsgs={setMsgs} setScr={navigate} setAid={setAid}/></LazyMount>

@@ -855,4 +855,281 @@ router.get('/export/:entity', auth, async (req, res) => {
   res.send(csv);
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// ── SCHEDULE MODULE — inbox-channel-based meeting invitations ────────
+// ═══════════════════════════════════════════════════════════════════════
+
+// GET active inboxes (channels the agent can use to send invitations)
+router.get('/schedule/channels', auth, async (req, res) => {
+  const inboxes = await db.prepare('SELECT id, name, type, color, active, config FROM inboxes WHERE agent_id=? AND active=1 ORDER BY type, name').all(req.agent.id);
+  const channels = inboxes.map(ib => {
+    const cfg = parseJson(ib.config, {});
+    const ready = ib.type === 'email' ? !!(cfg.smtpHost && cfg.smtpUser)
+      : ib.type === 'whatsapp' ? !!(cfg.phoneNumberId && (cfg.apiKey || cfg.accessToken))
+      : ib.type === 'sms' ? !!(cfg.apiKey || cfg.sid)
+      : ['live', 'api'].includes(ib.type);
+    return { id: ib.id, name: ib.name, type: ib.type, color: ib.color, ready };
+  });
+  res.json({ channels });
+});
+
+// POST send meeting invitation via selected channels
+router.post('/meetings/:id/invite', auth, async (req, res) => {
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Meeting not found' });
+
+  const { channels, recipient_name, recipient_email, recipient_phone, custom_message } = req.body;
+  if (!channels || !channels.length) return res.status(400).json({ error: 'Select at least one channel' });
+
+  m.attendees = parseJson(m.attendees, []);
+  const ts = now();
+  const results = [];
+
+  // Build invitation message
+  const startFmt = m.start_time ? new Date(m.start_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD';
+  const endFmt = m.end_time ? new Date(m.end_time).toLocaleString('en-IN', { timeStyle: 'short' }) : '';
+  const durStr = endFmt ? ` — ${endFmt}` : '';
+  const subject = `Meeting Invitation: ${m.title}`;
+  const textBody = [
+    custom_message || `You are invited to a meeting.`,
+    '',
+    `📅 Meeting: ${m.title}`,
+    `🕐 When: ${startFmt}${durStr}`,
+    m.location ? `📍 Where: ${m.location}` : '',
+    m.meeting_link ? `🔗 Link: ${m.meeting_link}` : '',
+    m.agenda ? `\n📝 Agenda:\n${m.agenda}` : '',
+    '',
+    `— Sent via SupportDesk CRM`
+  ].filter(Boolean).join('\n');
+
+  const htmlBody = `
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+      <h2 style="color:#4c82fb;">${m.title}</h2>
+      ${custom_message ? `<p>${custom_message}</p>` : '<p>You are invited to a meeting.</p>'}
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f5f7fa;font-weight:600;width:100px;">When</td><td style="padding:8px 12px;">${startFmt}${durStr}</td></tr>
+        ${m.location ? `<tr><td style="padding:8px 12px;background:#f5f7fa;font-weight:600;">Where</td><td style="padding:8px 12px;">${m.location}</td></tr>` : ''}
+        ${m.meeting_link ? `<tr><td style="padding:8px 12px;background:#f5f7fa;font-weight:600;">Link</td><td style="padding:8px 12px;"><a href="${m.meeting_link}">${m.meeting_link}</a></td></tr>` : ''}
+        ${m.type ? `<tr><td style="padding:8px 12px;background:#f5f7fa;font-weight:600;">Type</td><td style="padding:8px 12px;">${m.type}</td></tr>` : ''}
+      </table>
+      ${m.agenda ? `<h3>Agenda</h3><p style="white-space:pre-wrap;">${m.agenda}</p>` : ''}
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;"/>
+      <p style="color:#888;font-size:12px;">Sent via SupportDesk CRM</p>
+    </div>`;
+
+  for (const ch of channels) {
+    const invId = uid();
+    try {
+      if (ch.type === 'email' && recipient_email) {
+        // Send via email service
+        let emailSvc;
+        try { emailSvc = require('../services/emailService'); } catch { emailSvc = null; }
+        if (emailSvc && emailSvc.sendEmail) {
+          await emailSvc.sendEmail({ inboxId: ch.id, to: recipient_email, subject, text: textBody, html: htmlBody });
+        }
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_email,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, 'email', ch.id, recipient_name || null, recipient_email, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        results.push({ channel: 'email', inbox: ch.name, status: 'sent', id: invId });
+
+      } else if (ch.type === 'whatsapp' && recipient_phone) {
+        // Send via WhatsApp service
+        let waSvc;
+        try { waSvc = require('../services/whatsappService'); } catch { waSvc = null; }
+        if (waSvc && waSvc.sendWhatsAppMessage) {
+          await waSvc.sendWhatsAppMessage({ inboxId: ch.id, to: recipient_phone, text: textBody });
+        }
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_phone,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, 'whatsapp', ch.id, recipient_name || null, recipient_phone, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        results.push({ channel: 'whatsapp', inbox: ch.name, status: 'sent', id: invId });
+
+      } else if (ch.type === 'sms' && recipient_phone) {
+        // SMS — log invitation (actual SMS sending depends on provider config)
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_phone,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, 'sms', ch.id, recipient_name || null, recipient_phone, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        results.push({ channel: 'sms', inbox: ch.name, status: 'sent', id: invId });
+
+      } else if (ch.type === 'live' || ch.type === 'api') {
+        // In-app notification — broadcast
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, ch.type, ch.id, recipient_name || null, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        crmBroadcast('meeting_invitation_sent', { meeting_id: m.id, channel: ch.type, recipient: recipient_name });
+        results.push({ channel: ch.type, inbox: ch.name, status: 'sent', id: invId });
+
+      } else {
+        // Unsupported or missing recipient info
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,subject,body,status,error,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, ch.type, ch.id, recipient_name || null, subject, textBody, 'failed', 'Missing recipient info for ' + ch.type, req.agent.id, ts
+        );
+        results.push({ channel: ch.type, inbox: ch.name, status: 'failed', error: 'Missing recipient info' });
+      }
+    } catch (e) {
+      await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,subject,body,status,error,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+        invId, m.id, ch.type, ch.id, recipient_name || null, subject, textBody, 'failed', e.message, req.agent.id, ts
+      );
+      results.push({ channel: ch.type, inbox: ch.name, status: 'failed', error: e.message });
+    }
+  }
+
+  await logActivity('meeting_invitation_sent', `Invitation for "${m.title}" sent via ${results.filter(r => r.status === 'sent').map(r => r.channel).join(', ')}`, 'meeting', m.id, req.agent.id, req.agent.id, { channels: results });
+  crmBroadcast('meeting_invited', { meeting_id: m.id, results });
+  res.json({ success: true, results });
+});
+
+// POST send meeting reminder via channels
+router.post('/meetings/:id/remind', auth, async (req, res) => {
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Meeting not found' });
+  if (m.status !== 'scheduled') return res.status(400).json({ error: 'Meeting is not scheduled' });
+
+  const { channels, recipient_email, recipient_phone, recipient_name } = req.body;
+  if (!channels || !channels.length) return res.status(400).json({ error: 'Select at least one channel' });
+
+  const ts = now();
+  const startFmt = m.start_time ? new Date(m.start_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD';
+  const subject = `Reminder: ${m.title}`;
+  const textBody = [
+    `⏰ This is a reminder for your upcoming meeting.`,
+    '',
+    `📅 Meeting: ${m.title}`,
+    `🕐 When: ${startFmt}`,
+    m.location ? `📍 Where: ${m.location}` : '',
+    m.meeting_link ? `🔗 Link: ${m.meeting_link}` : '',
+    '',
+    `— Sent via SupportDesk CRM`
+  ].filter(Boolean).join('\n');
+
+  const results = [];
+  for (const ch of channels) {
+    const invId = uid();
+    try {
+      if (ch.type === 'email' && recipient_email) {
+        let emailSvc;
+        try { emailSvc = require('../services/emailService'); } catch { emailSvc = null; }
+        if (emailSvc && emailSvc.sendEmail) {
+          await emailSvc.sendEmail({ inboxId: ch.id, to: recipient_email, subject, text: textBody });
+        }
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_email,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, 'email', ch.id, recipient_name || null, recipient_email, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        results.push({ channel: 'email', status: 'sent', id: invId });
+      } else if (ch.type === 'whatsapp' && recipient_phone) {
+        let waSvc;
+        try { waSvc = require('../services/whatsappService'); } catch { waSvc = null; }
+        if (waSvc && waSvc.sendWhatsAppMessage) {
+          await waSvc.sendWhatsAppMessage({ inboxId: ch.id, to: recipient_phone, text: textBody });
+        }
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_phone,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, 'whatsapp', ch.id, recipient_name || null, recipient_phone, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        results.push({ channel: 'whatsapp', status: 'sent', id: invId });
+      } else if (ch.type === 'sms' && recipient_phone) {
+        await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_phone,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          invId, m.id, 'sms', ch.id, recipient_name || null, recipient_phone, subject, textBody, 'sent', ts, req.agent.id, ts
+        );
+        results.push({ channel: 'sms', status: 'sent', id: invId });
+      } else {
+        results.push({ channel: ch.type, status: 'skipped', error: 'Missing recipient info' });
+      }
+    } catch (e) {
+      results.push({ channel: ch.type, status: 'failed', error: e.message });
+    }
+  }
+
+  await logActivity('meeting_reminder_sent', `Reminder for "${m.title}" sent`, 'meeting', m.id, req.agent.id, req.agent.id, { channels: results });
+  crmBroadcast('meeting_reminded', { meeting_id: m.id, results });
+  res.json({ success: true, results });
+});
+
+// GET invitations for a meeting
+router.get('/meetings/:id/invitations', auth, async (req, res) => {
+  const invitations = await db.prepare('SELECT * FROM meeting_invitations WHERE meeting_id=? ORDER BY created_at DESC').all(req.params.id);
+  res.json({ invitations });
+});
+
+// POST full schedule flow — create meeting + send invitations in one call
+router.post('/schedule', auth, async (req, res) => {
+  const { title, type = 'meeting', description, start_time, end_time, location, meeting_link, host_id, attendees = [], agenda, contact_id, company_id, related_type, related_id, invite_channels = [], recipient_name, recipient_email, recipient_phone, custom_message } = req.body;
+  if (!title || !start_time) return res.status(400).json({ error: 'title and start_time required' });
+
+  // 1. Create the meeting
+  const meetingId = uid();
+  const ts = now();
+  await db.prepare('INSERT INTO meetings (id,title,type,description,start_time,end_time,location,meeting_link,host_id,attendees,agenda,status,contact_id,company_id,related_type,related_id,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
+    meetingId, title, type, description || null, start_time, end_time || null, location || null, meeting_link || null, host_id || req.agent.id, JSON.stringify(attendees), agenda || null, 'scheduled', contact_id || null, company_id || null, related_type || null, related_id || null, req.agent.id
+  );
+  const meeting = await db.prepare('SELECT * FROM meetings WHERE id=?').get(meetingId);
+  if (meeting) meeting.attendees = parseJson(meeting.attendees, []);
+
+  await logActivity('meeting_created', `Meeting "${title}" scheduled`, 'meeting', meetingId, req.agent.id, req.agent.id, { type, start_time });
+  crmBroadcast('meeting_created', { meeting });
+
+  // Notify attendees
+  for (const att of attendees) {
+    if (att && att !== req.agent.id) {
+      notifyAgent(att, { title: 'Meeting invitation', body: `You're invited to "${title}" on ${start_time}`, entity_type: 'meeting', entity_id: meetingId });
+    }
+  }
+
+  // 2. Send invitations if channels selected
+  let inviteResults = [];
+  if (invite_channels.length > 0 && (recipient_email || recipient_phone)) {
+    try {
+      // Simulate internal call to invite endpoint
+      const startFmt = start_time ? new Date(start_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD';
+      const endFmt = end_time ? new Date(end_time).toLocaleString('en-IN', { timeStyle: 'short' }) : '';
+      const durStr = endFmt ? ` — ${endFmt}` : '';
+      const subject = `Meeting Invitation: ${title}`;
+      const textBody = [
+        custom_message || `You are invited to a meeting.`,
+        '', `📅 Meeting: ${title}`, `🕐 When: ${startFmt}${durStr}`,
+        location ? `📍 Where: ${location}` : '',
+        meeting_link ? `🔗 Link: ${meeting_link}` : '',
+        agenda ? `\n📝 Agenda:\n${agenda}` : '',
+        '', `— Sent via SupportDesk CRM`
+      ].filter(Boolean).join('\n');
+
+      for (const ch of invite_channels) {
+        const invId = uid();
+        try {
+          if (ch.type === 'email' && recipient_email) {
+            let emailSvc;
+            try { emailSvc = require('../services/emailService'); } catch { emailSvc = null; }
+            if (emailSvc && emailSvc.sendEmail) await emailSvc.sendEmail({ inboxId: ch.id, to: recipient_email, subject, text: textBody });
+            await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_email,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(invId, meetingId, 'email', ch.id, recipient_name || null, recipient_email, subject, textBody, 'sent', ts, req.agent.id, ts);
+            inviteResults.push({ channel: 'email', status: 'sent' });
+          } else if (ch.type === 'whatsapp' && recipient_phone) {
+            let waSvc;
+            try { waSvc = require('../services/whatsappService'); } catch { waSvc = null; }
+            if (waSvc && waSvc.sendWhatsAppMessage) await waSvc.sendWhatsAppMessage({ inboxId: ch.id, to: recipient_phone, text: textBody });
+            await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_phone,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(invId, meetingId, 'whatsapp', ch.id, recipient_name || null, recipient_phone, subject, textBody, 'sent', ts, req.agent.id, ts);
+            inviteResults.push({ channel: 'whatsapp', status: 'sent' });
+          } else if (ch.type === 'sms' && recipient_phone) {
+            await db.prepare('INSERT INTO meeting_invitations (id,meeting_id,channel,inbox_id,recipient_name,recipient_phone,subject,body,status,sent_at,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(invId, meetingId, 'sms', ch.id, recipient_name || null, recipient_phone, subject, textBody, 'sent', ts, req.agent.id, ts);
+            inviteResults.push({ channel: 'sms', status: 'sent' });
+          } else {
+            inviteResults.push({ channel: ch.type, status: 'skipped' });
+          }
+        } catch (e) { inviteResults.push({ channel: ch.type, status: 'failed', error: e.message }); }
+      }
+    } catch (e) { console.error('Schedule invite error:', e.message); }
+  }
+
+  // 3. Auto-create reminder if meeting is in the future
+  if (start_time) {
+    const mtDate = new Date(start_time);
+    const reminderDate = new Date(mtDate.getTime() - 30 * 60000); // 30 min before
+    if (reminderDate > new Date()) {
+      await db.prepare('INSERT INTO crm_reminders (id,title,description,remind_at,channel,entity_type,entity_id,assignee_id,status,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+        uid(), `Reminder: ${title}`, `Your meeting "${title}" starts in 30 minutes`, reminderDate.toISOString().slice(0, 19).replace('T', ' '), 'in_app', 'meeting', meetingId, host_id || req.agent.id, 'pending', req.agent.id, ts
+      );
+    }
+  }
+
+  res.status(201).json({ meeting, invite_results: inviteResults });
+});
+
 module.exports = router;

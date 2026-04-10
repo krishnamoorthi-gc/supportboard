@@ -37,44 +37,19 @@ function BookingsScr(){
   const COLORS=[C.a,C.g,C.p,C.y,C.r,C.cy,"#ff6b35","#e91e63","#6366f1","#000"];
   const DAYS_F=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
-  const [pages,setPages]=useState([
-    {id:"bp1",name:"Quick Chat",duration:15,desc:"A quick 15-minute call to answer your questions.",color:C.g,active:true,location:"Zoom",buffer:5,maxPerDay:8,minNotice:2,
-      availability:[{day:1,start:"09:00",end:"18:00"},{day:2,start:"09:00",end:"18:00"},{day:3,start:"09:00",end:"18:00"},{day:4,start:"09:00",end:"18:00"},{day:5,start:"09:00",end:"18:00"}],
-      questions:[{id:"q1",label:"What would you like to discuss?",type:"text",required:false}],bookings:14,slug:"quick-chat"},
-    {id:"bp2",name:"Product Demo",duration:30,desc:"A 30-minute live demo of SupportDesk features tailored to your needs.",color:C.p,active:true,location:"Google Meet",buffer:10,maxPerDay:4,minNotice:24,
-      availability:[{day:1,start:"10:00",end:"17:00"},{day:2,start:"10:00",end:"17:00"},{day:3,start:"10:00",end:"17:00"},{day:4,start:"10:00",end:"17:00"},{day:5,start:"10:00",end:"17:00"}],
-      questions:[{id:"q1",label:"Company name",type:"text",required:true},{id:"q2",label:"Team size",type:"text",required:true},{id:"q3",label:"Current support tool",type:"text",required:false}],bookings:38,slug:"product-demo"},
-    {id:"bp3",name:"Strategy Consultation",duration:60,desc:"Deep-dive into your support operations. We'll review your setup and recommend improvements.",color:C.a,active:true,location:"Zoom",buffer:15,maxPerDay:2,minNotice:48,
-      availability:[{day:2,start:"10:00",end:"16:00"},{day:4,start:"10:00",end:"16:00"}],
-      questions:[{id:"q1",label:"Company name",type:"text",required:true},{id:"q2",label:"What are your main challenges?",type:"textarea",required:true},{id:"q3",label:"Current ticket volume (monthly)",type:"text",required:false}],bookings:12,slug:"strategy-consultation"},
-    {id:"bp4",name:"Technical Integration Call",duration:45,desc:"Hands-on technical session for API integration, webhooks, and custom setup.",color:C.cy,active:false,location:"Teams",buffer:10,maxPerDay:3,minNotice:24,
-      availability:[{day:1,start:"11:00",end:"17:00"},{day:3,start:"11:00",end:"17:00"},{day:5,start:"11:00",end:"17:00"}],
-      questions:[{id:"q1",label:"Which integrations do you need?",type:"text",required:true},{id:"q2",label:"Do you have an existing API setup?",type:"text",required:false}],bookings:7,slug:"technical-integration"}
-  ]);
+  const [pages,setPages]=useState([]);
 
-  const [bookings,setBookings]=useState([
-    {id:"bk1",page:"bp2",name:"Arjun Mehta",email:"arjun@techcorp.io",phone:"+91 98765 43210",date:"2026-03-28",time:"10:00",status:"confirmed",answers:{"Company name":"TechCorp","Team size":"51-200","Current support tool":"Zendesk"},notes:"Enterprise plan interest, needs security review",created:"2026-03-20"},
-    {id:"bk2",page:"bp1",name:"Ananya Reddy",email:"ananya@freshmart.com",phone:"+91 90012 34567",date:"2026-03-27",time:"14:00",status:"confirmed",answers:{"What would you like to discuss?":"Pricing for 50-person team"},notes:"",created:"2026-03-22"},
-    {id:"bk3",page:"bp2",name:"James Wilson",email:"james@globex.us",phone:"+1 555 234 5678",date:"2026-03-29",time:"11:00",status:"confirmed",answers:{"Company name":"Globex Corp","Team size":"500+","Current support tool":"Custom built"},notes:"Multi-brand requirement",created:"2026-03-21"},
-    {id:"bk4",page:"bp3",name:"Vikram Sinha",email:"vikram@cloudnine.io",phone:"+91 88901 23456",date:"2026-03-31",time:"10:00",status:"confirmed",answers:{"Company name":"CloudNine","What are your main challenges?":"Need SSO + API audit + data migration from Zendesk","Current ticket volume (monthly)":"5000+"},notes:"High priority — large deal",created:"2026-03-23"},
-    {id:"bk5",page:"bp2",name:"Rahul Kapoor",email:"rahul@payease.in",phone:"+91 77889 90011",date:"2026-03-30",time:"11:30",status:"confirmed",answers:{"Company name":"PayEase","Team size":"51-200","Current support tool":"Freshdesk"},notes:"Upgrade from Freshdesk",created:"2026-03-24"},
-    {id:"bk6",page:"bp1",name:"Meera Krishnan",email:"meera@startupxyz.com",phone:"+91 99887 76655",date:"2026-03-26",time:"16:00",status:"completed",answers:{"What would you like to discuss?":"Feature comparison with Intercom"},notes:"Sent comparison doc after call",created:"2026-03-18"},
-    {id:"bk7",page:"bp3",name:"Fatima Al-Rashid",email:"fatima@financehub.co",phone:"+971 50 123 4567",date:"2026-04-01",time:"14:00",status:"confirmed",answers:{"Company name":"FinanceHub","What are your main challenges?":"HIPAA compliance gaps, need audit logs + data residency","Current ticket volume (monthly)":"3000+"},notes:"Legal joining the call",created:"2026-03-25"},
-    {id:"bk8",page:"bp2",name:"David Chen",email:"david@globalretail.com",phone:"+1 555 789 0123",date:"2026-03-25",time:"10:00",status:"completed",answers:{"Company name":"GlobalRetail","Team size":"500+","Current support tool":"Intercom"},notes:"Very interested, scheduling follow-up strategy call",created:"2026-03-15"},
-    {id:"bk9",page:"bp1",name:"Sneha Iyer",email:"sneha@techwave.io",phone:"+91 88776 65544",date:"2026-03-20",time:"15:00",status:"cancelled",answers:{"What would you like to discuss?":"Integration help with Shopify"},notes:"Cancelled — rescheduling next week",created:"2026-03-14",cancelReason:"Schedule conflict"},
-    {id:"bk10",page:"bp4",name:"Dev Kumar",email:"dev@acme.com",phone:"+91 99001 12233",date:"2026-04-02",time:"11:00",status:"confirmed",answers:{"Which integrations do you need?":"Webhooks + REST API + Slack","Do you have an existing API setup?":"Yes, using Node.js"},notes:"Internal team member testing",created:"2026-03-26"},
-    {id:"bk11",page:"bp2",name:"Sarah Chen",email:"sarah@techstart.io",phone:"+1 415 555 0199",date:"2026-03-24",time:"14:00",status:"no_show",answers:{"Company name":"TechStart","Team size":"11-50","Current support tool":"None"},notes:"Did not attend. Sent follow-up email.",created:"2026-03-16"},
-    {id:"bk12",page:"bp3",name:"Pradeep Nair",email:"pradeep@logix.in",phone:"+91 77665 54433",date:"2026-03-22",time:"10:00",status:"completed",answers:{"Company name":"Logix Solutions","What are your main challenges?":"Scaling support from 10 to 50 agents","Current ticket volume (monthly)":"8000+"},notes:"Sent Enterprise proposal. Follow-up April 5.",created:"2026-03-12"}
-  ]);
+  const [bookings,setBookings]=useState([]);
   // ═══ BOOKINGS API LOADING ═══
-  useEffect(()=>{if(!api.isConnected())return;
-    api.get("/bookings/pages").then(r=>{if(r?.pages?.length)setPages(r.pages.map(p=>({...p,desc:p.description||"",buffer:p.buffer_minutes||10,maxPerDay:p.max_per_day||4,minNotice:p.min_notice_hours||24,bookings:p.booking_count||0,questions:p.questions||[],availability:p.availability||[]})));}).catch(()=>{});
-    api.get("/bookings").then(r=>{if(r?.bookings?.length)setBookings(r.bookings.map(b=>({...b,page:b.booking_page_id,name:b.guest_name,email:b.guest_email,phone:b.guest_phone,answers:b.answers||{},cancelReason:b.cancel_reason||""})));}).catch(()=>{});
-  },[]);
+  const loadPages=()=>{if(!api.isConnected())return;api.get("/bookings/pages").then(r=>{if(r?.pages)setPages(r.pages.map(p=>({id:p.id,name:p.name,slug:p.slug||"",desc:p.description||"",duration:p.duration||30,color:p.color||C.a,active:!!p.active,location:p.location||"Zoom",buffer:p.buffer||0,maxPerDay:p.max_per_day||4,minNotice:p.min_notice_hours||24,bookings:p.booking_count||0,questions:p.form_fields||[],availability:p.availability||[]})));}).catch(()=>{});};
+  const loadBookings=()=>{if(!api.isConnected())return;api.get("/bookings").then(r=>{if(r?.bookings)setBookings(r.bookings.map(b=>{const st=b.start_time?new Date(b.start_time):null;const date=st?`${st.getFullYear()}-${String(st.getMonth()+1).padStart(2,"0")}-${String(st.getDate()).padStart(2,"0")}`:"";const time=st?`${String(st.getHours()).padStart(2,"0")}:${String(st.getMinutes()).padStart(2,"0")}`:"";return{id:b.id,page:b.page_id||"",name:b.contact_name||"",email:b.contact_email||"",phone:b.contact_phone||"",date,time,status:b.status||"confirmed",answers:b.form_responses||{},notes:b.notes||"",created:b.created_at?b.created_at.slice(0,10):"",cancelReason:""};}));}).catch(()=>{});};
+  useEffect(()=>{loadPages();loadBookings();},[]);
 
   const pg=pages.find(p=>p.id===selPage);
-  const updatePage=(key,val)=>setPages(p=>p.map(x=>x.id===selPage?{...x,[key]:val}:x));
-  const dupPage=(p)=>{const np={...p,id:"bp"+uid(),name:p.name+" (Copy)",active:false,bookings:0,slug:p.slug+"-copy",questions:p.questions.map(q=>({...q,id:"q"+uid()})),availability:[...p.availability]};setPages(pr=>[np,...pr]);showT("Duplicated!","success");};
+  const [pageDirty,setPageDirty]=useState(false);
+  const updatePage=(key,val)=>{setPages(p=>p.map(x=>x.id===selPage?{...x,[key]:val}:x));setPageDirty(true);};
+  const savePage=async()=>{if(!pg||!api.isConnected())return;try{await api.patch("/bookings/pages/"+pg.id,{name:pg.name,slug:pg.slug,description:pg.desc,duration:pg.duration,buffer:pg.buffer,color:pg.color,active:pg.active?1:0,location:pg.location,max_per_day:pg.maxPerDay,min_notice_hours:pg.minNotice,form_fields:pg.questions,availability:pg.availability});setPageDirty(false);showT("Saved!","success");}catch{showT("Save failed","error");}};
+  const dupPage=async(p)=>{const slug=p.slug+"-copy";if(api.isConnected()){try{await api.post("/bookings/pages",{name:p.name+" (Copy)",slug,description:p.desc,duration:p.duration,buffer:p.buffer,color:p.color,location:p.location,max_per_day:p.maxPerDay,min_notice_hours:p.minNotice,form_fields:p.questions,availability:p.availability});loadPages();showT("Duplicated!","success");}catch{showT("Duplicate failed","error");}}else{const np={...p,id:"bp"+uid(),name:p.name+" (Copy)",active:false,bookings:0,slug,questions:p.questions.map(q=>({...q,id:"q"+uid()})),availability:[...p.availability]};setPages(pr=>[np,...pr]);showT("Duplicated!","success");}};
 
   const upcoming=bookings.filter(b=>b.status==="confirmed");
   const past=bookings.filter(b=>["completed","cancelled","no_show"].includes(b.status));
@@ -85,8 +60,8 @@ function BookingsScr(){
 
   const exportBookings=()=>{let csv="Name,Email,Phone,Page,Date,Time,Status,Created,Notes\n";bookings.forEach(b=>{const pg=pages.find(p=>p.id===b.page);csv+=`"${b.name}","${b.email}","${b.phone||""}","${pg?.name||""}","${b.date}","${b.time}","${b.status}","${b.created||""}","${(b.notes||"").replace(/"/g,"'")}"\n`;});const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="bookings_export.csv";a.click();URL.revokeObjectURL(url);showT("Exported bookings.csv","success");};
 
-  const doResched=(bId)=>{if(!rDate||!rTime)return showT("Pick date & time","error");setBookings(p=>p.map(b=>b.id===bId?{...b,date:rDate,time:rTime}:b));setShowResched(null);setRDate("");setRTime("");showT("Rescheduled!","success");};
-  const doCancel=(bId)=>{setBookings(p=>p.map(b=>b.id===bId?{...b,status:"cancelled",cancelReason}:b));setShowCancel(null);setCancelReason("");showT("Cancelled","info");};
+  const doResched=async(bId)=>{if(!rDate||!rTime)return showT("Pick date & time","error");const start_time=`${rDate}T${rTime}:00`;if(api.isConnected()){try{await api.patch("/bookings/"+bId,{start_time});loadBookings();}catch{setBookings(p=>p.map(b=>b.id===bId?{...b,date:rDate,time:rTime}:b));}}else{setBookings(p=>p.map(b=>b.id===bId?{...b,date:rDate,time:rTime}:b));}setShowResched(null);setRDate("");setRTime("");showT("Rescheduled!","success");};
+  const doCancel=async(bId)=>{if(api.isConnected()){try{await api.patch("/bookings/"+bId,{status:"cancelled"});loadBookings();}catch{setBookings(p=>p.map(b=>b.id===bId?{...b,status:"cancelled",cancelReason}:b));}}else{setBookings(p=>p.map(b=>b.id===bId?{...b,status:"cancelled",cancelReason}:b));}setShowCancel(null);setCancelReason("");showT("Cancelled","info");};
 
   const bk=bookings.find(b=>b.id===selBk);const bkPg=bk?pages.find(p=>p.id===bk.page):null;
   const STATUS_COLORS={confirmed:C.g,completed:C.a,cancelled:C.r,no_show:C.y};
@@ -162,7 +137,7 @@ function BookingsScr(){
                     <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
                       <Btn ch="✎ Edit" v="ghost" sm onClick={()=>{setSelPage(p.id);setPageView("edit");}}/>
                       <Btn ch="⧉ Dup" v="ghost" sm onClick={()=>dupPage(p)}/>
-                      <Btn ch="Deactivate" v="ghost" sm onClick={()=>setPages(pr=>pr.map(x=>x.id===p.id?{...x,active:false}:x))}/>
+                      <Btn ch="Deactivate" v="ghost" sm onClick={async()=>{if(api.isConnected()){try{await api.patch("/bookings/pages/"+p.id,{active:0});loadPages();}catch{}}else{setPages(pr=>pr.map(x=>x.id===p.id?{...x,active:false}:x));}}}/>
                     </div>
                   </div>
                 </div>
@@ -189,8 +164,8 @@ function BookingsScr(){
                     <div style={{fontSize:10,color:C.t2,marginBottom:8}}>{p.desc?.slice(0,60)}…</div>
                     <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
                       <Btn ch="✎ Edit" v="ghost" sm onClick={()=>{setSelPage(p.id);setPageView("edit");}}/>
-                      <Btn ch="Activate" v="success" sm onClick={()=>setPages(pr=>pr.map(x=>x.id===p.id?{...x,active:true}:x))}/>
-                      <button onClick={()=>{if(window.confirm("Delete?")){setPages(pr=>pr.filter(x=>x.id!==p.id));showT("Deleted","success");}}} style={{fontSize:11,color:C.r,background:"none",border:"none",cursor:"pointer"}}>🗑</button>
+                      <Btn ch="Activate" v="success" sm onClick={async()=>{if(api.isConnected()){try{await api.patch("/bookings/pages/"+p.id,{active:1});loadPages();}catch{}}else{setPages(pr=>pr.map(x=>x.id===p.id?{...x,active:true}:x));}}}/>
+                      <button onClick={async()=>{if(window.confirm("Delete?")){if(api.isConnected()){try{await api.del("/bookings/pages/"+p.id);loadPages();loadBookings();}catch{setPages(pr=>pr.filter(x=>x.id!==p.id));}}else{setPages(pr=>pr.filter(x=>x.id!==p.id));}showT("Deleted","success");}}} style={{fontSize:11,color:C.r,background:"none",border:"none",cursor:"pointer"}}>🗑</button>
                     </div>
                   </div>
                 </div>
@@ -466,15 +441,16 @@ function BookingsScr(){
     {showNew&&<Mdl title="Create Booking Page" onClose={()=>setShowNew(false)} w={440}>
       <Fld label="Page Name"><Inp val={newName} set={setNewName} ph="e.g. Product Demo, Quick Chat, Strategy Call…"/></Fld>
       <Fld label="Duration"><div style={{display:"flex",gap:6}}>{DURATIONS.map(d=>(<button key={d} onClick={()=>setNewDur(d)} style={{flex:1,padding:"10px",borderRadius:8,fontSize:12,fontWeight:700,background:newDur===d?C.a+"18":"transparent",color:newDur===d?C.a:C.t3,border:`1.5px solid ${newDur===d?C.a+"55":C.b1}`,cursor:"pointer"}}>{d}m</button>))}</div></Fld>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}><Btn ch="Cancel" v="ghost" onClick={()=>setShowNew(false)}/><Btn ch="Create Page" v="primary" onClick={()=>{if(!newName.trim())return showT("Name required","error");const slug=newName.toLowerCase().replace(/[^a-z0-9]+/g,"-");const nid="bp"+uid();setPages(p=>[{id:nid,name:newName,duration:newDur,desc:"",color:COLORS[p.length%COLORS.length],active:false,location:"Zoom",buffer:5,maxPerDay:4,minNotice:24,availability:[{day:1,start:"09:00",end:"18:00"},{day:2,start:"09:00",end:"18:00"},{day:3,start:"09:00",end:"18:00"},{day:4,start:"09:00",end:"18:00"},{day:5,start:"09:00",end:"18:00"}],questions:[],bookings:0,slug},...p]);setShowNew(false);setSelPage(nid);showT("Created!","success");}}/></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}><Btn ch="Cancel" v="ghost" onClick={()=>setShowNew(false)}/><Btn ch="Create Page" v="primary" onClick={async()=>{if(!newName.trim())return showT("Name required","error");const slug=newName.toLowerCase().replace(/[^a-z0-9]+/g,"-");const color=COLORS[pages.length%COLORS.length];const availability=[{day:1,start:"09:00",end:"18:00"},{day:2,start:"09:00",end:"18:00"},{day:3,start:"09:00",end:"18:00"},{day:4,start:"09:00",end:"18:00"},{day:5,start:"09:00",end:"18:00"}];if(api.isConnected()){try{const r=await api.post("/bookings/pages",{name:newName,slug,duration:newDur,color,buffer:5,max_per_day:4,min_notice_hours:24,availability,form_fields:[],location:"Zoom"});loadPages();setShowNew(false);if(r?.page?.id)setSelPage(r.page.id);showT("Created!","success");}catch{showT("Create failed","error");}}else{const nid="bp"+uid();setPages(p=>[{id:nid,name:newName,duration:newDur,desc:"",color,active:false,location:"Zoom",buffer:5,maxPerDay:4,minNotice:24,availability,questions:[],bookings:0,slug},...p]);setShowNew(false);setSelPage(nid);showT("Created!","success");}}}/></div>
     </Mdl>}
   </div>;
 
   // ── PAGE EDITOR ──
   return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
     <div style={{flexShrink:0,padding:"12px 24px",background:C.s1,borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:12}}>
-      <button onClick={()=>setSelPage(null)} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
+      <button onClick={()=>{setSelPage(null);setPageDirty(false);}} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
       <div style={{flex:1}}><h2 style={{fontSize:17,fontWeight:800,fontFamily:FD,margin:0}}>{pg.name}</h2><p style={{fontSize:10,color:C.t3,fontFamily:FM}}>⏱ {pg.duration}min · 📍 {pg.location} · {bookings.filter(b=>b.page===pg.id).length} bookings</p></div>
+      {pageDirty&&<Btn ch="💾 Save Changes" v="primary" sm onClick={savePage}/>}
       <Toggle val={pg.active} set={v=>updatePage("active",v)}/><Tag text={pg.active?"Active":"Draft"} color={pg.active?C.g:C.t3}/>
       <div style={{display:"flex",background:C.s2,borderRadius:8,border:`1px solid ${C.b1}`,overflow:"hidden"}}>{[["edit","✎ Edit"],["preview","👁 Preview"],["share","🔗 Share"]].map(([v,l])=>(<button key={v} onClick={()=>setPageView(v)} style={{padding:"6px 14px",fontSize:11,fontWeight:700,fontFamily:FM,background:pageView===v?C.ad:"transparent",color:pageView===v?C.a:C.t3,border:"none",cursor:"pointer"}}>{l}</button>))}</div>
     </div>
@@ -485,7 +461,7 @@ function BookingsScr(){
           <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Basic Info</div>
           <Fld label="Name"><Inp val={pg.name} set={v=>updatePage("name",v)} ph="Product Demo"/></Fld>
           <Fld label="Description"><textarea value={pg.desc||""} onChange={e=>updatePage("desc",e.target.value)} rows={2} placeholder="Describe this meeting…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",boxSizing:"border-box"}}/></Fld>
-          <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Duration"><div style={{display:"flex",gap:4}}>{DURATIONS.map(d=>(<button key={d} onClick={()=>updatePage("duration",d)} style={{flex:1,padding:"6px",borderRadius:6,fontSize:11,fontWeight:700,background:pg.duration===d?C.a+"18":"transparent",color:pg.duration===d?C.a:C.t3,border:`1.5px solid ${pg.duration===d?C.a+"55":C.b1}`,cursor:"pointer"}}>{d}</button>))}</div></Fld></div><div style={{flex:1}}><Fld label="Location"><Sel val={pg.location} set={v=>updatePage("location",v)} opts={["Zoom","Google Meet","Teams","Phone","In-Person","Custom URL"].map(l=>({v:l,l}))}/></Fld></div></div>
+          <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Duration"><div style={{display:"flex",gap:4}}>{DURATIONS.map(d=>(<button key={d} onClick={()=>updatePage("duration",d)} style={{flex:1,padding:"6px",borderRadius:6,fontSize:11,fontWeight:700,background:pg.duration===d?C.a+"18":"transparent",color:pg.duration===d?C.a:C.t3,border:`1.5px solid ${pg.duration===d?C.a+"55":C.b1}`,cursor:"pointer"}}>{d}</button>))}</div></Fld></div><div style={{flex:1}}><Fld label="Location"><Sel val={pg.location} set={v=>updatePage("location",v)} opts={["Zoom","Google Meet","Microsoft Teams","Phone","In-Person","Custom URL"].map(l=>({v:l,l}))}/></Fld></div></div>
           <Fld label="Color"><div style={{display:"flex",gap:6}}>{COLORS.map(c=>(<button key={c} onClick={()=>updatePage("color",c)} style={{width:24,height:24,borderRadius:"50%",background:c,border:`3px solid ${pg.color===c?"#fff":"transparent"}`,cursor:"pointer",boxShadow:pg.color===c?`0 0 0 2px ${c}`:"none"}}/>))}</div></Fld>
           <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Buffer (min)"><Inp val={String(pg.buffer)} set={v=>updatePage("buffer",Number(v)||0)} type="number"/></Fld></div><div style={{flex:1}}><Fld label="Max/Day"><Inp val={String(pg.maxPerDay)} set={v=>updatePage("maxPerDay",Number(v)||1)} type="number"/></Fld></div><div style={{flex:1}}><Fld label="Min Notice (hrs)"><Inp val={String(pg.minNotice)} set={v=>updatePage("minNotice",Number(v)||1)} type="number"/></Fld></div></div>
         </div>
@@ -513,6 +489,7 @@ function BookingsScr(){
           ))}
           <button onClick={()=>updatePage("questions",[...pg.questions,{id:"q"+uid(),label:"",type:"text",required:false}])} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,border:`2px dashed ${C.a}44`,background:"transparent",color:C.a,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:FM,width:"100%",justifyContent:"center"}} className="hov">+ Add Question</button>
         </div>
+        {pageDirty&&<div style={{marginTop:14}}><Btn ch="💾 Save Changes" v="primary" full onClick={savePage}/></div>}
       </div>}
       {/* Preview */}
       {pageView==="preview"&&<div style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-start",padding:30,overflowY:"auto",background:C.bg}}>
@@ -560,36 +537,39 @@ function BookingsScr(){
 // ═══ CALENDAR ═══════════════════════════════════════════════════════════
 function CalendarScr({embedded}){
   const [view,setView]=useState("month");// month|week|day
-  const [curDate,setCurDate]=useState(new Date(2026,2,29));// March 29 2026
+  const [curDate,setCurDate]=useState(new Date());
   const [selEvent,setSelEvent]=useState(null);
   const [showForm,setShowForm]=useState(false);
   const [evTitle,setEvTitle]=useState("");const [evDate,setEvDate]=useState("");const [evTime,setEvTime]=useState("");const [evEnd,setEvEnd]=useState("");const [evType,setEvType]=useState("meeting");const [evDesc,setEvDesc]=useState("");const [evColor,setEvColor]=useState(C.a);const [editEv,setEditEv]=useState(null);
+  const [evLocation,setEvLocation]=useState("");const [evMeetLink,setEvMeetLink]=useState("");
+  // Contact picker
+  const [contacts,setContacts]=useState([]);const [agents,setAgents]=useState([]);const [inboxes,setInboxes]=useState([]);
+  const [evContact,setEvContact]=useState("");const [evContactEmail,setEvContactEmail]=useState("");const [evContactPhone,setEvContactPhone]=useState("");
+  const [contactSearch,setContactSearch]=useState("");const [showContactDD,setShowContactDD]=useState(false);
+  // Multi-attendee
+  const [evAttendees,setEvAttendees]=useState([]);const [attSearch,setAttSearch]=useState("");const [showAttDD,setShowAttDD]=useState(false);
+  // Notification channels
+  const [evInvChannels,setEvInvChannels]=useState([]);const [evInvMsg,setEvInvMsg]=useState("");
+  const CH_ICON={email:"📧",whatsapp:"💬",sms:"📱"};
+  const activeInboxes=useMemo(()=>inboxes.filter(ib=>ib.active!==0&&ib.active!=="0"&&["email","whatsapp","sms"].includes(ib.type)),[inboxes]);
+  // Load contacts, agents, inboxes
+  useEffect(()=>{if(!api.isConnected())return;
+    api.get("/contacts").then(r=>{if(r?.contacts)setContacts(r.contacts);}).catch(()=>{});
+    api.get("/settings/agents").then(r=>{if(r?.agents)setAgents(r.agents);}).catch(()=>{});
+    api.get("/settings/inboxes").then(r=>{if(r?.inboxes)setInboxes(r.inboxes);}).catch(()=>{});
+  },[]);
+  const filteredContacts=contactSearch?contacts.filter(c=>c.name?.toLowerCase().includes(contactSearch.toLowerCase())||c.email?.toLowerCase().includes(contactSearch.toLowerCase())).slice(0,8):contacts.slice(0,8);
+  const filteredAgents=attSearch?agents.filter(a=>a.name?.toLowerCase().includes(attSearch.toLowerCase())&&!evAttendees.includes(a.name)).slice(0,8):agents.filter(a=>!evAttendees.includes(a.name)).slice(0,8);
+  const toggleInvCh=(ch)=>setEvInvChannels(p=>p.find(c=>c.id===ch.id)?p.filter(c=>c.id!==ch.id):[...p,ch]);
+  const MEET_PLATFORMS=[{v:"",l:"None"},{v:"Microsoft Teams",l:"Microsoft Teams",i:"📺"},{v:"Google Meet",l:"Google Meet",i:"📹"},{v:"Zoom",l:"Zoom",i:"💻"},{v:"Jitsi Meet",l:"Jitsi Meet (Free)",i:"📹"},{v:"Phone",l:"Phone Call",i:"📞"},{v:"In-Person",l:"In-Person",i:"🏢"},{v:"Custom",l:"Custom Link",i:"🔗"}];
+  const genMeetLink=(platform)=>{const room="sd-"+uid();if(platform==="Jitsi Meet")return"https://meet.jit.si/"+room;return"";};
 
   const EVENT_TYPES=[{v:"meeting",l:"Meeting",i:"🤝",c:C.a},{v:"task",l:"Task Due",i:"✅",c:C.y},{v:"call",l:"Call",i:"📞",c:C.g},{v:"demo",l:"Demo",i:"🖥",c:C.p},{v:"deadline",l:"Deadline",i:"🔴",c:C.r},{v:"follow_up",l:"Follow-up",i:"📋",c:C.cy},{v:"internal",l:"Internal",i:"👥",c:C.t3},{v:"personal",l:"Personal",i:"🏠",c:"#ff6b35"}];
 
-  const [events,setEvents]=useState([
-    // March 2026 events - integrated with CRM data
-    {id:"ev1",title:"TechCorp Enterprise Demo",date:"2026-03-28",time:"10:00",end:"10:45",type:"demo",desc:"Product demo with IT team. Cover: multi-brand, security, SSO.",color:C.p,attendees:"Priya, Dev, Arjun Mehta",link:"crm"},
-    {id:"ev2",title:"FreshMart Discovery Call",date:"2026-03-27",time:"14:00",end:"14:30",type:"call",desc:"Team size, requirements, current tools. Referral from EduConnect.",color:C.g,attendees:"Dev, Ananya Reddy",link:"crm"},
-    {id:"ev3",title:"Globex API Deep-Dive",date:"2026-03-29",time:"11:00",end:"12:00",type:"meeting",desc:"API walkthrough, webhook setup, OAuth2 flow.",color:C.a,attendees:"Meena, Dev, James Wilson",link:"crm"},
-    {id:"ev4",title:"Send Proposal to TechCorp",date:"2026-03-28",time:"",end:"",type:"task",desc:"Enterprise plan proposal with security addendum.",color:C.y,attendees:"Priya",link:"crm"},
-    {id:"ev5",title:"Follow up FreshMart",date:"2026-03-27",time:"",end:"",type:"task",desc:"Call Ananya about requirements.",color:C.y,attendees:"Dev",link:"crm"},
-    {id:"ev6",title:"Weekly Sales Standup",date:"2026-03-27",time:"09:00",end:"09:15",type:"internal",desc:"Pipeline review, blockers, Q2 targets.",color:C.t3,attendees:"Priya, Dev, Meena",link:""},
-    {id:"ev7",title:"PayEase Enterprise Walkthrough",date:"2026-03-30",time:"11:30",end:"12:15",type:"demo",desc:"SSO, audit logs, custom roles demo. Upgrade path.",color:C.p,attendees:"Dev, Priya, Rahul Kapoor",link:"crm"},
-    {id:"ev8",title:"FinanceHub Contract Review",date:"2026-04-01",time:"15:00",end:"15:30",type:"meeting",desc:"HIPAA terms, SLA guarantees. Legal joining.",color:C.a,attendees:"Priya, Fatima Al-Rashid",link:"crm"},
-    {id:"ev9",title:"CloudNine Technical Assessment",date:"2026-04-02",time:"14:30",end:"15:30",type:"demo",desc:"SSO, API webhooks, data migration from Zendesk.",color:C.p,attendees:"Priya, Meena, Vikram Sinha",link:"crm"},
-    {id:"ev10",title:"Q2 Planning & Strategy",date:"2026-03-31",time:"10:00",end:"11:30",type:"internal",desc:"Q1 review, Q2 targets, territory assignments, hiring.",color:C.t3,attendees:"Priya, Dev, Meena, Aryan",link:""},
-    {id:"ev11",title:"Contract Review — Legal",date:"2026-04-01",time:"",end:"",type:"deadline",desc:"FinanceHub HIPAA compliance terms due.",color:C.r,attendees:"Priya",link:"crm"},
-    {id:"ev12",title:"Prepare Demo Sandbox",date:"2026-03-30",time:"",end:"",type:"task",desc:"Set up sandbox with sample data for GlobalRetail.",color:C.y,attendees:"Meena",link:"crm"},
-    {id:"ev13",title:"ROI Calculator for PayEase",date:"2026-03-29",time:"",end:"",type:"task",desc:"Build spreadsheet showing cost savings vs Freshdesk.",color:C.y,attendees:"Dev",link:"crm"},
-    {id:"ev14",title:"Competitive Analysis Update",date:"2026-03-31",time:"",end:"",type:"task",desc:"Update Zendesk vs SupportDesk battle card.",color:C.y,attendees:"Meena",link:"crm"},
-    {id:"ev15",title:"Team Lunch",date:"2026-03-28",time:"12:30",end:"13:30",type:"personal",desc:"Team outing — Koramangala restaurant.",color:"#ff6b35",attendees:"Everyone",link:""},
-    {id:"ev16",title:"Priya — Dentist",date:"2026-04-03",time:"09:00",end:"10:00",type:"personal",desc:"Annual checkup.",color:"#ff6b35",attendees:"Priya",link:""},
-    {id:"ev17",title:"StartupXYZ Follow-up",date:"2026-03-26",time:"16:00",end:"16:30",type:"follow_up",desc:"Feature comparison vs Freshdesk and Intercom.",color:C.cy,attendees:"Dev, Meera Krishnan",link:"crm"},
-    {id:"ev18",title:"Q2 Pipeline Review Deck",date:"2026-03-31",time:"",end:"",type:"deadline",desc:"Slide deck ready for Monday standup.",color:C.r,attendees:"Priya",link:"crm"}
-  ]);
+  const [events,setEvents]=useState([]);
   // ═══ CALENDAR API LOADING ═══
-  useEffect(()=>{if(!api.isConnected())return;api.get("/calendar/events").then(r=>{if(r?.events?.length)setEvents(r.events.map(e=>({...e,time:e.time_start||"",end:e.time_end||"",desc:e.description||""})));}).catch(()=>{});},[]);
+  const loadEvents=()=>{if(!api.isConnected())return;api.get("/calendar/events").then(r=>{if(r?.events)setEvents(r.events.map(e=>{const st=e.start_time?new Date(e.start_time):null;const et=e.end_time?new Date(e.end_time):null;const date=st?`${st.getFullYear()}-${String(st.getMonth()+1).padStart(2,"0")}-${String(st.getDate()).padStart(2,"0")}`:"";const time=st&&!e.all_day?`${String(st.getHours()).padStart(2,"0")}:${String(st.getMinutes()).padStart(2,"0")}`:"";const end=et&&!e.all_day?`${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`:"";let attendees="";try{attendees=Array.isArray(e.attendees)?e.attendees.join(", "):e.attendees||"";}catch{attendees="";}const attendeeList=Array.isArray(e.attendees)?e.attendees:[];return{id:e.id,title:e.title,date,time,end,type:e.type||"meeting",desc:e.description||"",color:e.color||(EVENT_TYPES.find(t=>t.v===(e.type||"meeting"))?.c)||C.a,attendees,attendeeList,link:"",location:e.location||"",meetLink:e.meeting_link||"",contactName:"",contactEmail:"",contactPhone:""};}));}).catch(()=>{});};
+  useEffect(()=>{loadEvents();},[]);
   // AI Smart Scheduling
   const [calAi,setCalAi]=useState(null);const [calAiLoad,setCalAiLoad]=useState(false);
   const genCalAi=async()=>{setCalAiLoad(true);try{const ctx=`${events.length} events this month. Types: ${events.map(e=>e.type).join(",")}. Busiest days: ${events.reduce((m,e)=>{m[e.date]=(m[e.date]||0)+1;return m;},{})}.`;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:250,system:"You are a scheduling AI. Analyze calendar: suggest optimal meeting slots, flag conflicts, recommend prep actions. 4-5 bullets. No markdown.",messages:[{role:"user",content:ctx}]})});const d=await r.json();setCalAi(d.content?.[0]?.text);}catch{setCalAi("📅 Best slots for demos this week: Tue 10-11am, Thu 2-3pm (no conflicts)\n⚠️ March 31 is overloaded — 4 events including Q2 Planning, consider rescheduling\n🔔 TechCorp demo tomorrow at 11am — prep security compliance docs beforehand\n💡 No follow-ups scheduled for won deals — add check-in for EduConnect\n🕐 Priya has 3 back-to-back meetings Tue — add 15min buffers");}setCalAiLoad(false);};
@@ -605,9 +585,10 @@ function CalendarScr({embedded}){
   const getEventsForWeek=()=>{const start=new Date(y,mo,d-curDate.getDay());return[...Array(7)].map((_,i)=>{const dd=new Date(start);dd.setDate(start.getDate()+i);const ds=`${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,"0")}-${String(dd.getDate()).padStart(2,"0")}`;return{date:dd,dateStr:ds,events:getEventsForDate(ds)};});};
   const nav=(dir)=>{if(view==="month")setCurDate(new Date(y,mo+dir,1));else if(view==="week")setCurDate(new Date(y,mo,d+dir*7));else setCurDate(new Date(y,mo,d+dir));};
   const goToday=()=>setCurDate(new Date());
-  const openNewEvent=(dateStr)=>{setEvTitle("");setEvDate(dateStr||"");setEvTime("");setEvEnd("");setEvType("meeting");setEvDesc("");setEvColor(C.a);setEditEv(null);setShowForm(true);};
-  const openEditEvent=(ev)=>{setEvTitle(ev.title);setEvDate(ev.date);setEvTime(ev.time||"");setEvEnd(ev.end||"");setEvType(ev.type);setEvDesc(ev.desc||"");setEvColor(ev.color);setEditEv(ev);setShowForm(true);};
-  const saveEvent=()=>{if(!evTitle.trim())return showT("Title required","error");const p={title:evTitle,date:evDate,time:evTime,end:evEnd,type:evType,desc:evDesc,color:evColor||EVENT_TYPES.find(t=>t.v===evType)?.c||C.a,attendees:"",link:""};if(editEv)setEvents(pr=>pr.map(e=>e.id===editEv.id?{...e,...p}:e));else setEvents(pr=>[{id:"ev"+uid(),...p},...pr]);showT(editEv?"Updated":"Event created!","success");setShowForm(false);setEditEv(null);setSelEvent(null);};
+  const openNewEvent=(dateStr)=>{setEvTitle("");setEvDate(dateStr||"");setEvTime("");setEvEnd("");setEvType("meeting");setEvDesc("");setEvColor(C.a);setEvLocation("");setEvMeetLink("");setEvContact("");setEvContactEmail("");setEvContactPhone("");setEvAttendees([]);setEvInvChannels([]);setEvInvMsg("");setContactSearch("");setAttSearch("");setEditEv(null);setShowForm(true);};
+  const openEditEvent=(ev)=>{setEvTitle(ev.title);setEvDate(ev.date);setEvTime(ev.time||"");setEvEnd(ev.end||"");setEvType(ev.type);setEvDesc(ev.desc||"");setEvColor(ev.color);setEvLocation(ev.location||"");setEvMeetLink(ev.meetLink||"");setEvContact(ev.contactName||"");setEvContactEmail(ev.contactEmail||"");setEvContactPhone(ev.contactPhone||"");setEvAttendees(ev.attendeeList||[]);setEvInvChannels([]);setEvInvMsg("");setEditEv(ev);setShowForm(true);};
+  const saveEvent=async()=>{if(!evTitle.trim())return showT("Title required","error");const color=evColor||EVENT_TYPES.find(t=>t.v===evType)?.c||C.a;const start_time=evDate&&evTime?`${evDate}T${evTime}:00`:evDate?`${evDate}T00:00:00`:null;const end_time=evDate&&evEnd?`${evDate}T${evEnd}:00`:null;const payload={title:evTitle,description:evDesc,start_time,end_time,all_day:evTime?0:1,type:evType,color,location:evLocation,meeting_link:evMeetLink,attendees:evAttendees};if(api.isConnected()){try{let evId=editEv?.id;if(editEv){await api.patch("/calendar/events/"+editEv.id,payload);}else{const r=await api.post("/calendar/events",payload);evId=r?.event?.id;}// Send invitations if channels selected
+    if(evId&&evInvChannels.length&&(evContactEmail||evContactPhone)){try{const ir=await api.post("/calendar/events/"+evId+"/invite",{channels:evInvChannels.map(c=>({id:c.id,type:c.type,name:c.name})),recipient_name:evContact,recipient_email:evContactEmail,recipient_phone:evContactPhone,custom_message:evInvMsg});const sent=(ir?.results||[]).filter(x=>x.status==="sent").length;if(sent)showT(`Invite sent via ${sent} channel${sent>1?"s":""}`,"success");}catch{}}loadEvents();showT(editEv?"Updated":"Event created!","success");}catch{showT("Save failed","error");}}else{const p={title:evTitle,date:evDate,time:evTime,end:evEnd,type:evType,desc:evDesc,color,attendees:evAttendees.join(", "),link:"",location:evLocation,meetLink:evMeetLink};if(editEv)setEvents(pr=>pr.map(e=>e.id===editEv.id?{...e,...p}:e));else setEvents(pr=>[{id:"ev"+uid(),...p},...pr]);showT(editEv?"Updated":"Event created!","success");}setShowForm(false);setEditEv(null);setSelEvent(null);};
 
   const evTypeInfo=(t)=>EVENT_TYPES.find(x=>x.v===t)||EVENT_TYPES[0];
   const totalEvents=events.filter(e=>e.date.startsWith(`${y}-${String(mo+1).padStart(2,"0")}`)).length;
@@ -755,32 +736,111 @@ function CalendarScr({embedded}){
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"12px 18px"}}>
           <div style={{background:C.s2,borderRadius:10,padding:"8px 12px",marginBottom:14}}>
-            {[{icon:"📅",l:"Date",v:ev.date},{icon:"🕐",l:"Time",v:ev.time?(ev.time+(ev.end?" – "+ev.end:"")):"All day"},{icon:"🏷",l:"Type",v:ti.l},{icon:"👤",l:"Attendees",v:ev.attendees||"—"}].map(r=>(
+            {[{icon:"📅",l:"Date",v:ev.date},{icon:"🕐",l:"Time",v:ev.time?(ev.time+(ev.end?" – "+ev.end:"")):"All day"},{icon:"🏷",l:"Type",v:ti.l},{icon:"👤",l:"Attendees",v:ev.attendees||"—"},{icon:"📍",l:"Platform",v:ev.location||"—"}].map(r=>(
               <div key={r.l} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.b1}11`}}>
                 <span style={{fontSize:11}}>{r.icon}</span><span style={{fontSize:10,color:C.t3,width:65,fontFamily:FM}}>{r.l}</span><span style={{fontSize:11,fontWeight:600,color:C.t1,flex:1}}>{r.v}</span>
               </div>
             ))}
           </div>
+          {ev.meetLink&&<div style={{marginBottom:14}}><a href={ev.meetLink} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:C.a+"12",border:`1px solid ${C.a}33`,borderRadius:8,color:C.a,fontSize:12,fontWeight:700,textDecoration:"none",fontFamily:FM}}>{ev.location==="Microsoft Teams"?"📺 Join Teams Meeting":ev.location==="Google Meet"?"📹 Join Google Meet":ev.location==="Zoom"?"💻 Join Zoom Meeting":"🔗 Join Meeting"}</a></div>}
           {ev.desc&&<><div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4,letterSpacing:".5px"}}>DESCRIPTION</div><div style={{background:C.yd,border:`1px solid ${C.y}33`,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.t1,lineHeight:1.5,marginBottom:14}}>{ev.desc}</div></>}
         </div>
         <div style={{padding:"12px 18px",borderTop:`1px solid ${C.b1}`,flexShrink:0}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
             <Btn ch="✎ Edit" v="ghost" full sm onClick={()=>openEditEvent(ev)}/>
-            <Btn ch="🗑 Delete" v="danger" full sm onClick={()=>{setEvents(p=>p.filter(x=>x.id!==ev.id));setSelEvent(null);showT("Deleted","success");}}/>
+            <Btn ch="🗑 Delete" v="danger" full sm onClick={async()=>{if(api.isConnected()){try{await api.del("/calendar/events/"+ev.id);loadEvents();}catch{setEvents(p=>p.filter(x=>x.id!==ev.id));}}else{setEvents(p=>p.filter(x=>x.id!==ev.id));}setSelEvent(null);showT("Deleted","success");}}/>
           </div>
         </div>
       </aside>;})()}
     </div>
 
     {/* Event form modal */}
-    {showForm&&<Mdl title={editEv?"Edit Event":"New Event"} onClose={()=>{setShowForm(false);setEditEv(null);}} w={500}>
+    {showForm&&<Mdl title={editEv?"Edit Event":"New Event"} onClose={()=>{setShowForm(false);setEditEv(null);}} w={600}>
       <Fld label="Event Title"><Inp val={evTitle} set={setEvTitle} ph="e.g. TechCorp Demo, Team Standup…"/></Fld>
       <Fld label="Type"><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{EVENT_TYPES.map(t=>(
         <button key={t.v} onClick={()=>{setEvType(t.v);setEvColor(t.c);}} style={{padding:"5px 10px",borderRadius:7,fontSize:10,fontWeight:600,background:evType===t.v?t.c+"18":"transparent",color:evType===t.v?t.c:C.t3,border:`1.5px solid ${evType===t.v?t.c+"55":C.b1}`,cursor:"pointer"}}>{t.i} {t.l}</button>
       ))}</div></Fld>
       <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Date"><Inp val={evDate} set={setEvDate} ph="YYYY-MM-DD" type="date"/></Fld></div><div style={{flex:1}}><Fld label="Start Time"><Inp val={evTime} set={setEvTime} ph="10:00" type="time"/></Fld></div><div style={{flex:1}}><Fld label="End Time"><Inp val={evEnd} set={setEvEnd} ph="11:00" type="time"/></Fld></div></div>
+
+      {/* ── Contact Picker ── */}
+      <Fld label="Contact"><div style={{position:"relative"}}>
+        <input value={evContact||contactSearch} onChange={e=>{setContactSearch(e.target.value);setEvContact("");setShowContactDD(true);}} onFocus={()=>setShowContactDD(true)} onBlur={()=>setTimeout(()=>setShowContactDD(false),200)} placeholder="Search contacts by name or email…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+        {showContactDD&&filteredContacts.length>0&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:8,maxHeight:200,overflowY:"auto",zIndex:100,boxShadow:"0 4px 16px rgba(0,0,0,.12)"}}>
+          {filteredContacts.map(c=>(
+            <div key={c.id} onClick={()=>{setEvContact(c.name);setEvContactEmail(c.email||"");setEvContactPhone(c.phone||"");setContactSearch("");setShowContactDD(false);}} style={{padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${C.b1}22`,fontSize:12}} className="hov">
+              <Av i={c.name?.slice(0,2).toUpperCase()} c={c.color||C.a} s={24}/>
+              <div style={{flex:1}}><div style={{fontWeight:600}}>{c.name}</div>{c.email&&<div style={{fontSize:10,color:C.t3}}>{c.email}</div>}</div>
+              {c.phone&&<span style={{fontSize:9,color:C.t3}}>{c.phone}</span>}
+            </div>
+          ))}
+        </div>}
+      </div></Fld>
+      {evContact&&<div style={{display:"flex",gap:8,marginBottom:8}}>
+        <div style={{flex:1}}><Fld label="Email"><Inp val={evContactEmail} set={setEvContactEmail} ph="contact@email.com"/></Fld></div>
+        <div style={{flex:1}}><Fld label="Phone"><Inp val={evContactPhone} set={setEvContactPhone} ph="+91 98765 43210"/></Fld></div>
+      </div>}
+
+      {/* ── Multi-Attendee Picker ── */}
+      <Fld label="Attendees (Team Members)"><div>
+        {evAttendees.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
+          {evAttendees.map(name=>{const ag=agents.find(a=>a.name===name);return(
+            <div key={name} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",background:C.a+"15",borderRadius:6,fontSize:11,fontWeight:600,color:C.a}}>
+              <Av i={name.slice(0,2).toUpperCase()} c={ag?.color||C.a} s={18}/>{name}
+              <button onClick={()=>setEvAttendees(p=>p.filter(n=>n!==name))} style={{background:"none",border:"none",cursor:"pointer",color:C.r,fontSize:12,marginLeft:2}}>×</button>
+            </div>
+          );})}
+        </div>}
+        <div style={{position:"relative"}}>
+          <input value={attSearch} onChange={e=>{setAttSearch(e.target.value);setShowAttDD(true);}} onFocus={()=>setShowAttDD(true)} onBlur={()=>setTimeout(()=>setShowAttDD(false),200)} placeholder="Add team members…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+          {showAttDD&&filteredAgents.length>0&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:8,maxHeight:180,overflowY:"auto",zIndex:100,boxShadow:"0 4px 16px rgba(0,0,0,.12)"}}>
+            {filteredAgents.map(a=>(
+              <div key={a.id} onClick={()=>{setEvAttendees(p=>[...p,a.name]);setAttSearch("");setShowAttDD(false);}} style={{padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${C.b1}22`,fontSize:12}} className="hov">
+                <Av i={a.name?.slice(0,2).toUpperCase()} c={a.color||C.a} s={24}/>
+                <div><div style={{fontWeight:600}}>{a.name}</div><div style={{fontSize:10,color:C.t3}}>{a.role||"agent"}</div></div>
+              </div>
+            ))}
+          </div>}
+        </div>
+      </div></Fld>
+
+      {/* ── Meeting Platform ── */}
+      <Fld label="Meeting Platform"><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{MEET_PLATFORMS.map(mp=>(
+        <button key={mp.v} onClick={()=>{setEvLocation(mp.v);if(mp.v==="Jitsi Meet"){setEvMeetLink(genMeetLink("Jitsi Meet"));}else if(!evMeetLink||evMeetLink.includes("meet.jit.si")){setEvMeetLink("");}}} style={{padding:"5px 10px",borderRadius:7,fontSize:10,fontWeight:600,background:evLocation===mp.v?C.a+"18":"transparent",color:evLocation===mp.v?C.a:C.t3,border:`1.5px solid ${evLocation===mp.v?C.a+"55":C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{mp.i?<span>{mp.i}</span>:null}{mp.l}</button>
+      ))}</div></Fld>
+      {evLocation&&evLocation!=="Phone"&&evLocation!=="In-Person"&&evLocation!==""&&<Fld label="Meeting Link">
+        <div style={{display:"flex",gap:6}}>
+          <div style={{flex:1}}><Inp val={evMeetLink} set={setEvMeetLink} ph={evLocation==="Microsoft Teams"?"https://teams.microsoft.com/l/meetup-join/...":evLocation==="Google Meet"?"https://meet.google.com/...":evLocation==="Zoom"?"https://zoom.us/j/...":evLocation==="Jitsi Meet"?"Auto-generated":"https://..."}/></div>
+          {evLocation==="Jitsi Meet"&&<button onClick={()=>setEvMeetLink(genMeetLink("Jitsi Meet"))} style={{padding:"6px 12px",borderRadius:8,background:C.g+"18",color:C.g,border:`1px solid ${C.g}44`,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:FM,whiteSpace:"nowrap"}}>🔄 New Link</button>}
+        </div>
+        {evLocation!=="Jitsi Meet"&&evLocation!=="Custom"&&<div style={{fontSize:10,color:C.t3,marginTop:4,fontFamily:FM}}>
+          {evLocation==="Microsoft Teams"&&"Paste your Teams meeting link, or create one in Microsoft Teams"}
+          {evLocation==="Google Meet"&&"Paste your Google Meet link, or create one in Google Calendar"}
+          {evLocation==="Zoom"&&"Paste your Zoom meeting link, or create one in Zoom"}
+        </div>}
+      </Fld>}
+
       <Fld label="Description"><textarea value={evDesc} onChange={e=>setEvDesc(e.target.value)} rows={3} placeholder="Event details, agenda, notes…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowForm(false);setEditEv(null);}}/>{editEv&&<Btn ch="Delete" v="danger" onClick={()=>{setEvents(p=>p.filter(e=>e.id!==editEv.id));setShowForm(false);setSelEvent(null);showT("Deleted","success");}}/>}<Btn ch={editEv?"Save":"Create Event"} v="primary" onClick={saveEvent}/></div>
+
+      {/* ── Send Notification ── */}
+      {evContact&&<div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:700,fontFamily:FM,color:C.t2,marginBottom:8}}>SEND INVITATION VIA</div>
+        {activeInboxes.length>0?<>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+            {activeInboxes.map(ib=>{const sel=evInvChannels.find(c=>c.id===ib.id);return(
+              <button key={ib.id} onClick={()=>toggleInvCh(ib)} style={{padding:"5px 10px",borderRadius:7,fontSize:10,fontWeight:600,display:"flex",alignItems:"center",gap:4,background:sel?C.a+"18":"transparent",color:sel?C.a:C.t3,border:`1.5px solid ${sel?C.a+"55":C.b1}`,cursor:"pointer"}}>
+                <span>{CH_ICON[ib.type]||"📨"}</span>{ib.name||ib.type}
+              </button>
+            );})}
+          </div>
+          {evInvChannels.length>0&&<>
+            {evInvChannels.some(c=>c.type==="email")&&!evContactEmail&&<div style={{fontSize:10,color:C.r,marginBottom:4}}>Email address required for email invitation</div>}
+            {evInvChannels.some(c=>c.type==="whatsapp"||c.type==="sms")&&!evContactPhone&&<div style={{fontSize:10,color:C.r,marginBottom:4}}>Phone number required for WhatsApp/SMS</div>}
+            <Fld label="Custom Message (optional)"><textarea value={evInvMsg} onChange={e=>setEvInvMsg(e.target.value)} rows={2} placeholder="Add a personal message to the invitation…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",boxSizing:"border-box"}}/></Fld>
+          </>}
+        </>:<div style={{fontSize:11,color:C.t3,fontStyle:"italic"}}>No active email/WhatsApp inboxes configured. Set up inboxes in Settings to send invitations.</div>}
+      </div>}
+
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowForm(false);setEditEv(null);}}/>{editEv&&<Btn ch="Delete" v="danger" onClick={async()=>{if(api.isConnected()){try{await api.del("/calendar/events/"+editEv.id);loadEvents();}catch{setEvents(p=>p.filter(e=>e.id!==editEv.id));}}else{setEvents(p=>p.filter(e=>e.id!==editEv.id));}setShowForm(false);setSelEvent(null);showT("Deleted","success");}}/>}<Btn ch={evInvChannels.length>0?(editEv?"Save & Send":"Create & Send Invite"):(editEv?"Save":"Create Event")} v="primary" onClick={saveEvent}/></div>
     </Mdl>}
     </div>
   </div>;

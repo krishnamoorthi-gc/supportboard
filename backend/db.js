@@ -354,6 +354,27 @@ CREATE TABLE IF NOT EXISTS crm_transfers (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- CRM - Meeting Invitations (sent via inbox channels)
+CREATE TABLE IF NOT EXISTS meeting_invitations (
+  id VARCHAR(255) PRIMARY KEY,
+  meeting_id VARCHAR(255) NOT NULL,
+  channel VARCHAR(50) NOT NULL,
+  inbox_id VARCHAR(255),
+  recipient_name VARCHAR(255),
+  recipient_email VARCHAR(255),
+  recipient_phone VARCHAR(50),
+  subject VARCHAR(500),
+  body TEXT,
+  status VARCHAR(50) DEFAULT 'sent',
+  sent_at DATETIME,
+  delivered_at DATETIME,
+  response VARCHAR(50),
+  response_at DATETIME,
+  error TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Team Chat
 CREATE TABLE IF NOT EXISTS chat_channels (
   id VARCHAR(255) PRIMARY KEY,
@@ -949,6 +970,26 @@ async function ensureSchemaColumns() {
       ];
       for (const [col, sql] of mtAdds) { if (!mtCols.has(col)) await run(sql); }
     } catch (e) { console.error('meetings columns:', e.message); }
+
+    // ── calendar_events: meeting_link column ────────────────────────
+    try {
+      const calCols = new Set((await query('SHOW COLUMNS FROM calendar_events')).map(c => c.Field));
+      if (!calCols.has('meeting_link')) {
+        await run('ALTER TABLE calendar_events ADD COLUMN meeting_link VARCHAR(512)');
+        console.log('✅ Added meeting_link to calendar_events');
+      }
+    } catch (e) { console.error('calendar_events columns:', e.message); }
+
+    // ── booking_pages: location, max_per_day, min_notice_hours ──────
+    try {
+      const bpCols = new Set((await query('SHOW COLUMNS FROM booking_pages')).map(c => c.Field));
+      const bpAdds = [
+        ['location', "ALTER TABLE booking_pages ADD COLUMN location VARCHAR(255) DEFAULT 'Zoom'"],
+        ['max_per_day', "ALTER TABLE booking_pages ADD COLUMN max_per_day INT DEFAULT 4"],
+        ['min_notice_hours', "ALTER TABLE booking_pages ADD COLUMN min_notice_hours INT DEFAULT 24"],
+      ];
+      for (const [col, sql] of bpAdds) { if (!bpCols.has(col)) await run(sql); }
+    } catch (e) { console.error('booking_pages columns:', e.message); }
 
     // ── Add missing agent_id to all tables that need it ─────────────────
     const agentIdTables = [
