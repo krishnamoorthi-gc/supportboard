@@ -1108,6 +1108,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/sales-agent', require('./routes/sales-agent'));
 app.use('/api/forms', require('./routes/forms'));
+app.use('/api/aibot', require('./routes/aibot'));
 app.use('/api/email', require('./routes/email'));
 
 // Live monitor - visitor sessions

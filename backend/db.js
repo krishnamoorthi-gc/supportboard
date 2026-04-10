@@ -678,6 +678,51 @@ CREATE TABLE IF NOT EXISTS sales_lead_activities (
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- AI Bot Settings
+CREATE TABLE IF NOT EXISTS aibot_config (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) UNIQUE NOT NULL,
+  bot_name VARCHAR(255) DEFAULT 'Aria',
+  bot_tone VARCHAR(50) DEFAULT 'professional',
+  bot_lang VARCHAR(20) DEFAULT 'EN',
+  handoff_after VARCHAR(20) DEFAULT '3',
+  working_hours TINYINT DEFAULT 1,
+  auto_resolve TINYINT DEFAULT 0,
+  auto_resolve_hours VARCHAR(20) DEFAULT '24',
+  sys_prompt TEXT,
+  ai_auto_reply TINYINT DEFAULT 0,
+  channels TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS aibot_faqs (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS aibot_docs (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) NOT NULL,
+  name VARCHAR(500) NOT NULL,
+  size_label VARCHAR(50),
+  file_path VARCHAR(500),
+  status VARCHAR(50) DEFAULT 'trained',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS aibot_urls (
+  id VARCHAR(255) PRIMARY KEY,
+  agent_id VARCHAR(255) NOT NULL,
+  url VARCHAR(500) NOT NULL,
+  status VARCHAR(50) DEFAULT 'trained',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
   await db.query(schema.replace(/TEXT DEFAULT \(datetime\('now'\)\)/g, "DATETIME DEFAULT CURRENT_TIMESTAMP")
