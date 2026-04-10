@@ -32,6 +32,7 @@ async function init() {
   await createSchema();
   await ensureSchemaColumns();
   await seed();
+  await cleanupSeedData();
 }
 
 async function createSchema() {
@@ -815,6 +816,19 @@ async function ensureSchemaColumns() {
   }
 }
 
+async function cleanupSeedData() {
+  const seedContactIds = ['ct1','ct2','ct3','ct4','ct5','ct6'];
+  const seedConvoIds = ['cv1','cv2','cv3'];
+  for (const id of seedConvoIds) {
+    await run('DELETE FROM messages WHERE conversation_id=?', [id]);
+    await run('DELETE FROM conversations WHERE id=?', [id]);
+  }
+  for (const id of seedContactIds) {
+    await run('DELETE FROM contacts WHERE id=?', [id]);
+  }
+  console.log('🧹 Cleaned up seed contacts & conversations');
+}
+
 async function seed() {
   const row = await query('SELECT COUNT(*) as c FROM agents', [], true);
   if (row.c > 0) return;
@@ -844,29 +858,6 @@ async function seed() {
   ];
   for (const i of inboxes) {
     await run('INSERT INTO inboxes (id,name,type,color,greeting,active,agent_id) VALUES (?,?,?,?,?,?,?)', i);
-  }
-
-  // Contacts
-  const contacts = [
-    ['ct1', 'Alice Johnson', 'alice@techcorp.com', '+1 555 0101', 'TechCorp', '#4c82fb', '["vip","enterprise"]', 'a1'],
-    ['ct2', 'Bob Martinez', 'bob@startup.io', '+1 555 0102', 'StartupIO', '#1fd07a', '["trial"]', 'a1'],
-    ['ct3', 'Carol Chen', 'carol@enterprise.com', '+1 555 0103', 'Enterprise Co', '#9b6dff', '["enterprise","vip"]', 'a1'],
-    ['ct4', 'David Kim', 'david@freelance.dev', '+1 555 0104', 'Freelance', '#f5a623', '[]', 'a1'],
-    ['ct5', 'Emma Wilson', 'emma@agency.com', '+1 555 0105', 'Creative Agency', '#f04f5a', '["agency"]', 'a1'],
-    ['ct6', 'Frank Brown', 'retail@retail.com', '+1 555 0106', 'RetailCo', '#22d4e8', '[]', 'a1'],
-  ];
-  for (const c of contacts) {
-    await run('INSERT INTO contacts (id,name,email,phone,company,color,tags,agent_id) VALUES (?,?,?,?,?,?,?,?)', c);
-  }
-
-  // Conversations
-  const convos = [
-    ['cv1', 'API rate limit exceeded', 'open', 'urgent', 'ct1', 'ib2', 'a1', '["api","urgent"]', '#f04f5a', 'a1'],
-    ['cv2', 'Billing question for enterprise plan', 'open', 'high', 'ct2', 'ib1', 'a2', '["billing"]', '#f5a623', 'a1'],
-    ['cv3', 'WhatsApp integration not working', 'open', 'high', 'ct3', 'ib3', 'a3', '["bug"]', '#4c82fb', 'a1'],
-  ];
-  for (const c of convos) {
-    await run('INSERT INTO conversations (id,subject,status,priority,contact_id,inbox_id,assignee_id,labels,color,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?)', c);
   }
 
   console.log('✅ Database seeded successfully');
