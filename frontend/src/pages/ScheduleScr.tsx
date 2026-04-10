@@ -5,7 +5,7 @@ import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSou
 // ═══ SCHEDULE (Calendar + Bookings combined) ════════════════════════════
 export default function ScheduleScr(){
   const [stab,setStab]=useState("calendar");
-  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
+  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,overflow:"hidden",fontFamily:FB,color:C.t1}}>
     {/* Schedule header with tabs */}
     <div style={{flexShrink:0,background:C.s1,borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",padding:"0 24px",gap:16}}>
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 0"}}>
@@ -67,7 +67,7 @@ function BookingsScr(){
   const STATUS_COLORS={confirmed:C.g,completed:C.a,cancelled:C.r,no_show:C.y};
 
   // ── LIST VIEW ──
-  if(!selPage)return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
+  if(!selPage)return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,overflow:"hidden",fontFamily:FB,color:C.t1}}>
     <div style={{flexShrink:0,padding:"10px 24px",background:C.s1,borderBottom:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div style={{fontSize:12,color:C.t3,fontFamily:FM}}>Calendly-style scheduling — {pages.filter(p=>p.active).length} active pages · {bookings.length} total bookings</div>
       <div style={{display:"flex",gap:6}}>
@@ -446,7 +446,7 @@ function BookingsScr(){
   </div>;
 
   // ── PAGE EDITOR ──
-  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
+  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,overflow:"hidden",fontFamily:FB,color:C.t1}}>
     <div style={{flexShrink:0,padding:"12px 24px",background:C.s1,borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:12}}>
       <button onClick={()=>{setSelPage(null);setPageDirty(false);}} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
       <div style={{flex:1}}><h2 style={{fontSize:17,fontWeight:800,fontFamily:FD,margin:0}}>{pg.name}</h2><p style={{fontSize:10,color:C.t3,fontFamily:FM}}>⏱ {pg.duration}min · 📍 {pg.location} · {bookings.filter(b=>b.page===pg.id).length} bookings</p></div>
@@ -593,7 +593,7 @@ function CalendarScr({embedded}){
   const evTypeInfo=(t)=>EVENT_TYPES.find(x=>x.v===t)||EVENT_TYPES[0];
   const totalEvents=events.filter(e=>e.date.startsWith(`${y}-${String(mo+1).padStart(2,"0")}`)).length;
 
-  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,fontFamily:FB,color:C.t1}}>
+  return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,overflow:"hidden",fontFamily:FB,color:C.t1}}>
     {/* Header */}
     <div style={{flexShrink:0,padding:embedded?"10px 24px":"14px 24px",background:C.s1,borderBottom:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       {!embedded&&<div style={{display:"flex",alignItems:"center",gap:14}}>
@@ -617,7 +617,7 @@ function CalendarScr({embedded}){
 
     <div style={{flex:1,display:"flex",overflow:"hidden",flexDirection:"column"}}>
       {/* AI Smart Scheduling */}
-      <div style={{padding:"8px 16px 0"}}><AiInsight title="SMART SCHEDULING" loading={calAiLoad} onRefresh={genCalAi} compact items={calAi?calAi.split("\n").filter(l=>l.trim()).map(l=>({text:l.replace(/^[•\-]\s*/,"")})):[{text:"Click Refresh for optimal meeting slots, conflict detection, and prep reminders."}]}/></div>
+      <div style={{padding:"8px 16px 0",flexShrink:0}}><AiInsight title="SMART SCHEDULING" loading={calAiLoad} onRefresh={genCalAi} compact items={calAi?calAi.split("\n").filter(l=>l.trim()).map(l=>({text:l.replace(/^[•\-]\s*/,"")})):[{text:"Click Refresh for optimal meeting slots, conflict detection, and prep reminders."}]}/></div>
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
       {/* ═══ MONTH VIEW ═══ */}
       {view==="month"&&<div style={{flex:1,display:"flex",flexDirection:"column",padding:"12px 16px",overflowY:"auto"}}>
