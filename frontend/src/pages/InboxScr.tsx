@@ -100,6 +100,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const [sumData,setSumData]=useState(null);
   const [showAssign,setShowAssign]=useState(false);
   const [showTransfer,setShowTransfer]=useState(false);
+  const [assignSearch,setAssignSearch]=useState("");const [assignTab,setAssignTab]=useState("agents");
   const [showSnooze,setShowSnooze]=useState(false);
   const [showNewConv,setShowNewConv]=useState(false);
   const [showLblPick,setShowLblPick]=useState(false);
@@ -569,18 +570,16 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       return {...c,labels:newLabels};
     }));
   };
-  const assignTo=agId=>{
-    setConvs(p=>p.map(c=>c.id===aid?{...c,agent:agId||null}:c));
-    setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),{id:uid(),role:"sys",text:agId?`Assigned to ${agents.find(a=>a.id===agId)?.name}`:"Unassigned"}]}));
-    if(api.isConnected())api.patch(`/conversations/${aid}`,{agent_id:agId||null}).catch(()=>{});
-    setShowAssign(false);showT("Assignment updated","success");
+  const assignTo=(agId,teamId)=>{
+    const updates:any={};const sysTexts:string[]=[];
+    if(agId!==undefined){updates.assignee_id=agId||null;sysTexts.push(agId?`Assigned to ${agents.find(a=>a.id===agId)?.name}`:"Unassigned");}
+    if(teamId!==undefined){updates.team_id=teamId||null;sysTexts.push(teamId?`Transferred to team ${teams.find(t=>t.id===teamId)?.name}`:"Removed from team");}
+    setConvs(p=>p.map(c=>c.id===aid?{...c,...(agId!==undefined?{agent:agId||null}:{}),...(teamId!==undefined?{team:teamId||null}:{})}:c));
+    if(sysTexts.length)setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),...sysTexts.map(t=>({id:uid(),role:"sys",text:t}))]}));
+    if(api.isConnected())api.patch(`/conversations/${aid}`,updates).catch(()=>{});
+    setShowAssign(false);setShowTransfer(false);setAssignSearch("");showT(sysTexts.join(", ")||"Updated","success");
   };
-  const doTransfer=tid=>{
-    setConvs(p=>p.map(c=>c.id===aid?{...c,team:tid}:c));
-    setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),{id:uid(),role:"sys",text:`Transferred to ${teams.find(t=>t.id===tid)?.name}`}]}));
-    if(api.isConnected())api.patch(`/conversations/${aid}`,{team_id:tid}).catch(()=>{});
-    setShowTransfer(false);showT("Transferred","success");
-  };
+  const doTransfer=tid=>{assignTo(undefined,tid);};
   const doSnooze=h=>{
     setConvs(p=>p.map(c=>c.id===aid?{...c,status:"snoozed"}:c));
     setMsgs(p=>({...p,[aid]:[...(p[aid]||[]),{id:uid(),role:"sys",text:`Snoozed for ${h} hour${h>1?"s":""}`}]}));
@@ -859,7 +858,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           <Btn ch="✦ Classify" v="ai" sm onClick={classifyAI}/>
           <div style={{width:1,height:16,background:C.b1,margin:"0 1px"}}/>
           {conv.status==="open"?<Btn ch="⊘ Resolve" v="success" sm onClick={resolve}/>:<Btn ch="↺ Reopen" v="warn" sm onClick={reopen}/>}
-          <Btn ch="↗ Transfer" v="ghost" sm onClick={()=>setShowTransfer(true)}/>
+          <Btn ch="👤 Assign" v="ghost" sm onClick={()=>{setAssignTab("agents");setAssignSearch("");setShowAssign(true);}}/>
+          <Btn ch="👥 Team" v="ghost" sm onClick={()=>{setAssignTab("teams");setAssignSearch("");setShowAssign(true);}}/>
           <Btn ch="⊖ Snooze" v="ghost" sm onClick={()=>setShowSnooze(true)}/>
           <div style={{width:1,height:16,background:C.b1,margin:"0 1px"}}/>
           <button onClick={()=>setShowMsgSearch(p=>!p)} title="Search messages" style={{width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,background:showMsgSearch?C.ad:C.s3,color:showMsgSearch?C.a:C.t3,border:`1px solid ${showMsgSearch?C.a+"44":C.b1}`,cursor:"pointer"}} className="hov">⌕</button>
@@ -1304,27 +1304,82 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     </div>}
     {convRatings[aid]&&conv?.status==="resolved"&&<div style={{position:"absolute",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:30,background:C.gd,border:`1px solid ${C.g}44`,borderRadius:10,padding:"8px 16px",fontSize:11,color:C.g,fontWeight:700,fontFamily:FM}}>Rated {convRatings[aid]}★ — Thanks!</div>}
 
-    {showAssign&&<Mdl title="Assign Agent" onClose={()=>setShowAssign(false)} w={380}>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        <button onClick={()=>assignTo(null)} className="hov" style={{padding:"10px 12px",borderRadius:10,background:"transparent",border:`1px solid ${C.b1}`,cursor:"pointer",textAlign:"left",color:C.y,fontSize:13,fontFamily:FB,transition:"background .12s"}}>⚠ Unassign</button>
-        {agents.map(a=>(
-          <button key={a.id} onClick={()=>assignTo(a.id)} className="hov" style={{padding:"10px 12px",borderRadius:10,background:conv?.agent===a.id?C.ad:"transparent",border:`1px solid ${conv?.agent===a.id?C.a+"44":C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,transition:"background .12s"}}>
-            <Av i={a.av} c={a.color} s={30} dot={a.status==="online"}/>
-            <div style={{flex:1,textAlign:"left"}}><div style={{fontSize:13,fontWeight:600,color:C.t1}}>{a.name}</div><div style={{fontSize:11,color:C.t3}}>{a.role} · {a.status}</div></div>
-            {conv?.agent===a.id&&<span style={{color:C.a}}>✓</span>}
-          </button>
+    {showAssign&&<Mdl title="Assign Conversation" onClose={()=>{setShowAssign(false);setAssignSearch("");setAssignTab("agents");}} w={440}>
+      {/* Search */}
+      <div style={{marginBottom:10}}><input value={assignSearch} onChange={e=>setAssignSearch(e.target.value)} placeholder="Search agents or teams…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/></div>
+      {/* Tabs */}
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.b1}`,marginBottom:10}}>
+        {[["agents","👤 Agents"],["teams","👥 Teams"]].map(([id,l])=>(
+          <button key={id} onClick={()=>setAssignTab(id)} style={{padding:"8px 16px",fontSize:12,fontWeight:700,fontFamily:FM,color:assignTab===id?C.a:C.t3,borderBottom:`2.5px solid ${assignTab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer"}}>{l}</button>
         ))}
       </div>
+      {/* Agents tab */}
+      {assignTab==="agents"&&<div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:350,overflowY:"auto"}}>
+        <button onClick={()=>assignTo(null)} className="hov" style={{padding:"9px 12px",borderRadius:10,background:"transparent",border:`1px solid ${C.b1}`,cursor:"pointer",textAlign:"left",color:C.y,fontSize:12,fontFamily:FB}}>⚠ Unassign</button>
+        {/* Online agents first */}
+        {(()=>{
+          const q=assignSearch.toLowerCase();
+          const filtered=agents.filter(a=>!q||a.name?.toLowerCase().includes(q)||a.email?.toLowerCase().includes(q)||a.role?.toLowerCase().includes(q));
+          const online=filtered.filter(a=>a.status==="online");
+          const offline=filtered.filter(a=>a.status!=="online");
+          const renderAgent=(a)=>(
+            <button key={a.id} onClick={()=>assignTo(a.id)} className="hov" style={{padding:"9px 12px",borderRadius:10,background:conv?.agent===a.id?C.ad:"transparent",border:`1px solid ${conv?.agent===a.id?C.a+"44":C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%"}}>
+              <div style={{position:"relative"}}><Av i={a.av} c={a.color} s={30}/><span style={{position:"absolute",bottom:-1,right:-1,width:9,height:9,borderRadius:"50%",border:`2px solid ${C.s2}`,background:a.status==="online"?C.g:a.status==="busy"?C.y:C.t3}}/></div>
+              <div style={{flex:1,textAlign:"left"}}><div style={{fontSize:12,fontWeight:600,color:C.t1}}>{a.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{a.role} · {a.email}</div></div>
+              <span style={{fontSize:9,fontWeight:700,fontFamily:FM,padding:"2px 7px",borderRadius:5,background:a.status==="online"?C.g+"18":a.status==="busy"?C.y+"18":C.s3,color:a.status==="online"?C.g:a.status==="busy"?C.y:C.t3}}>{a.status}</span>
+              {conv?.agent===a.id&&<span style={{color:C.a,fontSize:14}}>✓</span>}
+            </button>
+          );
+          return<>{online.length>0&&<><div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.g,letterSpacing:".5px",padding:"4px 4px 2px",display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:C.g}}/>ONLINE ({online.length})</div>{online.map(renderAgent)}</>}
+          {offline.length>0&&<><div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,letterSpacing:".5px",padding:"6px 4px 2px"}}>OFFLINE ({offline.length})</div>{offline.map(renderAgent)}</>}
+          {filtered.length===0&&<div style={{padding:16,textAlign:"center",color:C.t3,fontSize:12}}>No agents found</div>}</>;
+        })()}
+      </div>}
+      {/* Teams tab */}
+      {assignTab==="teams"&&<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:350,overflowY:"auto"}}>
+        {conv?.team&&<button onClick={()=>assignTo(undefined,null)} className="hov" style={{padding:"9px 12px",borderRadius:10,background:"transparent",border:`1px solid ${C.b1}`,cursor:"pointer",textAlign:"left",color:C.y,fontSize:12,fontFamily:FB}}>⚠ Remove from team</button>}
+        {(()=>{
+          const q=assignSearch.toLowerCase();
+          const filtered=teams.filter(t=>!q||t.name?.toLowerCase().includes(q)||(t.desc||"").toLowerCase().includes(q));
+          return<>{filtered.map(t=>{
+            const isCurrent=conv?.team===t.id;
+            const teamAgents=agents.filter(a=>(t.members||[]).includes(a.id));
+            const onlineCount=teamAgents.filter(a=>a.status==="online").length;
+            return(
+            <div key={t.id} style={{borderRadius:10,border:`1px solid ${isCurrent?C.a+"44":C.b1}`,background:isCurrent?C.ad:C.s1,overflow:"hidden"}}>
+              <div className="hov" onClick={()=>assignTo(undefined,t.id)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:9,background:C.a+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>👥</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700}}>{t.name}{isCurrent&&<span style={{color:C.a,marginLeft:6,fontSize:11}}>✓ Current</span>}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{t.desc||"No description"} · {teamAgents.length} members · {onlineCount} online</div>
+                </div>
+              </div>
+              {/* Team members - assign directly */}
+              {teamAgents.length>0&&<div style={{borderTop:`1px solid ${C.b1}22`,padding:"6px 10px",display:"flex",gap:4,flexWrap:"wrap"}}>
+                {teamAgents.map(a=>(
+                  <button key={a.id} onClick={()=>assignTo(a.id,t.id)} className="hov" title={`Assign to ${a.name} (${t.name})`} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:6,background:conv?.agent===a.id?C.a+"18":"transparent",border:`1px solid ${conv?.agent===a.id?C.a+"44":C.b1}`,cursor:"pointer",fontSize:10,fontWeight:600,color:conv?.agent===a.id?C.a:C.t2}}>
+                    <div style={{position:"relative"}}><Av i={a.av} c={a.color} s={18}/><span style={{position:"absolute",bottom:-1,right:-1,width:6,height:6,borderRadius:"50%",border:`1.5px solid ${C.s1}`,background:a.status==="online"?C.g:C.t3}}/></div>
+                    {a.name}
+                  </button>
+                ))}
+              </div>}
+            </div>
+          );})}{filtered.length===0&&<div style={{padding:16,textAlign:"center",color:C.t3,fontSize:12}}>No teams found</div>}</>;
+        })()}
+      </div>}
     </Mdl>}
 
     {showTransfer&&<Mdl title="Transfer to Team" onClose={()=>setShowTransfer(false)} w={380}>
       <p style={{fontSize:13,color:C.t2,marginBottom:14}}>Select a team to transfer this conversation:</p>
-      {teams.map(t=>(
-        <div key={t.id} className="hov" onClick={()=>doTransfer(t.id)} style={{padding:"12px 14px",borderRadius:10,background:C.s1,border:`1px solid ${C.b1}`,cursor:"pointer",marginBottom:8,transition:"background .12s"}}>
-          <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{t.name}</div>
-          <div style={{fontSize:11.5,color:C.t3}}>{t.desc} · {t.members.length} agents</div>
+      {teams.map(t=>{
+        const teamAgents=agents.filter(a=>(t.members||[]).includes(a.id));
+        const onlineCount=teamAgents.filter(a=>a.status==="online").length;
+        return(
+        <div key={t.id} className="hov" onClick={()=>doTransfer(t.id)} style={{padding:"12px 14px",borderRadius:10,background:conv?.team===t.id?C.ad:C.s1,border:`1px solid ${conv?.team===t.id?C.a+"44":C.b1}`,cursor:"pointer",marginBottom:8}}>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{t.name}{conv?.team===t.id&&<span style={{color:C.a,marginLeft:6,fontSize:10}}>✓</span>}</div>
+          <div style={{fontSize:11.5,color:C.t3}}>{t.desc} · {teamAgents.length} agents · {onlineCount} online</div>
         </div>
-      ))}
+      );})}
     </Mdl>}
 
     {showSnooze&&<Mdl title="Snooze Conversation" onClose={()=>setShowSnooze(false)} w={360}>

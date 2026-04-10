@@ -179,8 +179,32 @@ router.patch('/:id', auth, async (req, res) => {
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
   await db.prepare(`UPDATE conversations SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
 
-  const updated = await db.prepare('SELECT * FROM conversations WHERE id=?').get(req.params.id);
+  const updated = await db.prepare(`
+    SELECT c.*, ct.name as contact_name, ct.email as contact_email, ct.avatar as contact_avatar, ct.color as contact_color,
+           ib.name as inbox_name, ib.type as inbox_type,
+           a.name as assignee_name, a.avatar as assignee_avatar, a.color as assignee_color
+    FROM conversations c
+    LEFT JOIN contacts ct ON c.contact_id=ct.id
+    LEFT JOIN inboxes ib ON c.inbox_id=ib.id
+    LEFT JOIN agents a ON c.assignee_id=a.id
+    WHERE c.id=?
+  `).get(req.params.id);
   try { updated.labels = JSON.parse(updated.labels || '[]'); } catch { updated.labels = []; }
+
+  // Broadcast to all agents for real-time sync
+  broadcastToAll({
+    type: 'conversation_update',
+    conversationId: req.params.id,
+    updates: {
+      assignee_id: updates.assignee_id,
+      team_id: updates.team_id,
+      status: updates.status,
+      priority: updates.priority
+    },
+    conversation: updated,
+    agent_name: req.agent.name
+  });
+
   res.json({ conversation: updated });
 });
 

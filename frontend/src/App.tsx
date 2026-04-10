@@ -486,13 +486,28 @@ export default function App(){
             }).catch(()=>{});
             pushNotification({text:"🤖 Bot handoff: "+(m.updates.visitor_name||"Visitor")+" needs a live agent",type:"message",targetScreen:"inbox",conversationId:m.conversationId||null});
             showT("🤖 Bot handoff — a visitor needs a live agent!","info");
+          } else if(m.conversation){
+            // Real-time update from broadcast — apply directly without re-fetching
+            const cv=m.conversation;
+            const labels=typeof cv.labels==="string"?(() => { try { return JSON.parse(cv.labels||"[]"); } catch { return []; } })():cv.labels||[];
+            setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||c.ch||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:cv.unread_count||c.unread||0,time:cv.updated_at||c.time||""}:c));
+            // Notification for assignment changes
+            const upd=m.updates||{};
+            if(upd.assignee_id!==undefined){
+              const agName=cv.assignee_name||"someone";
+              pushNotification({text:upd.assignee_id?`Assigned to ${agName}`:"Conversation unassigned",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            } else if(upd.team_id!==undefined){
+              pushNotification({text:"Conversation transferred to another team",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            } else {
+              pushNotification({text:"Conversation updated"+(m.agent_name?" by "+m.agent_name:""),type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            }
           } else {
             api.get(`/conversations/${m.conversationId}`).then(r=>{
               const cv=r?.conversation;
               if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||"live",agent:cv.assignee_id,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
             }).catch(()=>{});
+            pushNotification({text:"Conversation updated",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
           }
-          pushNotification({text:"Conversation updated",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
         }
         if(m.type==="presence"){
           setAgents(p=>p.map(a=>a.id===m.agent_id?{...a,status:m.status}:a));
