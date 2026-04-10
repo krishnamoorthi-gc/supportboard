@@ -1028,6 +1028,7 @@ app.use('/api/kb', require('./routes/kb'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/sales-agent', require('./routes/sales-agent'));
 app.use('/api/email', require('./routes/email'));
 
 // Live monitor - visitor sessions

@@ -572,6 +572,90 @@ CREATE TABLE IF NOT EXISTS bot_chats (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Sales Agents
+CREATE TABLE IF NOT EXISTS sales_agents (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  role VARCHAR(255),
+  emoji VARCHAR(50) DEFAULT '🤖',
+  color VARCHAR(50) DEFAULT '#4c82fb',
+  tone VARCHAR(50) DEFAULT 'consultative',
+  language VARCHAR(20) DEFAULT 'en',
+  channels TEXT,
+  system_prompt TEXT,
+  handoff_threshold INT DEFAULT 70,
+  max_turns INT DEFAULT 10,
+  followup_days INT DEFAULT 3,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_playbooks (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  \`trigger\` VARCHAR(255),
+  steps TEXT,
+  product_tier VARCHAR(100),
+  owner_name VARCHAR(255),
+  conversion_rate DECIMAL(5,2) DEFAULT 0,
+  avg_deal_size DECIMAL(15,2) DEFAULT 0,
+  conversion_count INT DEFAULT 0,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_qualification_rules (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  field VARCHAR(100) NOT NULL,
+  operator VARCHAR(50) DEFAULT 'equals',
+  value VARCHAR(255),
+  points INT DEFAULT 10,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_objections (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  trigger_phrase VARCHAR(255),
+  response TEXT,
+  category VARCHAR(100) DEFAULT 'general',
+  usage_count INT DEFAULT 0,
+  success_rate DECIMAL(5,2) DEFAULT 0,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_products (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  price VARCHAR(100),
+  features TEXT,
+  segment VARCHAR(255),
+  qualifier_rule TEXT,
+  active TINYINT DEFAULT 1,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_lead_activities (
+  id VARCHAR(255) PRIMARY KEY,
+  sales_agent_id VARCHAR(255),
+  lead_id VARCHAR(255),
+  type VARCHAR(100),
+  details TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
   await db.query(schema.replace(/TEXT DEFAULT \(datetime\('now'\)\)/g, "DATETIME DEFAULT CURRENT_TIMESTAMP")
