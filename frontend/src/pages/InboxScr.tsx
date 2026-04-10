@@ -65,6 +65,23 @@ const attachmentHref=(attachment:any)=>{
   return `${BACKEND_ORIGIN}${url.startsWith("/")?"":"/"}${url}`;
 };
 
+const sanitizeDownloadName=(value="conversation")=>String(value||"conversation")
+  .replace(/[<>:"/\\|?*\x00-\x1f]/g,"-")
+  .replace(/\s+/g," ")
+  .trim()
+  .slice(0,80)
+  || "conversation";
+
+const downloadTextFile=(content:string,filename:string)=>{
+  const blob=new Blob([content],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,convs,setConvs,msgs,setMsgs,aid,setAid,soundOn,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,getCfVal,setCfVal,csatPending,setCsatPending,snoozeConv,convViewers,savedViews,setSavedViews,isActive=true}){
   const [fStatus,setFStatus]=useState("open");
   const [fOwner,setFOwner]=useState("all");
@@ -490,7 +507,33 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const startEditMsg=(mid,text)=>{setEditMsgId(mid);setEditMsgText(text);setInp(text);};
   const markSpam=()=>{setConvs(p=>p.map(c=>c.id===aid?{...c,status:"resolved",labels:[...c.labels.filter(l=>l!=="spam"),"spam"]}:c));showT("Marked as spam","warn");};
   const mergeConv=()=>showT("Merge — select target conversation","info");
-  const exportChat=()=>{const txt=convMsgs.map(m=>m.role==="sys"?`[${m.text}]`:`[${m.role==="agent"?"Agent":"Customer"}] ${m.text}`).join("\n");navigator.clipboard?.writeText(txt);showT("Chat exported to clipboard","success");};
+  const exportChat=async()=>{
+    if(!convMsgs.length){
+      showT("No messages to export","info");
+      return;
+    }
+    const lines=[
+      `Conversation: ${conv?.subject||aid||"Conversation"}`,
+      `Customer: ${contactName}`,
+      `Channel: ${conv?.ch||"chat"}`,
+      `Exported: ${new Date().toLocaleString()}`,
+      "",
+      ...convMsgs.map((m:any)=>{
+        const stamp=m.created_at?new Date(m.created_at).toLocaleString():m.t||"";
+        if(m.role==="sys")return `${stamp?`[${stamp}] `:""}[System] ${m.text||""}`.trim();
+        return `${stamp?`[${stamp}] `:""}[${m.role==="agent"?"Agent":"Customer"}] ${m.text||""}`.trim();
+      }),
+    ];
+    const txt=lines.join("\n");
+    const fileName=`${sanitizeDownloadName(conv?.subject||contactName||aid||"conversation")}.txt`;
+    downloadTextFile(txt,fileName);
+    try{
+      await navigator.clipboard.writeText(txt);
+      showT("Chat exported and copied","success");
+    }catch{
+      showT("Chat exported as text file","success");
+    }
+  };
   const blockContact=()=>showT("Contact blocked","warn");
   const deleteConv=async()=>{
     if(!aid)return;

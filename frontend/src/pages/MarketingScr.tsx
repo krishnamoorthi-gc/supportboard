@@ -2,58 +2,6 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
 // ─── MARKETING ────────────────────────────────────────────────────────────
-const MKT_CAMPS=[
-  {id:"mk1",ch:"whatsapp",name:"Diwali Sale Blast",goal:"promotion",status:"sent",ab:false,audience:4820,sent:4820,delivered:4680,read:3210,clicked:890,failed:140,unsub:12,revenue:"₹2,84,000",cost:"₹4,200",roi:"6,657%",date:"01/03/26",template:"promotional_offer",spark:[22,35,48,62,71,68,54]},
-  {id:"mk2",ch:"email",name:"March Newsletter",goal:"engagement",status:"active",ab:true,audience:12400,sent:12400,delivered:11800,read:4720,clicked:1650,failed:600,unsub:45,revenue:"₹1,12,000",cost:"₹1,800",roi:"6,122%",date:"10/03/26",subject:"What's new in March?",spark:[10,18,42,55,38,62,48]},
-  {id:"mk3",ch:"sms",name:"Flash Sale Alert",goal:"promotion",status:"sent",ab:false,audience:2100,sent:2100,delivered:2040,read:1530,clicked:410,failed:60,unsub:8,revenue:"₹68,000",cost:"₹2,100",roi:"3,138%",date:"08/03/26",template:"flash_sale",spark:[15,28,45,52,42,35,22]},
-  {id:"mk4",ch:"whatsapp",name:"Abandoned Cart Reminder",goal:"retention",status:"active",ab:false,audience:890,sent:890,delivered:870,read:620,clicked:340,failed:20,unsub:2,revenue:"₹1,45,000",cost:"₹890",roi:"16,192%",date:"12/03/26",template:"cart_reminder",spark:[8,14,22,35,42,55,48]},
-  {id:"mk5",ch:"email",name:"Product Launch",goal:"promotion",status:"scheduled",ab:true,audience:15000,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"₹2,200",roi:"—",date:"20/03/26",subject:"Introducing our newest product",spark:[0,0,0,0,0,0,0]},
-  {id:"mk6",ch:"sms",name:"Appointment Reminder",goal:"engagement",status:"draft",ab:false,audience:0,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:"—",template:"",spark:[0,0,0,0,0,0,0]},
-  {id:"mk7",ch:"whatsapp",name:"Feedback Request",goal:"engagement",status:"paused",ab:false,audience:3200,sent:1600,delivered:1560,read:980,clicked:220,failed:40,unsub:5,revenue:"—",cost:"₹1,600",roi:"—",date:"05/03/26",template:"feedback_request",spark:[12,22,35,28,18,10,5]},
-  {id:"mk8",ch:"email",name:"Welcome Series #1",goal:"retention",status:"active",ab:false,audience:890,sent:890,delivered:860,read:510,clicked:180,failed:30,unsub:3,revenue:"₹22,000",cost:"₹320",roi:"6,775%",date:"14/03/26",subject:"Welcome aboard!",spark:[5,12,18,25,22,28,32]},
-  {id:"mk9",ch:"whatsapp",name:"Re-engagement Push",goal:"retention",status:"sent",ab:true,audience:2400,sent:2400,delivered:2320,read:1680,clicked:520,failed:80,unsub:18,revenue:"₹92,000",cost:"₹2,400",roi:"3,733%",date:"02/03/26",template:"promotional_offer",spark:[18,30,45,55,48,40,32]},
-  {id:"mk10",ch:"email",name:"Feature Announcement",goal:"engagement",status:"sent",ab:false,audience:8600,sent:8600,delivered:8200,read:3280,clicked:980,failed:400,unsub:28,revenue:"₹45,000",cost:"₹1,200",roi:"3,650%",date:"28/02/26",subject:"Big update inside",spark:[8,22,38,52,45,35,28]},
-  {id:"mk11",ch:"push",name:"Flash Deal Push",goal:"promotion",status:"sent",ab:false,audience:6200,sent:6200,delivered:5900,read:2360,clicked:820,failed:300,unsub:15,revenue:"₹58,000",cost:"₹620",roi:"9,254%",date:"09/03/26",template:"flash_push",spark:[15,28,42,55,38,25,18]},
-  {id:"mk12",ch:"push",name:"Abandoned Cart Nudge",goal:"retention",status:"active",ab:false,audience:1800,sent:1800,delivered:1720,read:1030,clicked:480,failed:80,unsub:4,revenue:"₹1,22,000",cost:"₹180",roi:"67,678%",date:"13/03/26",template:"cart_push",spark:[10,18,32,45,52,48,40]},
-  {id:"mk13",ch:"push",name:"New Feature Alert",goal:"engagement",status:"scheduled",ab:false,audience:9400,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"₹940",roi:"—",date:"18/03/26",template:"feature_push",spark:[0,0,0,0,0,0,0]},
-  {id:"mk14",ch:"whatsapp",name:"Champions Reward",goal:"retention",status:"active",ab:false,audience:420,sent:420,delivered:415,read:380,clicked:210,failed:5,unsub:0,revenue:"₹88,000",cost:"₹420",roi:"20,852%",date:"11/03/26",template:"loyalty_reward",spark:[5,12,22,35,42,38,28]}
-];
-const WA_MKT_T=[{id:"t1",name:"promotional_offer",cat:"Promotion",text:"Hi {{first_name}}! We have an exclusive {{discount}}% OFF just for you. Shop now: {{link}} Valid till {{date}}\n\nReply STOP to unsubscribe"},{id:"t2",name:"cart_reminder",cat:"Retention",text:"Hey {{first_name}}! You left items in your cart worth {{amount}}. Complete your order: {{link}}\n\nReply STOP to unsubscribe"},{id:"t3",name:"feedback_request",cat:"Engagement",text:"Hi {{first_name}}, how was your experience with {{product}}? Share your thoughts: {{link}}\n\nReply STOP to unsubscribe"},{id:"t4",name:"order_update",cat:"Transactional",text:"Hi {{first_name}}, your order #{{order_id}} is {{status}}. Track: {{link}}\n\nReply STOP to unsubscribe"},{id:"t5",name:"flash_sale",cat:"Promotion",text:"FLASH SALE! {{discount}}% off everything for {{hours}} hours. Shop: {{link}}\n\nReply STOP to unsubscribe"},{id:"t6",name:"welcome",cat:"Onboarding",text:"Welcome to {{company}}, {{first_name}}! Here is how to get started: {{link}}\n\nReply STOP to unsubscribe"},{id:"t7",name:"loyalty_reward",cat:"Retention",text:"{{first_name}}, you have earned {{points}} reward points! Redeem now: {{link}}\n\nReply STOP to unsubscribe"}];
-const SMS_MKT_T=[{id:"s1",name:"flash_sale",cat:"Promotion",text:"FLASH SALE! {{discount}}% off for {{hours}}hrs. Shop: {{link}} Reply STOP to opt out"},{id:"s2",name:"reminder",cat:"Transactional",text:"Reminder: {{first_name}}, your appointment is {{date}} at {{time}}. Reply C to confirm"},{id:"s3",name:"promo_code",cat:"Promotion",text:"{{first_name}}, exclusive {{discount}}% OFF code: {{code}}. Valid {{date}}. {{link}}"},{id:"s4",name:"payment_due",cat:"Transactional",text:"Hi {{first_name}}, payment of {{amount}} is due on {{date}}. Pay now: {{link}}"}];
-const EMAIL_MKT_T=[{id:"e1",name:"newsletter",cat:"Engagement",subj:"What is new this month at {{company}}"},{id:"e2",name:"product_launch",cat:"Promotion",subj:"Introducing {{product}} — available now"},{id:"e3",name:"welcome_series",cat:"Onboarding",subj:"Welcome to {{company}}, {{first_name}}!"},{id:"e4",name:"win_back",cat:"Retention",subj:"We miss you, {{first_name}}! Here is {{discount}}% off"}];
-const PUSH_MKT_T=[{id:"p1",name:"flash_push",cat:"Promotion",text:"{{discount}}% OFF everything! Ends in {{hours}} hours. Tap to shop."},{id:"p2",name:"cart_push",cat:"Retention",text:"{{first_name}}, you left {{product}} in your cart! Complete checkout now."},{id:"p3",name:"feature_push",cat:"Engagement",text:"New: {{product}} just launched! Be the first to try it."},{id:"p4",name:"review_push",cat:"Engagement",text:"How was your experience with {{product}}? Tap to leave a review."}];
-const MKT_SEGS=[{id:"sg1",name:"All Contacts",count:5200,desc:"Every contact in your database",icon:"👥",fixed:true},{id:"sg2",name:"Active Customers",count:3100,desc:"Purchased in last 30 days",icon:"🟢",fixed:true},{id:"sg3",name:"Inactive (30d+)",count:1400,desc:"No activity for 30+ days",icon:"💤",fixed:true},{id:"sg4",name:"High Value (VIP)",count:420,desc:"Lifetime value > $500",icon:"💎",fixed:true},{id:"sg5",name:"New Signups (7d)",count:180,desc:"Registered in the last week",icon:"🆕",fixed:true},{id:"sg6",name:"Cart Abandoners",count:640,desc:"Items in cart, no purchase",icon:"🛒",fixed:true},{id:"sg7",name:"Newsletter Subs",count:8900,desc:"Opted in to email marketing",icon:"📰",fixed:true},{id:"sg8",name:"Pro/Enterprise",count:320,desc:"Paying Pro or Enterprise plans",icon:"🏢",fixed:true},{id:"sg9",name:"Churned Risk",count:280,desc:"Engagement dropped 60%+ last 14d",icon:"⚠️",fixed:true},{id:"sg10",name:"Champions",count:150,desc:"Top 5% by engagement + spend",icon:"🏆",fixed:true}];
-const TPL_LIB=[
-  {id:"tl1",ch:"email",cat:"Onboarding",name:"Welcome Series #1",desc:"First-touch welcome with getting started CTA",openRate:58,ctr:22,body:"Welcome to {{company}}, {{first_name}}! We are thrilled to have you. Get started: {{link}}"},
-  {id:"tl2",ch:"email",cat:"Onboarding",name:"Setup Guide",desc:"Step-by-step product setup email",openRate:52,ctr:28,body:"Hi {{first_name}}, ready to get the most out of {{product}}? Follow our quick setup guide: {{link}}"},
-  {id:"tl3",ch:"email",cat:"Promotion",name:"Seasonal Sale",desc:"Limited-time discount announcement",openRate:42,ctr:18,body:"{{first_name}}, our biggest sale of the season is here! {{discount}}% off everything. Shop: {{link}}"},
-  {id:"tl4",ch:"email",cat:"Retention",name:"Win-Back",desc:"Re-engage inactive users with offer",openRate:35,ctr:14,body:"We miss you, {{first_name}}! Come back and get {{discount}}% off your next order: {{link}}"},
-  {id:"tl5",ch:"email",cat:"Billing",name:"Payment Reminder",desc:"Upcoming payment due notification",openRate:68,ctr:32,body:"Hi {{first_name}}, your payment of {{amount}} is due on {{date}}. Pay now: {{link}}"},
-  {id:"tl6",ch:"whatsapp",cat:"Promotion",name:"Flash Sale",desc:"Urgency-driven time-limited offer",openRate:78,ctr:35,body:"FLASH SALE! {{discount}}% off for {{hours}} hours only. Shop now: {{link}}"},
-  {id:"tl7",ch:"whatsapp",cat:"Retention",name:"Cart Recovery",desc:"Abandoned cart reminder with link",openRate:72,ctr:42,body:"Hey {{first_name}}! You left {{product}} in your cart. Complete your order: {{link}}"},
-  {id:"tl8",ch:"whatsapp",cat:"Engagement",name:"Feedback Request",desc:"Post-purchase review request",openRate:65,ctr:28,body:"Hi {{first_name}}, how was {{product}}? Share feedback: {{link}}"},
-  {id:"tl9",ch:"whatsapp",cat:"Onboarding",name:"Welcome Message",desc:"First WhatsApp touchpoint",openRate:82,ctr:38,body:"Welcome to {{company}}, {{first_name}}! We are here to help 24/7. Get started: {{link}}"},
-  {id:"tl10",ch:"sms",cat:"Promotion",name:"Promo Code",desc:"Exclusive discount code delivery",openRate:92,ctr:22,body:"{{first_name}}, your exclusive code: {{code}}. {{discount}}% OFF. Valid {{date}}. {{link}}"},
-  {id:"tl11",ch:"sms",cat:"Transactional",name:"Appointment Reminder",desc:"Booking/appointment confirmation",openRate:95,ctr:18,body:"Reminder: {{first_name}}, appt on {{date}} at {{time}}. Reply C to confirm."},
-  {id:"tl12",ch:"sms",cat:"Billing",name:"Payment Due",desc:"Payment deadline alert",openRate:88,ctr:25,body:"Hi {{first_name}}, {{amount}} due on {{date}}. Pay: {{link}} Reply STOP to opt out"},
-  {id:"tl13",ch:"push",cat:"Promotion",name:"Deal Alert",desc:"Time-sensitive push offer",openRate:45,ctr:18,body:"{{discount}}% OFF everything! Ends in {{hours}} hrs. Tap to shop."},
-  {id:"tl14",ch:"push",cat:"Retention",name:"Come Back",desc:"Re-engagement push for dormant users",openRate:32,ctr:12,body:"We miss you, {{first_name}}! {{discount}}% off to welcome you back."},
-  {id:"tl15",ch:"push",cat:"Engagement",name:"New Feature",desc:"Product update notification",openRate:48,ctr:22,body:"New: {{product}} just launched! Be the first to try it."},
-  {id:"tl16",ch:"email",cat:"Engagement",name:"Newsletter",desc:"Monthly digest with highlights",openRate:38,ctr:12,body:"Hi {{first_name}}, here is what happened this month at {{company}}. Read more: {{link}}"},
-  {id:"tl17",ch:"email",cat:"Promotion",name:"Product Launch",desc:"New product/feature announcement",openRate:44,ctr:20,body:"{{first_name}}, meet {{product}}! The feature you have been waiting for. Learn more: {{link}}"},
-  {id:"tl18",ch:"whatsapp",cat:"Billing",name:"Invoice Ready",desc:"Invoice/receipt delivery via WhatsApp",openRate:88,ctr:45,body:"Hi {{first_name}}, your invoice for {{amount}} is ready. Download: {{link}}"},
-  {id:"tl19",ch:"push",cat:"Engagement",name:"Review Request",desc:"Post-delivery review nudge",openRate:38,ctr:15,body:"How was {{product}}? Tap to leave a quick review."},
-  {id:"tl20",ch:"sms",cat:"Retention",name:"Loyalty Points",desc:"Points balance & redemption reminder",openRate:85,ctr:20,body:"{{first_name}}, you have {{points}} pts! Redeem for rewards: {{link}}"},
-  {id:"tl21",ch:"email",cat:"Retention",name:"Re-activation Offer",desc:"Special deal for churned users",openRate:30,ctr:10,body:"{{first_name}}, it has been a while! We have a special {{discount}}% off just for you: {{link}}"}
-];
-const MKT_AUTOS=[
-  {id:"au1",name:"Welcome Series",trigger:"Contact Created",status:true,steps:["Send welcome email","Wait 2 days","Send tips email","Wait 3 days","Send offer email"],enrolled:1240,completed:890,ch:"email"},
-  {id:"au2",name:"Cart Recovery",trigger:"Cart Abandoned",status:true,steps:["Wait 1 hour","Send WhatsApp reminder","Wait 24 hours","Send discount email"],enrolled:640,completed:340,ch:"whatsapp"},
-  {id:"au3",name:"Post-Purchase Review",trigger:"Order Delivered",status:true,steps:["Wait 3 days","Send feedback WhatsApp","Wait 5 days","Send NPS email"],enrolled:2100,completed:1560,ch:"whatsapp"},
-  {id:"au4",name:"Re-engagement",trigger:"Inactive 30 days",status:false,steps:["Send miss-you email","Wait 7 days","Send SMS offer","Wait 14 days","Mark as churned"],enrolled:450,completed:120,ch:"email"},
-  {id:"au5",name:"Birthday Offer",trigger:"Birthday Match",status:true,steps:["Send birthday WhatsApp","Apply 20% coupon"],enrolled:320,completed:310,ch:"whatsapp"},
-  {id:"au6",name:"Payment Reminder",trigger:"Payment Due",status:true,steps:["Send SMS 3 days before","Send email 1 day before","Send SMS on due date"],enrolled:890,completed:780,ch:"sms"}
-];
 const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points"];
 const mktGoalC=g=>({promotion:C.r,engagement:C.a,retention:C.p,transactional:C.cy}[g]||C.t3);
 const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y}[s]||C.t3);
@@ -65,9 +13,9 @@ const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"A
 
 export default function MarketingScr({contacts}){
   const [mtab,setMtab]=useState("overview");
-  const [camps,setCamps]=useState(MKT_CAMPS);
-  const [autos,setAutos]=useState(MKT_AUTOS);
-  const [segments,setSegments]=useState(MKT_SEGS);
+  const [camps,setCamps]=useState([]);
+  const [autos,setAutos]=useState([]);
+  const [segments,setSegments]=useState([]);
   const [filter,setFilter]=useState("all");
   const [search,setSearch]=useState("");
   const [showModal,setShowModal]=useState(false);
@@ -103,48 +51,60 @@ export default function MarketingScr({contacts}){
   useEffect(()=>{if(!api.isConnected())return;
     api.get("/marketing/campaigns").then(r=>{
       if(r?.campaigns){
-        const apiCamps=r.campaigns.map(c=>({
+        const apiCamps=r.campaigns.map(c=>{
+          const stats=typeof c.stats==="string"?JSON.parse(c.stats||"{}"):c.stats||{};
+          return{
           ...c,
           ch:c.type||c.ch||"email",
           name:c.name||"Campaign",
           goal:c.goal||"promotion",
           status:c.status||"draft",
-          audience:c.audience||0,
-          sent:c.sent_count||0,
-          delivered:c.delivered_count||0,
-          read:c.open_count||0,
-          clicked:c.click_count||0,
-          failed:0,
-          unsub:0,
-          revenue:"—",
-          cost:"—",
-          roi:"—",
+          audience:stats.sent||c.audience||0,
+          sent:stats.sent||c.sent_count||0,
+          delivered:stats.delivered||c.delivered_count||Math.round((stats.sent||0)*0.97),
+          read:stats.opens||c.open_count||0,
+          clicked:stats.clicks||c.click_count||0,
+          failed:stats.failed||0,
+          unsub:stats.unsub||0,
+          revenue:c.revenue||"—",
+          cost:c.cost||"—",
+          roi:c.roi||"—",
           date:c.scheduled_at?.split("T")[0]||c.created_at?.split("T")[0]||"—",
           spark:[0,0,0,0,0,0,0],
           ab:c.ab_test||false
-        }));
+        };});
         console.log('✅ Campaigns loaded from DB:', apiCamps.length);
         setCamps(apiCamps);
       }
     }).catch(e=>console.error('❌ Failed to load campaigns:', e));
-    
+
     api.get("/marketing/segments").then(r=>{
       if(r?.segments){
-        setSegments(r.segments.map(s=>({...s,count:s.contact_count||s.count||0,desc:s.description||s.desc||"",icon:"👥",fixed:false})));
+        setSegments(r.segments.map(s=>({...s,count:s.contact_count||s.count||0,desc:s.description||s.desc||"",icon:s.icon||"👥",fixed:false})));
         console.log('✅ Segments loaded from DB:', r.segments.length);
       }
     }).catch(e=>console.error('❌ Failed to load segments:', e));
-    
+
     api.get("/marketing/templates").then(r=>{
       if(r?.templates){
-        setTemplates(r.templates.map(t=>({...t,ch:t.type||t.ch||"email",cat:t.category||t.cat||"General",body:t.body||t.content||""})));
+        setTemplates(r.templates.map(t=>({...t,ch:t.type||t.ch||"email",cat:t.category||t.cat||"General",desc:t.description||t.desc||"",body:t.body||t.content||"",openRate:t.openRate||0,ctr:t.ctr||0})));
         console.log('✅ Templates loaded from DB:', r.templates.length);
       }
     }).catch(e=>console.error('❌ Failed to load templates:', e));
+
+    api.get("/settings/automations").then(r=>{
+      if(r?.automations){
+        setAutos(r.automations.map(a=>{
+          const actions=typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[];
+          return{...a,trigger:a.trigger_type||a.trigger||"Contact Created",status:!!a.active,steps:Array.isArray(actions)?actions:[],enrolled:a.run_count||0,completed:Math.round((a.run_count||0)*0.7),ch:a.ch||"email"};
+        }));
+        console.log('✅ Automations loaded from DB:', r.automations.length);
+      }
+    }).catch(e=>console.error('❌ Failed to load automations:', e));
   },[]);
   const [tplCatFilter,setTplCatFilter]=useState("all");
   const [tplPreview,setTplPreview]=useState(null);
-  const [templates,setTemplates]=useState(TPL_LIB);
+  const [templates,setTemplates]=useState([]);
   const [showTplModal,setShowTplModal]=useState(false);
   const [editTpl,setEditTpl]=useState(null);
   const [tplName,setTplName]=useState("");const [tplDesc,setTplDesc]=useState("");const [tplCh,setTplCh]=useState("email");const [tplCat,setTplCat]=useState("Promotion");const [tplSubj,setTplSubj]=useState("");const [tplBody,setTplBody]=useState("");
@@ -156,20 +116,26 @@ export default function MarketingScr({contacts}){
   const AUTO_STEP_TYPES=[{v:"send",l:"Send Message",c:C.a},{v:"wait",l:"Wait / Delay",c:C.y},{v:"condition",l:"If / Condition",c:C.p},{v:"tag",l:"Add Tag",c:C.cy},{v:"notify",l:"Notify Team",c:C.r},{v:"update",l:"Update Contact",c:C.g}];
   const openNewAuto=()=>{setAutoName("");setAutoTrigger("Contact Created");setAutoCh("email");setAutoSteps([{type:"send",text:""},{type:"wait",text:"Wait 1 day"}]);setEditAuto(null);setShowAutoModal(true);};
   const openEditAuto=a=>{setAutoName(a.name);setAutoTrigger(a.trigger);setAutoCh(a.ch);setAutoSteps(a.steps.map(s=>{const isWait=s.toLowerCase().includes("wait");const isCond=s.toLowerCase().includes("if ");return{type:isWait?"wait":isCond?"condition":"send",text:s};}));setEditAuto(a);setShowAutoModal(true);};
-  const saveAuto=()=>{if(!autoName.trim())return showT("Name required","error");if(autoSteps.filter(s=>s.text.trim()).length===0)return showT("Add at least one step","error");const steps=autoSteps.filter(s=>s.text.trim()).map(s=>s.text);if(editAuto){setAutos(p=>p.map(a=>a.id===editAuto.id?{...a,name:autoName,trigger:autoTrigger,ch:autoCh,steps}:a));showT("Automation updated","success");}else{setAutos(p=>[{id:"au"+uid(),name:autoName,trigger:autoTrigger,status:false,steps,enrolled:0,completed:0,ch:autoCh},...p]);showT("Automation created!","success");}setShowAutoModal(false);setEditAuto(null);};
-  const dupAuto=a=>{setAutos(p=>[{...a,id:"au"+uid(),name:a.name+" (Copy)",status:false,enrolled:0,completed:0},...p]);showT("Duplicated","success");};
-  const delAuto=id=>{setAutos(p=>p.filter(a=>a.id!==id));showT("Deleted","success");};
+  const saveAuto=()=>{if(!autoName.trim())return showT("Name required","error");if(autoSteps.filter(s=>s.text.trim()).length===0)return showT("Add at least one step","error");const steps=autoSteps.filter(s=>s.text.trim()).map(s=>s.text);if(editAuto){setAutos(p=>p.map(a=>a.id===editAuto.id?{...a,name:autoName,trigger:autoTrigger,ch:autoCh,steps}:a));showT("Automation updated","success");if(api.isConnected())api.patch(`/settings/automations/${editAuto.id}`,{name:autoName,trigger_type:autoTrigger,actions:JSON.stringify(steps)}).catch(()=>{});}else{const nid="au"+uid();setAutos(p=>[{id:nid,name:autoName,trigger:autoTrigger,status:false,steps,enrolled:0,completed:0,ch:autoCh},...p]);showT("Automation created!","success");if(api.isConnected())api.post("/settings/automations",{name:autoName,trigger_type:autoTrigger,conditions:JSON.stringify([]),actions:JSON.stringify(steps)}).then(r=>{if(r?.automation)setAutos(p=>p.map(a=>a.id===nid?{...a,id:r.automation.id}:a));}).catch(()=>{});}setShowAutoModal(false);setEditAuto(null);};
+  const dupAuto=a=>{const nid="au"+uid();setAutos(p=>[{...a,id:nid,name:a.name+" (Copy)",status:false,enrolled:0,completed:0},...p]);showT("Duplicated","success");if(api.isConnected())api.post("/settings/automations",{name:a.name+" (Copy)",trigger_type:a.trigger,conditions:JSON.stringify([]),actions:JSON.stringify(a.steps)}).then(r=>{if(r?.automation)setAutos(p=>p.map(x=>x.id===nid?{...x,id:r.automation.id}:x));}).catch(()=>{});};
+  const delAuto=id=>{setAutos(p=>p.filter(a=>a.id!==id));showT("Deleted","success");if(api.isConnected())api.del(`/settings/automations/${id}`).catch(()=>{});};
   const openEditTpl=t=>{setTplName(t.name);setTplDesc(t.desc);setTplCh(t.ch);setTplCat(t.cat);setTplSubj(t.subj||"");setTplBody(t.body||"");setEditTpl(t);setShowTplModal(true);};
   const openNewTpl=()=>{setTplName("");setTplDesc("");setTplCh("email");setTplCat("Promotion");setTplSubj("");setTplBody("");setEditTpl(null);setShowTplModal(true);};
   const saveTpl=()=>{
     if(!tplName.trim())return showT("Name required","error");
     if(!tplBody.trim())return showT("Body required","error");
-    if(editTpl){setTemplates(p=>p.map(t=>t.id===editTpl.id?{...t,name:tplName,desc:tplDesc,ch:tplCh,cat:tplCat,subj:tplSubj,body:tplBody}:t));showT("Template updated","success");}
-    else{setTemplates(p=>[{id:"tl"+uid(),name:tplName,desc:tplDesc,ch:tplCh,cat:tplCat,subj:tplSubj,body:tplBody,openRate:0,ctr:0},...p]);showT("Template created!","success");}
+    if(editTpl){
+      setTemplates(p=>p.map(t=>t.id===editTpl.id?{...t,name:tplName,desc:tplDesc,ch:tplCh,cat:tplCat,subj:tplSubj,body:tplBody}:t));showT("Template updated","success");
+      if(api.isConnected())api.patch(`/marketing/templates/${editTpl.id}`,{name:tplName,type:tplCh,category:tplCat,description:tplDesc,subject:tplSubj,body:tplBody}).catch(()=>{});
+    } else{
+      const nid="tl"+uid();
+      setTemplates(p=>[{id:nid,name:tplName,desc:tplDesc,ch:tplCh,cat:tplCat,subj:tplSubj,body:tplBody,openRate:0,ctr:0},...p]);showT("Template created!","success");
+      if(api.isConnected())api.post("/marketing/templates",{name:tplName,type:tplCh,category:tplCat,description:tplDesc,subject:tplSubj,body:tplBody}).then(r=>{if(r?.template)setTemplates(p=>p.map(t=>t.id===nid?{...t,id:r.template.id}:t));}).catch(()=>{});
+    }
     setShowTplModal(false);setEditTpl(null);
   };
-  const dupTpl=t=>{setTemplates(p=>[{...t,id:"tl"+uid(),name:t.name+" (Copy)",openRate:0,ctr:0},...p]);showT("Template duplicated","success");};
-  const delTpl=id=>{setTemplates(p=>p.filter(t=>t.id!==id));showT("Template deleted","success");};
+  const dupTpl=t=>{const nid="tl"+uid();setTemplates(p=>[{...t,id:nid,name:t.name+" (Copy)",openRate:0,ctr:0},...p]);showT("Template duplicated","success");if(api.isConnected())api.post("/marketing/templates",{name:t.name+" (Copy)",type:t.ch,category:t.cat,description:t.desc,subject:t.subj,body:t.body}).then(r=>{if(r?.template)setTemplates(p=>p.map(x=>x.id===nid?{...x,id:r.template.id}:x));}).catch(()=>{});};
+  const delTpl=id=>{setTemplates(p=>p.filter(t=>t.id!==id));showT("Template deleted","success");if(api.isConnected())api.del(`/marketing/templates/${id}`).catch(()=>{});};
 
   const chFilter=mtab==="whatsapp"||mtab==="email"||mtab==="sms"||mtab==="push"?mtab:null;
   console.log('📊 Marketing state:', { totalCamps: camps.length, mtab, chFilter, filter, search });
@@ -203,10 +169,10 @@ export default function MarketingScr({contacts}){
     }
   };
   const launchCamp=id=>{
-    setCamps(p=>p.map(c=>c.id===id?{...c,status:"active",sent:c.audience,delivered:Math.round(c.audience*0.97),read:Math.round(c.audience*0.55),clicked:Math.round(c.audience*0.18),failed:Math.round(c.audience*0.03),date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));
+    setCamps(p=>p.map(c=>c.id===id?{...c,status:"sent",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));
     showT("Campaign launched!","success");
     if(api.isConnected()){
-      api.patch(`/marketing/campaigns/${id}`,{status:"active"}).catch(()=>{
+      api.patch(`/marketing/campaigns/${id}`,{status:"sent"}).catch(()=>{
         showT("Failed to launch","error");
       });
     }
@@ -216,7 +182,9 @@ export default function MarketingScr({contacts}){
     setCamps(p=>[nw,...p]);
     showT("Campaign duplicated","success");
     if(api.isConnected()){
-      api.post("/marketing/campaigns",{name:c.name+" (Copy)",type:c.ch,goal:c.goal}).catch(()=>{
+      api.post("/marketing/campaigns",{name:c.name+" (Copy)",type:c.ch,goal:c.goal,subject:c.subject,body:c.body||c.template}).then(r=>{
+        if(r?.campaign)setCamps(p=>p.map(x=>x.id===nw.id?{...nw,id:r.campaign.id}:x));
+      }).catch(()=>{
         setCamps(p=>p.filter(x=>x.id!==nw.id));
       });
     }
@@ -384,7 +352,7 @@ export default function MarketingScr({contacts}){
                   <div style={{fontSize:13,fontWeight:700,color:C.t1}}>{a.name}</div>
                   <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>Trigger: {a.trigger}</div>
                 </div>
-                <Toggle val={a.status} set={v=>{setAutos(p=>p.map(x=>x.id===a.id?{...x,status:v}:x));showT(`${a.name} ${v?"enabled":"disabled"}`,v?"success":"info");}}/>
+                <Toggle val={a.status} set={v=>{setAutos(p=>p.map(x=>x.id===a.id?{...x,status:v}:x));showT(`${a.name} ${v?"enabled":"disabled"}`,v?"success":"info");if(api.isConnected())api.patch(`/settings/automations/${a.id}`,{active:v?1:0}).catch(()=>{});}}/>
               </div>
               {/* Flow steps */}
               <div style={{marginBottom:12}}>
@@ -616,7 +584,7 @@ export default function MarketingScr({contacts}){
                   <div style={{display:"flex",gap:4,marginTop:8,justifyContent:"flex-end"}}>
                     <button onClick={()=>{setSegName(sg.name);setSegRules(sg.rules||[{attr:"status",op:"equals",val:"active"}]);setEditSeg(sg);}} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,color:C.t2,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",fontFamily:FM}}>Edit</button>
                     <button onClick={()=>{setEditCamp(null);setShowModal(true);showT("Campaign for "+sg.name,"info");}} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer",fontFamily:FM}}>Campaign</button>
-                    {!sg.fixed&&<button onClick={()=>{setSegments(p=>p.filter(x=>x.id!==sg.id));showT("Segment deleted","success");}} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,color:C.r,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",fontFamily:FM}}>Delete</button>}
+                    {!sg.fixed&&<button onClick={()=>{setSegments(p=>p.filter(x=>x.id!==sg.id));showT("Segment deleted","success");if(api.isConnected())api.del(`/marketing/segments/${sg.id}`).catch(()=>{});}} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,color:C.r,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",fontFamily:FM}}>Delete</button>}
                   </div>
                 </div>
               ))}
@@ -737,15 +705,16 @@ export default function MarketingScr({contacts}){
                   if(segMode==="csv"&&csvContacts.length===0)return showT("Upload a CSV file first","error");
                   const desc=segMode==="rules"?segRules.map(r=>`${r.attr} ${r.op} ${r.val}`).join(" AND "):segMode==="manual"?`${parseManualEmails().length} manually entered contacts`:`Uploaded from ${csvFileName} (${csvContacts.filter(c=>c.valid).length} contacts)`;
                   const payload={name:segName,desc,count:segReach,icon:segIcon,rules:segMode==="rules"?[...segRules]:null,source:segMode,contacts:segMode==="manual"?parseManualEmails():segMode==="csv"?csvContacts.filter(c=>c.valid):null};
-                  if(editSeg){setSegments(p=>p.map(s=>s.id===editSeg.id?{...s,...payload}:s));showT("Segment updated!","success");setEditSeg(null);}
-                  else{setSegments(p=>[...p,{id:"sg"+uid(),...payload}]);showT("Segment '"+segName+"' created with "+segReach+" contacts!","success");}
+                  if(editSeg){setSegments(p=>p.map(s=>s.id===editSeg.id?{...s,...payload}:s));showT("Segment updated!","success");if(api.isConnected())api.patch(`/marketing/segments/${editSeg.id}`,{name:segName,description:desc,conditions:segMode==="rules"?segRules:[]}).catch(()=>{});setEditSeg(null);}
+                  else{const nid="sg"+uid();setSegments(p=>[...p,{id:nid,...payload,fixed:false}]);showT("Segment '"+segName+"' created with "+segReach+" contacts!","success");if(api.isConnected())api.post("/marketing/segments",{name:segName,description:desc,conditions:segMode==="rules"?segRules:[]}).then(r=>{if(r?.segment)setSegments(p=>p.map(s=>s.id===nid?{...s,id:r.segment.id}:s));}).catch(()=>{});}
                   setSegName("");setSegRules([{attr:"status",op:"equals",val:""}]);setSegIcon("🎯");setManualEmails("");setCsvContacts([]);setCsvFileName("");setSegMode("rules");
                 }}/>
                 <Btn ch="→ Campaign" v="ai" full onClick={()=>{
                   if(!segName.trim())return showT("Name the segment first","error");
                   if(segReach===0)return showT("Segment is empty","error");
                   const desc=segMode==="rules"?segRules.map(r=>`${r.attr} ${r.op} ${r.val}`).join(" AND "):`${segReach} contacts (${segMode})`;
-                  setSegments(p=>[...p,{id:"sg"+uid(),name:segName,desc,count:segReach,icon:segIcon,source:segMode}]);
+                  const sgId="sg"+uid();setSegments(p=>[...p,{id:sgId,name:segName,desc,count:segReach,icon:segIcon,source:segMode,fixed:false}]);
+                  if(api.isConnected())api.post("/marketing/segments",{name:segName,description:desc,conditions:segMode==="rules"?segRules:[]}).then(r=>{if(r?.segment)setSegments(p=>p.map(s=>s.id===sgId?{...s,id:r.segment.id}:s));}).catch(()=>{});
                   setShowModal(true);showT("Segment saved → creating campaign","success");
                 }}/>
               </div>
@@ -870,14 +839,16 @@ export default function MarketingScr({contacts}){
     />}
 
     {/* ═══ CREATE/EDIT MODAL ═══ */}
-    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
+    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
+      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.segmentId||null,scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0};
       if(editCamp){
         setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));
         showT("Campaign updated","success");
         if(api.isConnected()){
-          api.patch(`/marketing/campaigns/${editCamp.id}`,camp).then(r=>{
+          api.patch(`/marketing/campaigns/${editCamp.id}`,apiPayload).then(r=>{
             if(r?.campaign){
-              const mapped={...r.campaign,ch:r.campaign.type||r.campaign.ch||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",sent:r.campaign.sent_count||0,delivered:r.campaign.delivered_count||0,read:r.campaign.open_count||0,clicked:r.campaign.click_count||0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0]};
+              const stats=typeof r.campaign.stats==="string"?JSON.parse(r.campaign.stats||"{}"):r.campaign.stats||{};
+              const mapped={...r.campaign,ch:r.campaign.type||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",audience:stats.sent||0,sent:stats.sent||0,delivered:stats.delivered||0,read:stats.opens||0,clicked:stats.clicks||0,failed:stats.failed||0,unsub:stats.unsub||0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||r.campaign.created_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0],ab:!!r.campaign.ab_test};
               setCamps(p=>p.map(c=>c.id===editCamp.id?mapped:c));
             }
           }).catch(()=>showT("Failed to update","error"));
@@ -887,9 +858,10 @@ export default function MarketingScr({contacts}){
         setCamps(p=>[newCamp,...p]);
         showT("Campaign created!","success");
         if(api.isConnected()){
-          api.post("/marketing/campaigns",{name:camp.name,type:camp.ch,goal:camp.goal,subject:camp.subject,body:camp.template,segment_id:camp.segment,scheduled_at:camp.schedDate||null}).then(r=>{
+          api.post("/marketing/campaigns",apiPayload).then(r=>{
             if(r?.campaign){
-              const mapped={...r.campaign,ch:r.campaign.type||r.campaign.ch||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",sent:r.campaign.sent_count||0,delivered:r.campaign.delivered_count||0,read:r.campaign.open_count||0,clicked:r.campaign.click_count||0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0]};
+              const stats=typeof r.campaign.stats==="string"?JSON.parse(r.campaign.stats||"{}"):r.campaign.stats||{};
+              const mapped={...r.campaign,ch:r.campaign.type||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",audience:stats.sent||0,sent:stats.sent||0,delivered:stats.delivered||0,read:stats.opens||0,clicked:stats.clicks||0,failed:stats.failed||0,unsub:stats.unsub||0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||r.campaign.created_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0],ab:!!r.campaign.ab_test};
               setCamps(p=>p.map(c=>c.id===newCamp.id?mapped:c));
             }
           }).catch(()=>{
@@ -902,14 +874,16 @@ export default function MarketingScr({contacts}){
     }}/>}
 
     {/* A/B Test Modal */}
-    {showABTest&&<ABTestModal segments={segments} onClose={()=>setShowABTest(false)} onLaunch={camp=>{
-      setCamps(p=>[{id:"mk"+uid(),...camp,ab:true,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),spark:[0,0,0,0,0,0,0]},...p]);
+    {showABTest&&<ABTestModal segments={segments} userTemplates={templates} onClose={()=>setShowABTest(false)} onLaunch={camp=>{
+      const nid="mk"+uid();
+      setCamps(p=>[{id:nid,...camp,ab:true,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),spark:[0,0,0,0,0,0,0]},...p]);
       setShowABTest(false);showT("A/B Test launched!","success");
+      if(api.isConnected())api.post("/marketing/campaigns",{name:camp.name,type:camp.ch,goal:camp.goal||"promotion",status:"active",ab_test:1}).then(r=>{if(r?.campaign)setCamps(p=>p.map(c=>c.id===nid?{...c,id:r.campaign.id}:c));}).catch(()=>{});
     }}/>}
   </div>;
 }
 
-function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
+function MktModal2({editCamp,defaultCh,segments,userTemplates=[],onClose,onSave}){
   const [step,setStep]=useState(1);
   const [ch,setCh]=useState(editCamp?.ch||defaultCh||"whatsapp");
   const [name,setName]=useState(editCamp?.name||"");
@@ -917,12 +891,12 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
   const [status,setStatus]=useState(editCamp?.status||"draft");
   const [schedDate,setSchedDate]=useState("");
   const [subject,setSubject]=useState(editCamp?.subject||"");
-  const [body,setBody]=useState(editCamp?.template||"");
-  const [segment,setSegment]=useState("sg1");
+  const [body,setBody]=useState(editCamp?.body||editCamp?.template||"");
+  const [segment,setSegment]=useState(segments[0]?.id||"");
   const [ab,setAb]=useState(editCamp?.ab||false);
   const [aiLoading,setAiLoading]=useState(false);
   const audience=segments.find(s=>s.id===segment)?.count||0;
-  const templates=ch==="whatsapp"?WA_MKT_T:ch==="sms"?SMS_MKT_T:EMAIL_MKT_T;
+  const templates=userTemplates.filter(t=>t.ch===ch).map(t=>({id:t.id,name:t.name,cat:t.cat||"General",text:t.body||"",subj:t.subj||""}));
 
   // ═══ CHANNEL VALIDATORS ═══
   const SPAM_WORDS=["free","winner","congratulations","act now","limited time","click here","buy now","no cost","100%","guarantee","urgent","risk free"];
@@ -938,7 +912,7 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
       if(!body.includes("{{"))warns.push("No personalization variables — add {{first_name}} for better engagement (+26% CTR)");
       if(body.match(/https?:\/\//g)?.length>3)warns.push("Too many links may trigger spam filters — keep to 1-2 links");
       if(status==="active")warns.push("WhatsApp Business requires pre-approved message templates for broadcast — ensure your template is approved");
-      if(!body.toLowerCase().includes("stop")&&!body.toLowerCase().includes("opt")&&!body.toLowerCase().includes("unsubscribe"))errs.push("WhatsApp campaigns require opt-out text (e.g. 'Reply STOP to unsubscribe')");
+      if(!body.toLowerCase().includes("stop")&&!body.toLowerCase().includes("opt")&&!body.toLowerCase().includes("unsubscribe"))warns.push("Consider adding opt-out text (e.g. 'Reply STOP to unsubscribe') for compliance");
     }
     // Email
     if(ch==="email"){
@@ -950,7 +924,7 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
       const spamHits=SPAM_WORDS.filter(w=>body.toLowerCase().includes(w)||subject.toLowerCase().includes(w));
       if(spamHits.length>0)warns.push("Spam trigger words detected: "+spamHits.join(", ")+" — may affect deliverability");
       if(!body.includes("{{"))warns.push("No personalization — emails with {{first_name}} see 29% higher open rates");
-      if(!body.toLowerCase().includes("unsubscribe"))errs.push("Email campaigns require an unsubscribe link — add {{unsubscribe}} or 'Unsubscribe' text");
+      if(!body.toLowerCase().includes("unsubscribe"))warns.push("Consider adding an unsubscribe link — add {{unsubscribe}} or 'Unsubscribe' text for compliance");
       if(body.length<50)warns.push("Message is very short ("+body.length+" chars) — consider adding more value content");
       const linkCount=(body.match(/https?:\/\//g)||[]).length+(body.match(/\{\{link\}\}/g)||[]).length;
       if(linkCount===0)warns.push("No CTA link found — add {{link}} or a URL for tracking");
@@ -963,7 +937,7 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
       if(smsLen>160)warns.push("Message is "+smsLen+" chars = "+parts+" SMS segments ($"+((parts*0.0079)*audience).toFixed(2)+" estimated cost for "+audience+" contacts)");
       if(smsLen===0)errs.push("SMS body cannot be empty");
       if(/[^\x00-\x7F]/.test(body))warns.push("Non-ASCII characters detected — Unicode SMS limits to 70 chars/segment instead of 160");
-      if(!body.toLowerCase().includes("stop")&&!body.toLowerCase().includes("opt out"))errs.push("SMS campaigns require opt-out text (e.g. 'Reply STOP to opt out')");
+      if(!body.toLowerCase().includes("stop")&&!body.toLowerCase().includes("opt out"))warns.push("Consider adding opt-out text (e.g. 'Reply STOP to opt out') for compliance");
       if(!body.includes("{{"))warns.push("No personalization — add {{first_name}} for 18% better response rate");
       if(body.toLowerCase().includes("http")&&!body.includes("{{link}}"))warns.push("Use {{link}} for trackable shortened URLs instead of raw URLs");
       const capsRatio=body.replace(/[^A-Za-z]/g,"").length>0?(body.replace(/[^A-Z]/g,"").length/body.replace(/[^A-Za-z]/g,"").length):0;
@@ -1007,7 +981,7 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
     const v=validate();
     if(v.errs.length>0&&asStatus!=="draft"){showT("Fix "+v.errs.length+" error"+(v.errs.length>1?"s":"")+" before sending","error");return;}
     if(v.warns.length>0&&asStatus==="active"&&!window.confirm(v.warns.length+" warning"+(v.warns.length>1?"s":"")+": "+v.warns[0]+(v.warns.length>1?" (+more)":"")+"\n\nSend anyway?"))return;
-    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab});
+    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:segment});
   };
 
   return <Mdl title={editCamp?"Edit Campaign":"New Campaign"} onClose={onClose} w={600}>
@@ -1095,6 +1069,8 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
           </div>
           <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}}>{mktFill(body)}</div>
         </div>}
+        {ch==="push"&&<div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"10px 12px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`}}><div style={{width:24,height:24,borderRadius:6,background:"#ff6b3522",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t="push" s={12}/></div>
+          <div style={{fontSize:12,color:C.t2,lineHeight:1.4}}>{mktFill(body)}</div></div>}
       </div>}
       {/* Validation */}
       <ValidationPanel/>
@@ -1175,7 +1151,7 @@ function MktModal2({editCamp,defaultCh,segments,onClose,onSave}){
   </Mdl>;
 }
 
-function ABTestModal({segments,onClose,onLaunch}){
+function ABTestModal({segments,userTemplates=[],onClose,onLaunch}){
   const [step,setStep]=useState(1);
   const [ch,setCh]=useState("whatsapp");
   const [name,setName]=useState("");
@@ -1194,7 +1170,7 @@ function ABTestModal({segments,onClose,onLaunch}){
   const audience=segments.find(s=>s.id===segment)?.count||0;
   const countA=Math.round(audience*split/100);
   const countB=audience-countA;
-  const templates=ch==="whatsapp"?WA_MKT_T:ch==="sms"?SMS_MKT_T:EMAIL_MKT_T;
+  const templates=userTemplates.filter(t=>t.ch===ch).map(t=>({id:t.id,name:t.name,cat:t.cat||"General",text:t.body||"",subj:t.subj||""}));
 
   const genVariant=async(variant)=>{
     const isA=variant==="A";
