@@ -162,7 +162,7 @@ app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req,
     // Sync new visitor messages to linked inbox conversation
     if (messages) {
       try {
-        const chat = await db.prepare('SELECT conversation_id FROM bot_chats WHERE id=?').get(req.params.chatId);
+        const chat = await db.prepare('SELECT conversation_id, visitor_name FROM bot_chats WHERE id=?').get(req.params.chatId);
         if (chat && chat.conversation_id) {
           const newMsgs = messages.filter(m => m.f === 'user');
           // Get count of existing customer messages in inbox
@@ -171,10 +171,27 @@ app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req,
           // Only add messages that are new (beyond what we already have)
           const toAdd = newMsgs.slice(existingCount);
           const { uid } = require('./utils/helpers');
+          const { broadcastToAll } = require('./ws');
           for (const m of toAdd) {
-            await db.prepare('INSERT INTO messages (id,conversation_id,role,text,is_read) VALUES (?,?,?,?,?)').run(
-              uid(), chat.conversation_id, 'customer', m.t, 0
+            const msgId = uid();
+            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            await db.prepare('INSERT INTO messages (id,conversation_id,role,text,is_read,created_at) VALUES (?,?,?,?,?,?)').run(
+              msgId, chat.conversation_id, 'customer', m.t, 0, createdAt
             );
+            // Broadcast to dashboard so inbox updates in real-time
+            broadcastToAll({
+              type: 'new_message',
+              conversationId: chat.conversation_id,
+              message: {
+                id: msgId,
+                conversation_id: chat.conversation_id,
+                role: 'customer',
+                text: m.t,
+                is_read: 0,
+                created_at: createdAt,
+                agent_id: null,
+              }
+            });
           }
           if (toAdd.length > 0) {
             await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, chat.conversation_id);
