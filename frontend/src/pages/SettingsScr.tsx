@@ -45,19 +45,46 @@ export default function SettingsScr({inboxes,setInboxes,agents,setAgents,labels,
 
 function FormBuilderSet(){
   const FTYPES=[["text","📝","Short Text"],["email","📧","Email"],["phone","📞","Phone"],["number","🔢","Number"],["textarea","📄","Long Text"],["select","📋","Dropdown"],["radio","🔘","Radio"],["checkbox","☑","Checkbox"],["date","📅","Date"],["url","🔗","URL"],["file","📎","File Upload"],["heading","📌","Heading"],["paragraph","📃","Paragraph"]];
-  const [forms,setForms]=useState([
-    {id:"wf1",name:"Contact Us",status:"active",submissions:47,created:"10/03/26",fields:[{id:"f1",type:"heading",label:"Get in Touch",placeholder:"We'd love to hear from you",required:false,options:[]},{id:"f2",type:"text",label:"Full Name",placeholder:"John Doe",required:true,options:[]},{id:"f3",type:"email",label:"Email Address",placeholder:"john@company.com",required:true,options:[]},{id:"f4",type:"phone",label:"Phone Number",placeholder:"+91 90001 22334",required:false,options:[]},{id:"f5",type:"select",label:"Inquiry Type",placeholder:"Select type…",required:true,options:["General Inquiry","Sales","Support","Partnership","Other"]},{id:"f6",type:"textarea",label:"Message",placeholder:"Tell us how we can help…",required:true,options:[]}],settings:{submitText:"Send Message",successMsg:"Thank you! We'll get back to you within 24 hours.",redirectUrl:"",notifyEmail:"support@supportdesk.app",accentColor:C.a}},
-    {id:"wf2",name:"Lead Capture",status:"active",submissions:128,created:"15/02/26",fields:[{id:"f1",type:"text",label:"Name",placeholder:"Your name",required:true,options:[]},{id:"f2",type:"email",label:"Work Email",placeholder:"name@company.com",required:true,options:[]},{id:"f3",type:"text",label:"Company",placeholder:"Company name",required:true,options:[]},{id:"f4",type:"select",label:"Company Size",placeholder:"Select…",required:true,options:["1-10","11-50","51-200","201-500","500+"]},{id:"f5",type:"select",label:"Interest",placeholder:"Select…",required:false,options:["Product Demo","Pricing","Free Trial","Partnership"]}],settings:{submitText:"Get Started",successMsg:"Thanks! Our team will reach out shortly.",redirectUrl:"",notifyEmail:"sales@supportdesk.app",accentColor:C.p}},
-    {id:"wf3",name:"Feedback Survey",status:"draft",submissions:0,created:"25/03/26",fields:[{id:"f1",type:"heading",label:"We Value Your Feedback",placeholder:"Help us improve",required:false,options:[]},{id:"f2",type:"radio",label:"How satisfied are you?",placeholder:"",required:true,options:["Very Satisfied","Satisfied","Neutral","Dissatisfied","Very Dissatisfied"]},{id:"f3",type:"textarea",label:"What can we improve?",placeholder:"Share your thoughts…",required:false,options:[]},{id:"f4",type:"email",label:"Email (optional)",placeholder:"your@email.com",required:false,options:[]}],settings:{submitText:"Submit Feedback",successMsg:"Thank you for your feedback!",redirectUrl:"",notifyEmail:"cx@supportdesk.app",accentColor:C.g}}
-  ]);
+  const backendUrl=import.meta.env.VITE_BACKEND_URL||"http://localhost:4002";
+  const [forms,setForms]=useState([]);const [loading,setLoading]=useState(true);
   const [selForm,setSelForm]=useState(null);const [editMode,setEditMode]=useState("fields");const [newOpt,setNewOpt]=useState("");const [showNew,setShowNew]=useState(false);const [newName,setNewName]=useState("");
+  const [submissions,setSubmissions]=useState([]);const [subTotal,setSubTotal]=useState(0);const [saveTimer,setSaveTimer]=useState(null);
+
+  // ── Load forms from backend ──
+  const loadForms=useCallback(async()=>{try{const r=await api.get("/forms");setForms(r.forms||[]);}catch(e){console.error("Load forms:",e);}finally{setLoading(false);};},[]);
+  useEffect(()=>{loadForms();},[loadForms]);
+
   const fm=forms.find(f=>f.id===selForm);
-  const updateForm=(key,val)=>setForms(p=>p.map(f=>f.id===selForm?{...f,[key]:val}:f));
-  const updateField=(idx,key,val)=>{const ff=[...(fm?.fields||[])];ff[idx]={...ff[idx],[key]:val};updateForm("fields",ff);};
-  const updateSettings=(key,val)=>updateForm("settings",{...(fm?.settings||{}),[key]:val});
-  const moveField=(idx,dir)=>{const ff=[...(fm?.fields||[])];const t=idx+dir;if(t<0||t>=ff.length)return;[ff[idx],ff[t]]=[ff[t],ff[idx]];updateForm("fields",ff);};
-  const addField=(type="text")=>updateForm("fields",[...(fm?.fields||[]),{id:"f"+uid(),type,label:FTYPES.find(t=>t[0]===type)?.[2]||"Field",placeholder:"",required:false,options:type==="select"||type==="radio"?["Option 1","Option 2","Option 3"]:[]}]);
-  const createForm=()=>{if(!newName.trim())return showT("Name required","error");const nf={id:"wf"+uid(),name:newName,status:"draft",submissions:0,created:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"}),fields:[{id:"f"+uid(),type:"text",label:"Name",placeholder:"Your name",required:true,options:[]},{id:"f"+uid(),type:"email",label:"Email",placeholder:"you@company.com",required:true,options:[]},{id:"f"+uid(),type:"textarea",label:"Message",placeholder:"Your message…",required:false,options:[]}],settings:{submitText:"Submit",successMsg:"Thank you!",redirectUrl:"",notifyEmail:"",accentColor:C.a}};setForms(p=>[nf,...p]);setShowNew(false);setNewName("");setSelForm(nf.id);setEditMode("fields");showT("Form created!","success");};
+
+  // ── Auto-save: debounce PATCH on field/settings changes ──
+  const autoSave=useCallback((formId,patch)=>{
+    if(saveTimer)clearTimeout(saveTimer);
+    setSaveTimer(setTimeout(async()=>{try{await api.patch(`/forms/${formId}`,patch);}catch(e){console.error("Auto-save:",e);}},800));
+  },[saveTimer]);
+
+  const updateForm=(key,val)=>{setForms(p=>p.map(f=>f.id===selForm?{...f,[key]:val}:f));autoSave(selForm,{[key]:val});};
+  const updateField=(idx,key,val)=>{const ff=[...(fm?.fields||[])];ff[idx]={...ff[idx],[key]:val};setForms(p=>p.map(f=>f.id===selForm?{...f,fields:ff}:f));autoSave(selForm,{fields:ff});};
+  const updateSettings=(key,val)=>{const ns={...(fm?.settings||{}),[key]:val};setForms(p=>p.map(f=>f.id===selForm?{...f,settings:ns}:f));autoSave(selForm,{settings:ns});};
+  const moveField=(idx,dir)=>{const ff=[...(fm?.fields||[])];const t=idx+dir;if(t<0||t>=ff.length)return;[ff[idx],ff[t]]=[ff[t],ff[idx]];setForms(p=>p.map(f=>f.id===selForm?{...f,fields:ff}:f));autoSave(selForm,{fields:ff});};
+  const addField=(type="text")=>{const ff=[...(fm?.fields||[]),{id:"f"+uid(),type,label:FTYPES.find(t=>t[0]===type)?.[2]||"Field",placeholder:"",required:false,options:type==="select"||type==="radio"?["Option 1","Option 2","Option 3"]:[]}];setForms(p=>p.map(f=>f.id===selForm?{...f,fields:ff}:f));autoSave(selForm,{fields:ff});};
+
+  // ── Create form via API ──
+  const createForm=async()=>{if(!newName.trim())return showT("Name required","error");
+    try{const r=await api.post("/forms",{name:newName,fields:[{id:"f"+uid(),type:"text",label:"Name",placeholder:"Your name",required:true,options:[]},{id:"f"+uid(),type:"email",label:"Email",placeholder:"you@company.com",required:true,options:[]},{id:"f"+uid(),type:"textarea",label:"Message",placeholder:"Your message…",required:false,options:[]}],settings:{submitText:"Submit",successMsg:"Thank you!",redirectUrl:"",notifyEmail:"",accentColor:"#4c82fb"}});
+      loadForms();setShowNew(false);setNewName("");setSelForm(r.form.id);setEditMode("fields");showT("Form created!","success");
+    }catch{showT("Failed to create","error");}};
+
+  // ── Delete form ──
+  const deleteForm=async(id)=>{try{await api.del(`/forms/${id}`);loadForms();if(selForm===id)setSelForm(null);showT("Deleted","success");}catch{showT("Failed","error");}};
+
+  // ── Toggle publish ──
+  const togglePublish=async(f)=>{const ns=f.status==="active"?"draft":"active";try{await api.patch(`/forms/${f.id}`,{status:ns});loadForms();showT(ns==="active"?"Published!":"Unpublished","info");}catch{showT("Failed","error");}};
+
+  // ── Load submissions ──
+  const loadSubs=useCallback(async(formId)=>{try{const r=await api.get(`/forms/${formId}/submissions`);setSubmissions(r.submissions||[]);setSubTotal(r.total||0);}catch{setSubmissions([]);setSubTotal(0);}},[]);
+  useEffect(()=>{if(selForm&&editMode==="submissions")loadSubs(selForm);},[selForm,editMode,loadSubs]);
+
+  if(loading)return <div style={{padding:"24px 28px"}}><SkelCards/></div>;
 
   // ─── LIST VIEW ───
   if(!selForm)return <div style={{padding:"24px 28px"}}>
@@ -66,27 +93,28 @@ function FormBuilderSet(){
       <Btn ch="+ New Form" v="primary" onClick={()=>{setShowNew(true);setNewName("");}}/>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
-      {[{l:"Total Forms",v:forms.length,c:C.a,i:"📝"},{l:"Active",v:forms.filter(f=>f.status==="active").length,c:C.g,i:"✅"},{l:"Draft",v:forms.filter(f=>f.status==="draft").length,c:C.y,i:"📋"},{l:"Submissions",v:forms.reduce((s,f)=>s+f.submissions,0),c:C.p,i:"📊"}].map(k=>(
+      {[{l:"Total Forms",v:forms.length,c:C.a,i:"📝"},{l:"Active",v:forms.filter(f=>f.status==="active").length,c:C.g,i:"✅"},{l:"Draft",v:forms.filter(f=>f.status==="draft").length,c:C.y,i:"📋"},{l:"Submissions",v:forms.reduce((s,f)=>s+(f.submissions||0),0),c:C.p,i:"📊"}].map(k=>(
         <div key={k.l} style={{padding:"12px",background:k.c+"10",border:`1px solid ${k.c}22`,borderRadius:10,textAlign:"center"}}><div style={{fontSize:14,marginBottom:2}}>{k.i}</div><div style={{fontSize:22,fontWeight:800,fontFamily:FD,color:k.c}}>{k.v}</div><div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{k.l}</div></div>
       ))}
     </div>
+    {forms.length===0&&<EmptyState icon="📝" title="No forms yet" desc="Create your first form to start collecting responses"/>}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       {forms.map(f=>(
         <div key={f.id} onClick={()=>{setSelForm(f.id);setEditMode("fields");}} style={{background:C.s1,border:`1.5px solid ${C.b1}`,borderRadius:14,overflow:"hidden",cursor:"pointer"}} className="card-lift">
           <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div><div style={{fontSize:15,fontWeight:700}}>{f.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{f.fields.length} fields · Created {f.created}</div></div>
+            <div><div style={{fontSize:15,fontWeight:700}}>{f.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{(f.fields||[]).length} fields</div></div>
             <Tag text={f.status} color={f.status==="active"?C.g:C.y}/>
           </div>
           <div style={{padding:"12px 16px"}}>
             <div style={{display:"flex",gap:8,marginBottom:10}}>
-              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.p}}>{f.submissions}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Submissions</div></div>
-              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.a}}>{f.fields.filter(x=>x.required).length}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Required</div></div>
+              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.p}}>{f.submissions||0}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Submissions</div></div>
+              <div style={{flex:1,padding:"6px",background:C.s2,borderRadius:6,textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:C.a}}>{(f.fields||[]).filter(x=>x.required).length}</div><div style={{fontSize:8,color:C.t3,fontFamily:FM}}>Required</div></div>
             </div>
-            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{f.fields.filter(x=>x.type!=="heading"&&x.type!=="paragraph").slice(0,5).map(fl=><span key={fl.id} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:C.s3,color:C.t3,fontFamily:FM}}>{fl.label}</span>)}</div>
+            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(f.fields||[]).filter(x=>x.type!=="heading"&&x.type!=="paragraph").slice(0,5).map(fl=><span key={fl.id} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:C.s3,color:C.t3,fontFamily:FM}}>{fl.label}</span>)}</div>
             <div style={{display:"flex",gap:4,marginTop:10,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
               <Btn ch="✎ Edit" v="ghost" sm onClick={()=>{setSelForm(f.id);setEditMode("fields");}}/>
-              <Btn ch={f.status==="active"?"Unpublish":"Publish"} v={f.status==="active"?"ghost":"success"} sm onClick={()=>{setForms(p=>p.map(x=>x.id===f.id?{...x,status:x.status==="active"?"draft":"active"}:x));showT(f.status==="active"?"Unpublished":"Published!","info");}}/>
-              <button onClick={()=>{if(window.confirm("Delete?")){setForms(p=>p.filter(x=>x.id!==f.id));showT("Deleted","success");}}} style={{fontSize:12,color:C.r,background:"none",border:"none",cursor:"pointer"}}>🗑</button>
+              <Btn ch={f.status==="active"?"Unpublish":"Publish"} v={f.status==="active"?"ghost":"success"} sm onClick={()=>togglePublish(f)}/>
+              <button onClick={()=>{if(window.confirm("Delete form and all submissions?")){deleteForm(f.id);}}} style={{fontSize:12,color:C.r,background:"none",border:"none",cursor:"pointer"}}>🗑</button>
             </div>
           </div>
         </div>
@@ -105,15 +133,16 @@ function FormBuilderSet(){
   </div>;
 
   // ─── EDITOR VIEW ───
+  if(!fm){setSelForm(null);return null;}
   const st=fm.settings||{};
   return <div style={{padding:"24px 28px"}}>
     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-      <button onClick={()=>setSelForm(null)} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
-      <div style={{flex:1}}><h2 style={{fontSize:18,fontWeight:800,fontFamily:FD,margin:0}}>{fm.name}</h2><p style={{fontSize:10,color:C.t3,fontFamily:FM}}>{fm.fields.length} fields · {fm.submissions} submissions</p></div>
-      <Btn ch={fm.status==="active"?"✅ Active":"Publish"} v={fm.status==="active"?"success":"primary"} onClick={()=>{updateForm("status",fm.status==="active"?"draft":"active");showT(fm.status==="active"?"Unpublished":"Published!","success");}}/>
+      <button onClick={()=>{setSelForm(null);loadForms();}} style={{padding:"6px 10px",borderRadius:8,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t2}}>← Back</button>
+      <div style={{flex:1}}><h2 style={{fontSize:18,fontWeight:800,fontFamily:FD,margin:0}}>{fm.name}</h2><p style={{fontSize:10,color:C.t3,fontFamily:FM}}>{fm.fields.length} fields · {fm.submissions||0} submissions · Auto-saves</p></div>
+      <Btn ch={fm.status==="active"?"✅ Active":"Publish"} v={fm.status==="active"?"success":"primary"} onClick={()=>togglePublish(fm)}/>
     </div>
     <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.b1}`,marginBottom:16}}>
-      {[["fields","📝 Fields"],["settings","⚙ Settings"],["submissions","📊 Submissions ("+fm.submissions+")"],["embed","</> Embed Code"]].map(([id,l])=>(
+      {[["fields","📝 Fields"],["settings","⚙ Settings"],["submissions","📊 Submissions ("+(fm.submissions||0)+")"],["embed","</> Embed Code"]].map(([id,l])=>(
         <button key={id} onClick={()=>setEditMode(id)} style={{padding:"10px 16px",fontSize:12,fontWeight:700,fontFamily:FM,color:editMode===id?C.a:C.t3,borderBottom:`2.5px solid ${editMode===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer"}}>{l}</button>
       ))}
     </div>
@@ -127,8 +156,8 @@ function FormBuilderSet(){
               <span style={{fontSize:16}}>{ft?.[1]||"📝"}</span>
               <input value={f.label||""} onChange={e=>updateField(idx,"label",e.target.value)} style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 10px",fontSize:13,fontWeight:600,color:C.t1,outline:"none",fontFamily:FB}} placeholder="Field label"/>
               {!["heading","paragraph"].includes(f.type)&&<button onClick={()=>updateField(idx,"required",!f.required)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,fontWeight:700,fontFamily:FM,background:f.required?C.r+"15":"transparent",color:f.required?C.r:C.t3,border:`1px solid ${f.required?C.r+"33":C.b1}`,cursor:"pointer"}}>{f.required?"Required":"Optional"}</button>}
-              <button onClick={()=>updateForm("fields",[...fm.fields,{...f,id:"f"+uid(),label:f.label+" (copy)"}])} style={{fontSize:11,color:C.a,background:"none",border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 6px",cursor:"pointer"}}>⧉</button>
-              <button onClick={()=>updateForm("fields",fm.fields.filter(x=>x.id!==f.id))} style={{fontSize:13,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+              <button onClick={()=>{const ff=[...fm.fields,{...f,id:"f"+uid(),label:f.label+" (copy)"}];setForms(p=>p.map(x=>x.id===selForm?{...x,fields:ff}:x));autoSave(selForm,{fields:ff});}} style={{fontSize:11,color:C.a,background:"none",border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 6px",cursor:"pointer"}}>⧉</button>
+              <button onClick={()=>{const ff=fm.fields.filter(x=>x.id!==f.id);setForms(p=>p.map(x=>x.id===selForm?{...x,fields:ff}:x));autoSave(selForm,{fields:ff});}} style={{fontSize:13,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <select value={f.type} onChange={e=>updateField(idx,"type",e.target.value)} style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"6px 8px",fontSize:11,color:C.t1,fontFamily:FB,cursor:"pointer",outline:"none"}}>{FTYPES.map(([v,ic,l])=><option key={v} value={v}>{ic} {l}</option>)}</select>
@@ -183,28 +212,35 @@ function FormBuilderSet(){
       </div>}
 
       {editMode==="submissions"&&<div style={{flex:1}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><span style={{fontSize:13,fontWeight:700}}>{fm.submissions} Total Submissions</span><Btn ch="📤 Export CSV" v="ghost" sm onClick={()=>showT("Exported!","success")}/></div>
-        {fm.submissions>0?<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 100px 80px",padding:"10px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>{["#","Name","Email","Date","Status"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,textTransform:"uppercase"}}>{h}</span>)}</div>
-          {[...Array(Math.min(fm.submissions,8))].map((_,i)=>(<div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 100px 80px",padding:"10px 14px",borderBottom:`1px solid ${C.b1}22`,alignItems:"center"}}><span style={{fontSize:11,color:C.t3,fontFamily:FM}}>#{fm.submissions-i}</span><span style={{fontSize:11,color:C.t1}}>{["Arjun M.","Sneha I.","David C.","Meera K.","Rahul K.","Vikram S.","Ananya R.","James W."][i%8]}</span><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{["arjun@tech.io","sneha@wave.io","david@ret.com","meera@xyz.com","rahul@pay.in","vikram@cn.io","ananya@fm.com","james@gx.us"][i%8]}</span><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{["Today","Yesterday","25/03","24/03","23/03","22/03","21/03","20/03"][i%8]}</span><Tag text="New" color={C.g}/></div>))}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><span style={{fontSize:13,fontWeight:700}}>{subTotal} Total Submissions</span><Btn ch="🔄 Refresh" v="ghost" sm onClick={()=>loadSubs(selForm)}/></div>
+        {submissions.length>0?<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
+          {submissions.map((s,i)=>{const data=s.data||{};const values=Object.values(data);return(
+            <div key={s.id} style={{padding:"12px 16px",borderBottom:`1px solid ${C.b1}22`,display:"flex",alignItems:"center",gap:12}}>
+              <span style={{fontSize:11,color:C.t3,fontFamily:FM,width:30}}>#{subTotal-i}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,color:C.t1,marginBottom:2}}>{values.slice(0,3).join(" · ")||"(empty)"}</div>
+                <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{s.created_at?.slice(0,16).replace("T"," ")||""}{s.ip?" · "+s.ip:""}</div>
+              </div>
+              <button onClick={async()=>{try{await api.del(`/forms/${selForm}/submissions/${s.id}`);loadSubs(selForm);showT("Deleted","success");}catch{}}} style={{fontSize:10,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>
+            </div>
+          );})}
         </div>:<div style={{padding:40,textAlign:"center",color:C.t3}}><div style={{fontSize:28,marginBottom:8}}>📊</div><div style={{fontSize:14,fontWeight:700}}>No submissions yet</div><div style={{fontSize:11,marginTop:4}}>Publish and embed your form to start collecting responses.</div></div>}
       </div>}
 
       {editMode==="embed"&&<div style={{flex:1,maxWidth:600}}>
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"18px 20px",marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Embed Code</div>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Embed via iframe</div>
           <div style={{fontSize:11,color:C.t3,marginBottom:12}}>Paste this into your website HTML.</div>
-          <div style={{background:C.bg,borderRadius:8,padding:"14px",fontFamily:FM,fontSize:10,color:C.a,lineHeight:1.8,border:`1px solid ${C.b1}`,wordBreak:"break-all"}}>{`<script src="https://cdn.supportdesk.app/forms.js"></script>`}<br/>{`<div id="sd-form-${fm.id}" data-form="${fm.id}"></div>`}<br/>{`<script>SDForms.render("${fm.id}");</script>`}</div>
-          <Btn ch="📋 Copy Code" v="primary" sm onClick={()=>showT("Copied!","success")}/>
+          <div style={{background:C.bg,borderRadius:8,padding:"14px",fontFamily:FM,fontSize:10,color:C.a,lineHeight:1.8,border:`1px solid ${C.b1}`,wordBreak:"break-all"}}>{`<iframe src="${backendUrl}/form/${fm.id}" style="width:100%;min-height:600px;border:none;border-radius:16px" title="${fm.name}"></iframe>`}</div>
+          <Btn ch="📋 Copy Code" v="primary" sm onClick={()=>{navigator.clipboard.writeText(`<iframe src="${backendUrl}/form/${fm.id}" style="width:100%;min-height:600px;border:none;border-radius:16px" title="${fm.name}"></iframe>`);showT("Copied!","success");}}/>
         </div>
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"18px 20px",marginBottom:14}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Direct Link</div>
-          <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",fontFamily:FM,fontSize:11,color:C.a,border:`1px solid ${C.b1}`}}>https://forms.supportdesk.app/{fm.id}</div>
-          <Btn ch="📋 Copy Link" v="ghost" sm onClick={()=>showT("Copied!","success")}/>
-        </div>
-        <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"18px 20px"}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>WordPress</div>
-          <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",fontFamily:FM,fontSize:11,color:C.p,border:`1px solid ${C.b1}`}}>[supportdesk_form id="{fm.id}"]</div>
+          <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",fontFamily:FM,fontSize:11,color:C.a,border:`1px solid ${C.b1}`}}>{backendUrl}/form/{fm.id}</div>
+          <div style={{display:"flex",gap:6,marginTop:6}}>
+            <Btn ch="📋 Copy" v="ghost" sm onClick={()=>{navigator.clipboard.writeText(`${backendUrl}/form/${fm.id}`);showT("Copied!","success");}}/>
+            <Btn ch="Open ↗" v="primary" sm onClick={()=>window.open(`${backendUrl}/form/${fm.id}`,"_blank")}/>
+          </div>
         </div>
       </div>}
     </div>
