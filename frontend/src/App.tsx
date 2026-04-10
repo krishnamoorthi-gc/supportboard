@@ -63,6 +63,7 @@ function normalizeInbox(raw, index = 0){
 export default function App(){
   // ── Auth ──
   const [isLoggedIn,setIsLoggedIn]=useState(false);
+  const [isRestoring,setIsRestoring]=useState(()=>!!localStorage.getItem("sd_token"));
   const [loginEmail,setLoginEmail]=useState("priya@supportdesk.app");
   const [loginPass,setLoginPass]=useState("demo123");
   const [loginLoading,setLoginLoading]=useState(false);
@@ -175,7 +176,7 @@ export default function App(){
   useEffect(()=>{
     const savedToken=localStorage.getItem("sd_token");
     console.log('🔑 Session restore - token exists:', !!savedToken);
-    if(!savedToken)return;
+    if(!savedToken){setIsRestoring(false);return;}
     api.get("/auth/me").then(res=>{
       console.log('✅ Auth check passed:', res);
       if(res?.agent){
@@ -193,6 +194,8 @@ export default function App(){
       }else{
         api.setToken(null);
       }
+    }).finally(()=>{
+      setIsRestoring(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -632,6 +635,8 @@ export default function App(){
   const getBreadcrumb=()=>{const s=ROUTES[scr];if(!s)return[{l:"Home",fn:()=>navigate("home")}];const crumbs=[{l:s.label}];return crumbs;};
 
   // ═══ LOGIN SCREEN ═══
+  if(isRestoring)return <div style={{height:"100vh",background:"linear-gradient(135deg,#f0f4ff,#e8f0fe)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,fontFamily:"'Nunito',sans-serif"}}><SDLogo s={48}/><div style={{width:36,height:36,border:"3px solid #2563eb33",borderTopColor:"#2563eb",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
+
   if(!isLoggedIn)return <div style={{height:"100vh",background:"linear-gradient(135deg,#f0f4ff,#e8f0fe)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif"}}>
     <style>{`@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Nunito:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');`}</style>
     <div style={{width:420,background:"#fff",borderRadius:20,padding:"40px 36px",boxShadow:"0 20px 60px rgba(0,0,0,.08)",border:"1px solid #e5e7eb"}}>
