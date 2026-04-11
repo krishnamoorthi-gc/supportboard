@@ -951,7 +951,7 @@ export default function App(){
         <LazyMount active={scr==="teamchat"}><TeamChatScr agents={agents} setAgents={setAgents} fontKey={fontKey} themeKey={themeKey}/></LazyMount>
         <LazyMount active={scr==="crm"}><CrmScr contacts={contacts} setContacts={setContacts} convs={convs} comps={comps} setComps={setComps} customFields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} inboxes={inboxes}/></LazyMount>
         <LazyMount active={scr==="contacts"}><ContactsScr {...sp}/></LazyMount>
-        <LazyMount active={scr==="marketing"}><MarketingScr contacts={contacts}/></LazyMount>
+        <LazyMount active={scr==="marketing"}><MarketingScr contacts={contacts} pushNotification={pushNotification}/></LazyMount>
         <LazyMount active={scr==="monitor"}><MonitorScr contacts={contacts} inboxes={inboxes} setConvs={setConvs} setMsgs={setMsgs} setScr={navigate} setAid={setAid}/></LazyMount>
         <LazyMount active={scr==="calendar"}><ScheduleScr/></LazyMount>
         <LazyMount active={scr==="integrations"}><IntegrationsScr/></LazyMount>

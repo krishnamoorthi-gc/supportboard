@@ -16,7 +16,10 @@ export async function api(path:string, opts:any = {}) {
     _connected.current = true;
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      const wrapped:any = new Error(err.error || `HTTP ${res.status}`);
+      wrapped.status = res.status;
+      wrapped.data = err;
+      throw wrapped;
     }
     if (raw) return res;
     return await res.json();
@@ -44,7 +47,10 @@ api.upload = async (path, formData) => {
     _connected.current = true;
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      const wrapped:any = new Error(err.error || `HTTP ${res.status}`);
+      wrapped.status = res.status;
+      wrapped.data = err;
+      throw wrapped;
     }
     return await res.json();
   } catch (e) {

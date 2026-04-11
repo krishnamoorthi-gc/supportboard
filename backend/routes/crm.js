@@ -861,10 +861,12 @@ router.get('/export/:entity', auth, async (req, res) => {
 
 // GET active inboxes (channels the agent can use to send invitations)
 router.get('/schedule/channels', auth, async (req, res) => {
+  let emailSvc = null;
+  try { emailSvc = require('../services/emailService'); } catch {}
   const inboxes = await db.prepare('SELECT id, name, type, color, active, config FROM inboxes WHERE agent_id=? AND active=1 ORDER BY type, name').all(req.agent.id);
   const channels = inboxes.map(ib => {
-    const cfg = parseJson(ib.config, {});
-    const ready = ib.type === 'email' ? !!(cfg.smtpHost && cfg.smtpUser)
+    const cfg = ib.type === 'email' && emailSvc?.parseConfig ? emailSvc.parseConfig(ib.config) : parseJson(ib.config, {});
+    const ready = ib.type === 'email' ? !!(cfg.smtpHost && cfg.emailUser)
       : ib.type === 'whatsapp' ? !!(cfg.phoneNumberId && (cfg.apiKey || cfg.accessToken))
       : ib.type === 'sms' ? !!(cfg.apiKey || cfg.sid)
       : ['live', 'api'].includes(ib.type);

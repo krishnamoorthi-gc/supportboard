@@ -4,14 +4,18 @@ import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSou
 // ─── MARKETING ────────────────────────────────────────────────────────────
 const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points"];
 const mktGoalC=g=>({promotion:C.r,engagement:C.a,retention:C.p,transactional:C.cy}[g]||C.t3);
-const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y}[s]||C.t3);
+const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y,failed:C.r}[s]||C.t3);
 const mktChC=c=>({whatsapp:"#25d366",email:C.a,sms:C.y,push:"#ff6b35"}[c]||C.t3);
 const mktChE=c=><ChIcon t={c} s={16}/>;
 const mktChL=c=>({whatsapp:"WhatsApp",email:"Email",sms:"SMS",push:"Push"}[c]||c);
 const mktPct=(a,b)=>b?Math.round(a/b*100):0;
 const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250"}[k]||m));
 
-export default function MarketingScr({contacts}){
+const mktParse=(value,fallback)=>{try{return value===undefined||value===null||value===""?fallback:typeof value==="string"?JSON.parse(value):value;}catch{return fallback;}};
+const mapApiCampaign=c=>{const stats=mktParse(c?.stats,{});const selectedContacts=Array.isArray(c?.selected_contacts)?c.selected_contacts:mktParse(c?.selected_contacts??c?.selectedContacts,[]);const audMode=c?.audience_mode||c?.audMode||"segments";const sent=Number(stats?.sent??c?.sent_count??0);const failed=Number(stats?.failed??0);const delivered=Number(stats?.delivered??c?.delivered_count??(sent?Math.round(sent*0.97):0));const read=Number(stats?.opens??c?.open_count??0);const clicked=Number(stats?.clicks??c?.click_count??0);const audience=sent||Number(c?.audience??(audMode==="individual"?selectedContacts.length:0));return{...c,ch:c?.type||c?.ch||"email",name:c?.name||"Campaign",goal:c?.goal||"promotion",status:c?.status||"draft",subject:c?.subject||"",body:c?.body||c?.template||"",template:c?.body||c?.template||"",segmentId:c?.segment_id||c?.segmentId||null,audMode,selectedContacts:Array.isArray(selectedContacts)?selectedContacts:[],audience,sent,delivered,read,clicked,failed,unsub:Number(stats?.unsub??0),revenue:c?.revenue||"â€”",cost:c?.cost||"â€”",roi:c?.roi||"â€”",date:c?.sent_at?.split("T")[0]||c?.scheduled_at?.split("T")[0]||c?.created_at?.split("T")[0]||"â€”",spark:c?.spark||[0,0,0,0,0,0,0],ab:!!(c?.ab_test||c?.ab),schedDate:c?.scheduled_at||c?.schedDate||""};};
+const mapApiSegment=s=>{const rules=Array.isArray(s?.conditions)?s.conditions:mktParse(s?.conditions??s?.rules,[]);const contacts=Array.isArray(s?.contacts_json)?s.contacts_json:mktParse(s?.contacts_json??s?.contacts,[]);return{...s,count:s?.contact_count||s?.count||contacts.length||0,desc:s?.description||s?.desc||"",icon:s?.icon||"ðŸ‘¥",fixed:false,rules:Array.isArray(rules)?rules:[],source:s?.source||"rules",contacts:Array.isArray(contacts)?contacts:[]};};
+
+export default function MarketingScr({contacts,pushNotification}){
   const [mtab,setMtab]=useState("overview");
   const [camps,setCamps]=useState([]);
   const [autos,setAutos]=useState([]);
@@ -51,28 +55,7 @@ export default function MarketingScr({contacts}){
   useEffect(()=>{if(!api.isConnected())return;
     api.get("/marketing/campaigns").then(r=>{
       if(r?.campaigns){
-        const apiCamps=r.campaigns.map(c=>{
-          const stats=typeof c.stats==="string"?JSON.parse(c.stats||"{}"):c.stats||{};
-          return{
-          ...c,
-          ch:c.type||c.ch||"email",
-          name:c.name||"Campaign",
-          goal:c.goal||"promotion",
-          status:c.status||"draft",
-          audience:stats.sent||c.audience||0,
-          sent:stats.sent||c.sent_count||0,
-          delivered:stats.delivered||c.delivered_count||Math.round((stats.sent||0)*0.97),
-          read:stats.opens||c.open_count||0,
-          clicked:stats.clicks||c.click_count||0,
-          failed:stats.failed||0,
-          unsub:stats.unsub||0,
-          revenue:c.revenue||"—",
-          cost:c.cost||"—",
-          roi:c.roi||"—",
-          date:c.scheduled_at?.split("T")[0]||c.created_at?.split("T")[0]||"—",
-          spark:[0,0,0,0,0,0,0],
-          ab:c.ab_test||false
-        };});
+        const apiCamps=r.campaigns.map(mapApiCampaign);
         console.log('✅ Campaigns loaded from DB:', apiCamps.length);
         setCamps(apiCamps);
       }
@@ -80,7 +63,7 @@ export default function MarketingScr({contacts}){
 
     api.get("/marketing/segments").then(r=>{
       if(r?.segments){
-        setSegments(r.segments.map(s=>({...s,count:s.contact_count||s.count||0,desc:s.description||s.desc||"",icon:s.icon||"👥",fixed:false})));
+        setSegments(r.segments.map(mapApiSegment));
         console.log('✅ Segments loaded from DB:', r.segments.length);
       }
     }).catch(e=>console.error('❌ Failed to load segments:', e));
@@ -148,6 +131,28 @@ export default function MarketingScr({contacts}){
   });
   const tot={sent:camps.reduce((s,c)=>s+c.sent,0),del:camps.reduce((s,c)=>s+c.delivered,0),read:camps.reduce((s,c)=>s+c.read,0),click:camps.reduce((s,c)=>s+c.clicked,0),fail:camps.reduce((s,c)=>s+c.failed,0)};
   const chTot=ch=>{const f=camps.filter(c=>c.ch===ch);return{cnt:f.length,sent:f.reduce((s,c)=>s+c.sent,0),del:f.reduce((s,c)=>s+c.delivered,0),read:f.reduce((s,c)=>s+c.read,0),click:f.reduce((s,c)=>s+c.clicked,0)};};
+  const notifyMarketing=useCallback((camp,summary,forceType)=>{
+    if(!pushNotification||!camp)return;
+    const sent=Number(summary?.sent??camp?.sent??0);
+    const failed=Number(summary?.failed??camp?.failed??0);
+    const type=forceType||(!sent&&failed?"error":failed?"warn":"message");
+    const text=!sent&&failed
+      ? `📣 Marketing failed: ${camp.name}`
+      : failed
+        ? `📣 ${camp.name} sent to ${sent} contacts | ${failed} failed`
+      : `📣 ${camp.name} sent to ${sent} contacts`;
+    pushNotification({text,type,targetScreen:"marketing"});
+  },[pushNotification]);
+  const getMarketingErrorState=(err,fallbackCamp=null)=>{
+    const data=err?.data||{};
+    const mapped=data?.campaign?mapApiCampaign(data.campaign):fallbackCamp;
+    return{
+      campaign:mapped||null,
+      summary:data?.summary||null,
+      message:data?.error||err?.message||"Marketing send failed",
+      results:Array.isArray(data?.results)?data.results:[],
+    };
+  };
 
   const togglePause=id=>{
     setCamps(p=>p.map(c=>c.id===id?{...c,status:c.status==="paused"?"active":"paused"}:c));
@@ -169,13 +174,18 @@ export default function MarketingScr({contacts}){
     }
   };
   const launchCamp=id=>{
-    setCamps(p=>p.map(c=>c.id===id?{...c,status:"sent",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));
-    showT("Campaign launched!","success");
-    if(api.isConnected()){
-      api.patch(`/marketing/campaigns/${id}`,{status:"sent"}).catch(()=>{
-        showT("Failed to launch","error");
-      });
-    }
+    if(!api.isConnected()){setCamps(p=>p.map(c=>c.id===id?{...c,status:"sent",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));showT("Campaign marked as sent (offline mode)","info");return;}
+    api.patch(`/marketing/campaigns/${id}`,{status:"sent"}).then(r=>{
+      if(r?.campaign){const mapped=mapApiCampaign(r.campaign);setCamps(p=>p.map(c=>c.id===id?mapped:c));const sent=r?.summary?.sent??mapped.sent??0;const failed=r?.summary?.failed??mapped.failed??0;showT(`Campaign sent to ${sent} contact${sent===1?"":"s"}${failed?` | ${failed} failed`:""}`,failed?"warn":"success");notifyMarketing(mapped,r?.summary);}
+      else showT("Campaign launched!","success");
+    }).catch(err=>{
+      const current=camps.find(c=>c.id===id)||null;
+      const failure=getMarketingErrorState(err,current);
+      if(failure.campaign)setCamps(p=>p.map(c=>c.id===id?failure.campaign:c));
+      if(failure.campaign)notifyMarketing(failure.campaign,failure.summary||{sent:0,failed:failure.campaign.failed||failure.results.length||1},"error");
+      else if(current)notifyMarketing(current,{sent:0,failed:1},"error");
+      showT(failure.message,"error");
+    });
   };
   const dupCamp=c=>{
     const nw={...c,id:"mk"+uid(),name:c.name+" (Copy)",status:"draft",sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",roi:"—",date:"—",spark:[0,0,0,0,0,0,0]};
@@ -221,7 +231,7 @@ export default function MarketingScr({contacts}){
       <Spark data={c.spark||[0,0,0,0,0,0,0]} color={mktChC(c.ch)}/>
       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
         {(c.status==="active"||c.status==="paused")&&<button onClick={()=>togglePause(c.id)} title={c.status==="paused"?"Resume":"Pause"} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">{c.status==="paused"?"▶":"⏸"}</button>}
-        {(c.status==="draft"||c.status==="scheduled")&&<button onClick={()=>launchCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",color:C.g}}>▶</button>}
+        {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<button onClick={()=>launchCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",color:C.g}}>▶</button>}
         <button onClick={()=>{setEditCamp(c);setShowModal(true);}} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">✎</button>
         <button onClick={()=>delCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",color:C.r}}>✕</button>
       </div>
@@ -316,7 +326,7 @@ export default function MarketingScr({contacts}){
         </div>;})()}
         {/* Filter bar */}
         <div style={{display:"flex",gap:4,marginBottom:12}}>
-          {["all","active","sent","scheduled","draft","paused"].map(s=>(
+          {["all","active","sent","scheduled","draft","paused","failed"].map(s=>(
             <button key={s} onClick={()=>setFilter(s)} style={{padding:"4px 12px",borderRadius:20,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:filter===s?mktStC(s)+"22":"transparent",color:filter===s?mktStC(s):C.t3,border:`1px solid ${filter===s?mktStC(s)+"55":C.b1}`,textTransform:"capitalize"}}>{s==="all"?"All":s}</button>
           ))}
         </div>
@@ -705,8 +715,8 @@ export default function MarketingScr({contacts}){
                   if(segMode==="csv"&&csvContacts.length===0)return showT("Upload a CSV file first","error");
                   const desc=segMode==="rules"?segRules.map(r=>`${r.attr} ${r.op} ${r.val}`).join(" AND "):segMode==="manual"?`${parseManualEmails().length} manually entered contacts`:`Uploaded from ${csvFileName} (${csvContacts.filter(c=>c.valid).length} contacts)`;
                   const payload={name:segName,desc,count:segReach,icon:segIcon,rules:segMode==="rules"?[...segRules]:null,source:segMode,contacts:segMode==="manual"?parseManualEmails():segMode==="csv"?csvContacts.filter(c=>c.valid):null};
-                  if(editSeg){setSegments(p=>p.map(s=>s.id===editSeg.id?{...s,...payload}:s));showT("Segment updated!","success");if(api.isConnected())api.patch(`/marketing/segments/${editSeg.id}`,{name:segName,description:desc,conditions:segMode==="rules"?segRules:[]}).catch(()=>{});setEditSeg(null);}
-                  else{const nid="sg"+uid();setSegments(p=>[...p,{id:nid,...payload,fixed:false}]);showT("Segment '"+segName+"' created with "+segReach+" contacts!","success");if(api.isConnected())api.post("/marketing/segments",{name:segName,description:desc,conditions:segMode==="rules"?segRules:[]}).then(r=>{if(r?.segment)setSegments(p=>p.map(s=>s.id===nid?{...s,id:r.segment.id}:s));}).catch(()=>{});}
+                  if(editSeg){setSegments(p=>p.map(s=>s.id===editSeg.id?{...s,...payload}:s));showT("Segment updated!","success");if(api.isConnected())api.patch(`/marketing/segments/${editSeg.id}`,{name:segName,description:desc,conditions:segMode==="rules"?segRules:[],source:segMode,contacts:payload.contacts||[],contact_count:segReach}).catch(()=>{});setEditSeg(null);}
+                  else{const nid="sg"+uid();setSegments(p=>[...p,{id:nid,...payload,fixed:false}]);showT("Segment '"+segName+"' created with "+segReach+" contacts!","success");if(api.isConnected())api.post("/marketing/segments",{name:segName,description:desc,conditions:segMode==="rules"?segRules:[],source:segMode,contacts:payload.contacts||[],contact_count:segReach}).then(r=>{if(r?.segment)setSegments(p=>p.map(s=>s.id===nid?{...mapApiSegment(r.segment),icon:segIcon}:s));}).catch(()=>{});}
                   setSegName("");setSegRules([{attr:"status",op:"equals",val:""}]);setSegIcon("🎯");setManualEmails("");setCsvContacts([]);setCsvFileName("");setSegMode("rules");
                 }}/>
                 <Btn ch="→ Campaign" v="ai" full onClick={()=>{
@@ -714,7 +724,7 @@ export default function MarketingScr({contacts}){
                   if(segReach===0)return showT("Segment is empty","error");
                   const desc=segMode==="rules"?segRules.map(r=>`${r.attr} ${r.op} ${r.val}`).join(" AND "):`${segReach} contacts (${segMode})`;
                   const sgId="sg"+uid();setSegments(p=>[...p,{id:sgId,name:segName,desc,count:segReach,icon:segIcon,source:segMode,fixed:false}]);
-                  if(api.isConnected())api.post("/marketing/segments",{name:segName,description:desc,conditions:segMode==="rules"?segRules:[]}).then(r=>{if(r?.segment)setSegments(p=>p.map(s=>s.id===sgId?{...s,id:r.segment.id}:s));}).catch(()=>{});
+                  if(api.isConnected())api.post("/marketing/segments",{name:segName,description:desc,conditions:segMode==="rules"?segRules:[],source:segMode,contacts:segMode==="manual"?parseManualEmails():segMode==="csv"?csvContacts.filter(c=>c.valid):[],contact_count:segReach}).then(r=>{if(r?.segment)setSegments(p=>p.map(s=>s.id===sgId?{...mapApiSegment(r.segment),icon:segIcon}:s));}).catch(()=>{});
                   setShowModal(true);showT("Segment saved → creating campaign","success");
                 }}/>
               </div>
@@ -839,34 +849,51 @@ export default function MarketingScr({contacts}){
     />}
 
     {/* ═══ CREATE/EDIT MODAL ═══ */}
-    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
-      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.segmentId||null,scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0};
+    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} contacts={contacts} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
+      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.audMode==="segments"?camp.segmentId||null:null,audience_mode:camp.audMode||"segments",selected_contacts:camp.selectedContacts||[],scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0,launch_now:camp.status==="active"};
       if(editCamp){
         setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));
-        showT("Campaign updated","success");
+        if(!api.isConnected())showT("Campaign updated","success");
         if(api.isConnected()){
           api.patch(`/marketing/campaigns/${editCamp.id}`,apiPayload).then(r=>{
             if(r?.campaign){
-              const stats=typeof r.campaign.stats==="string"?JSON.parse(r.campaign.stats||"{}"):r.campaign.stats||{};
-              const mapped={...r.campaign,ch:r.campaign.type||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",audience:stats.sent||0,sent:stats.sent||0,delivered:stats.delivered||0,read:stats.opens||0,clicked:stats.clicks||0,failed:stats.failed||0,unsub:stats.unsub||0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||r.campaign.created_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0],ab:!!r.campaign.ab_test};
+              const mapped=mapApiCampaign(r.campaign);
+
               setCamps(p=>p.map(c=>c.id===editCamp.id?mapped:c));
+              showT(mapped.status==="sent"?"Campaign sent":"Campaign updated","success");
+              if(r?.summary||mapped.status==="sent"||mapped.status==="failed")notifyMarketing(mapped,r?.summary,mapped.status==="failed"?"error":undefined);
             }
-          }).catch(()=>showT("Failed to update","error"));
+          }).catch(err=>{
+            const failure=getMarketingErrorState(err,{...editCamp,...camp});
+            if(failure.campaign){
+              setCamps(p=>p.map(c=>c.id===editCamp.id?failure.campaign:c));
+              notifyMarketing(failure.campaign,failure.summary||{sent:0,failed:failure.campaign.failed||failure.results.length||1},"error");
+            }
+            showT(failure.message||"Failed to update","error");
+          });
         }
       } else {
         const newCamp={id:"mk"+uid(),...camp,sent:0,delivered:0,read:0,clicked:0,failed:0,unsub:0,revenue:"—",cost:"—",roi:"—",date:camp.status==="scheduled"?camp.schedDate||"—":"—",spark:[0,0,0,0,0,0,0]};
         setCamps(p=>[newCamp,...p]);
-        showT("Campaign created!","success");
+        if(!api.isConnected())showT("Campaign created!","success");
         if(api.isConnected()){
           api.post("/marketing/campaigns",apiPayload).then(r=>{
             if(r?.campaign){
-              const stats=typeof r.campaign.stats==="string"?JSON.parse(r.campaign.stats||"{}"):r.campaign.stats||{};
-              const mapped={...r.campaign,ch:r.campaign.type||"email",name:r.campaign.name||"Campaign",goal:r.campaign.goal||"promotion",status:r.campaign.status||"draft",audience:stats.sent||0,sent:stats.sent||0,delivered:stats.delivered||0,read:stats.opens||0,clicked:stats.clicks||0,failed:stats.failed||0,unsub:stats.unsub||0,revenue:"—",cost:"—",roi:"—",date:r.campaign.scheduled_at?.split("T")[0]||r.campaign.created_at?.split("T")[0]||"—",spark:[0,0,0,0,0,0,0],ab:!!r.campaign.ab_test};
+              const mapped=mapApiCampaign(r.campaign);
+
               setCamps(p=>p.map(c=>c.id===newCamp.id?mapped:c));
+              showT(mapped.status==="sent"?"Campaign sent":"Campaign created!","success");
+              if(r?.summary||mapped.status==="sent"||mapped.status==="failed")notifyMarketing(mapped,r?.summary,mapped.status==="failed"?"error":undefined);
             }
-          }).catch(()=>{
-            setCamps(p=>p.filter(c=>c.id!==newCamp.id));
-            showT("Failed to create","error");
+          }).catch(err=>{
+            const failure=getMarketingErrorState(err,newCamp);
+            if(failure.campaign){
+              setCamps(p=>p.map(c=>c.id===newCamp.id?failure.campaign:c));
+              notifyMarketing(failure.campaign,failure.summary||{sent:0,failed:failure.campaign.failed||failure.results.length||1},"error");
+            } else {
+              setCamps(p=>p.filter(c=>c.id!==newCamp.id));
+            }
+            showT(failure.message||"Failed to create","error");
           });
         }
       }
@@ -883,19 +910,24 @@ export default function MarketingScr({contacts}){
   </div>;
 }
 
-function MktModal2({editCamp,defaultCh,segments,userTemplates=[],onClose,onSave}){
+function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onClose,onSave}){
   const [step,setStep]=useState(1);
   const [ch,setCh]=useState(editCamp?.ch||defaultCh||"whatsapp");
   const [name,setName]=useState(editCamp?.name||"");
   const [goal,setGoal]=useState(editCamp?.goal||"promotion");
   const [status,setStatus]=useState(editCamp?.status||"draft");
-  const [schedDate,setSchedDate]=useState("");
+  const [schedDate,setSchedDate]=useState(editCamp?.schedDate||"");
   const [subject,setSubject]=useState(editCamp?.subject||"");
   const [body,setBody]=useState(editCamp?.body||editCamp?.template||"");
-  const [segment,setSegment]=useState(segments[0]?.id||"");
+  const [segment,setSegment]=useState(editCamp?.segmentId||segments[0]?.id||"");
   const [ab,setAb]=useState(editCamp?.ab||false);
   const [aiLoading,setAiLoading]=useState(false);
-  const audience=segments.find(s=>s.id===segment)?.count||0;
+  const [audMode,setAudMode]=useState<"segments"|"individual">(editCamp?.audMode||"segments");
+  const [selContacts,setSelContacts]=useState<string[]>(editCamp?.selectedContacts||[]);
+  const [cSearch,setCSearch]=useState("");
+  const filteredContacts=contacts.filter(c=>{if(!cSearch.trim())return true;const q=cSearch.toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.email||"").toLowerCase().includes(q)||(c.phone||"").toLowerCase().includes(q);});
+  const toggleContact=(id:string)=>setSelContacts(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const audience=audMode==="segments"?(segments.find(s=>s.id===segment)?.count||0):selContacts.length;
   const templates=userTemplates.filter(t=>t.ch===ch).map(t=>({id:t.id,name:t.name,cat:t.cat||"General",text:t.body||"",subj:t.subj||""}));
 
   // ═══ CHANNEL VALIDATORS ═══
@@ -981,7 +1013,7 @@ function MktModal2({editCamp,defaultCh,segments,userTemplates=[],onClose,onSave}
     const v=validate();
     if(v.errs.length>0&&asStatus!=="draft"){showT("Fix "+v.errs.length+" error"+(v.errs.length>1?"s":"")+" before sending","error");return;}
     if(v.warns.length>0&&asStatus==="active"&&!window.confirm(v.warns.length+" warning"+(v.warns.length>1?"s":"")+": "+v.warns[0]+(v.warns.length>1?" (+more)":"")+"\n\nSend anyway?"))return;
-    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:segment});
+    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:[],audMode});
   };
 
   return <Mdl title={editCamp?"Edit Campaign":"New Campaign"} onClose={onClose} w={600}>
@@ -1090,7 +1122,14 @@ function MktModal2({editCamp,defaultCh,segments,userTemplates=[],onClose,onSave}
 
     {/* Step 3 */}
     {step===3&&<div>
-      <Fld label="Select Audience Segment">
+      {/* Audience Mode Tabs */}
+      <div style={{display:"flex",gap:0,marginBottom:14}}>
+        {([["segments","Audience Segments"],["individual","Individual Contacts"]] as const).map(([id,lbl])=>(
+          <button key={id} onClick={()=>setAudMode(id)} style={{flex:1,padding:"10px",fontSize:12,fontWeight:700,cursor:"pointer",background:audMode===id?C.ad:"transparent",color:audMode===id?C.a:C.t3,border:`1.5px solid ${audMode===id?C.a+"55":C.b1}`,borderRadius:id==="segments"?"10px 0 0 10px":"0 10px 10px 0",fontFamily:FB,transition:"all .15s"}}>{lbl}</button>
+        ))}
+      </div>
+
+      {audMode==="segments"&&<Fld label="Select Audience Segment">
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {segments.map(sg=>(
             <button key={sg.id} onClick={()=>setSegment(sg.id)} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:segment===sg.id?C.ad:C.s2,border:`1px solid ${segment===sg.id?C.a+"55":C.b1}`,cursor:"pointer",transition:"background .12s"}}>
@@ -1103,11 +1142,47 @@ function MktModal2({editCamp,defaultCh,segments,userTemplates=[],onClose,onSave}
             </button>
           ))}
         </div>
-      </Fld>
-      <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"14px",textAlign:"center",marginBottom:10}}>
+      </Fld>}
+
+      {audMode==="individual"&&<div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div style={{flex:1,position:"relative"}}>
+            <input value={cSearch} onChange={e=>setCSearch(e.target.value)} placeholder="Search contacts by name, email or phone..." style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.s2,fontSize:12,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/>
+            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.t3}}>🔍</span>
+          </div>
+          {selContacts.length>0&&<button onClick={()=>setSelContacts([])} style={{fontSize:10,color:C.r,background:C.rd,border:`1px solid ${C.r}33`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>Clear All</button>}
+        </div>
+        {selContacts.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
+          {selContacts.map(sid=>{const ct=contacts.find(c=>c.id===sid);return ct?<span key={sid} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,background:C.ad,color:C.a,padding:"3px 8px",borderRadius:12,fontWeight:600,fontFamily:FM}}>
+            {ct.name||ct.email||"Contact"}
+            <span onClick={()=>toggleContact(sid)} style={{cursor:"pointer",fontWeight:800,fontSize:11,marginLeft:2}}>×</span>
+          </span>:null;})}
+        </div>}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+          <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>SELECT CONTACTS</span>
+          <button onClick={()=>{if(selContacts.length===filteredContacts.length)setSelContacts([]);else setSelContacts(filteredContacts.map(c=>c.id));}} style={{fontSize:10,color:C.a,background:"transparent",border:"none",cursor:"pointer",fontWeight:600,fontFamily:FM}}>{selContacts.length===filteredContacts.length&&filteredContacts.length>0?"Deselect All":"Select All"+(cSearch?" Filtered":"")}</button>
+        </div>
+        <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,paddingRight:4}}>
+          {filteredContacts.length===0&&<div style={{textAlign:"center",padding:"20px",fontSize:12,color:C.t3}}>{cSearch?"No contacts match your search":"No contacts available"}</div>}
+          {filteredContacts.map(ct=>{const sel=selContacts.includes(ct.id);return(
+            <button key={ct.id} onClick={()=>toggleContact(ct.id)} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:sel?C.ad:C.s2,border:`1px solid ${sel?C.a+"55":C.b1}`,cursor:"pointer",transition:"background .12s"}}>
+              <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${sel?C.a:C.t3+"66"}`,background:sel?C.a:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .12s"}}>
+                {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:800}}>✓</span>}
+              </div>
+              <div style={{width:28,height:28,borderRadius:"50%",background:ct.color||C.a,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",flexShrink:0}}>{ct.av||ct.name?.[0]||"?"}</div>
+              <div style={{flex:1,textAlign:"left",minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.name||"Unnamed"}</div>
+                <div style={{fontSize:10,color:C.t3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.email||ct.phone||"No contact info"}</div>
+              </div>
+            </button>
+          );})}
+        </div>
+      </div>}
+
+      <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"14px",textAlign:"center",marginBottom:10,marginTop:14}}>
         <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginBottom:4}}>ESTIMATED REACH</div>
         <div style={{fontSize:32,fontWeight:800,fontFamily:FD,color:C.a}}>{audience.toLocaleString()}</div>
-        <div style={{fontSize:11,color:C.t3}}>contacts via {mktChL(ch)}</div>
+        <div style={{fontSize:11,color:C.t3}}>{audMode==="individual"?"selected contacts":"contacts"} via {mktChL(ch)}</div>
       </div>
       <div style={{display:"flex",justifyContent:"space-between"}}>
         <Btn ch="← Back" v="ghost" onClick={()=>setStep(2)}/>
@@ -1119,7 +1194,7 @@ function MktModal2({editCamp,defaultCh,segments,userTemplates=[],onClose,onSave}
     {step===4&&<div>
       <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:10}}>Campaign Summary</div>
       <div style={{background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",marginBottom:14}}>
-        {[["Channel",<span key="ch" style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={ch} s={14}/> {mktChL(ch)}</span>],["Name",name],["Goal",goal],["Status",status],["Audience",audience.toLocaleString()+" contacts"],["A/B Test",ab?"Yes":"No"]].map(([k,v])=>(
+        {[["Channel",<span key="ch" style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={ch} s={14}/> {mktChL(ch)}</span>],["Name",name],["Goal",goal],["Status",status],["Audience",audience.toLocaleString()+(audMode==="individual"?" individual contacts":" contacts (segment)")],["A/B Test",ab?"Yes":"No"]].map(([k,v])=>(
           <div key={k} style={{display:"flex",padding:"8px 12px",borderBottom:`1px solid ${C.b1}`}}>
             <span style={{fontSize:11,color:C.t3,fontFamily:FM,width:90,flexShrink:0}}>{k}</span>
             <span style={{fontSize:12,color:C.t1,fontWeight:600}}>{v}</span>
@@ -1407,7 +1482,7 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
           <div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>{mktChL(c.ch)} · {c.goal} · {c.date}</div>
         </div>
         <div style={{display:"flex",gap:5}}>
-          {c.status==="draft"&&<Btn ch="▶ Launch" v="success" sm onClick={()=>onLaunch(c)}/>}
+          {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<Btn ch="▶ Launch" v="success" sm onClick={()=>onLaunch(c)}/>}
           {(c.status==="active"||c.status==="paused")&&<Btn ch={c.status==="paused"?"▶ Resume":"⏸ Pause"} v="warn" sm onClick={()=>onPause(c)}/>}
           <Btn ch="✎ Edit" v="ghost" sm onClick={()=>onEdit(c)}/>
           <Btn ch="⎘ Duplicate" v="ghost" sm onClick={()=>onDuplicate(c)}/>
