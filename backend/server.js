@@ -1173,7 +1173,7 @@ app.patch('/api/integrations/:id', require('./middleware/auth'), (req, res) => {
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {
   // Clean URLs for policy pages (no .html extension)
-  for (const page of ['data-deletion', 'privacy', 'terms']) {
+  for (const page of ['data-deletion', 'privacy', 'terms', 'about']) {
     app.get(`/${page}`, (req, res) => {
       const file = path.join(frontendDist, `${page}.html`);
       if (fs.existsSync(file)) return res.sendFile(file);
