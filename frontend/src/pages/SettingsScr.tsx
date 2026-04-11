@@ -45,7 +45,7 @@ export default function SettingsScr({inboxes,setInboxes,agents,setAgents,labels,
 
 function FormBuilderSet(){
   const FTYPES=[["text","📝","Short Text"],["email","📧","Email"],["phone","📞","Phone"],["number","🔢","Number"],["textarea","📄","Long Text"],["select","📋","Dropdown"],["radio","🔘","Radio"],["checkbox","☑","Checkbox"],["date","📅","Date"],["url","🔗","URL"],["file","📎","File Upload"],["heading","📌","Heading"],["paragraph","📃","Paragraph"]];
-  const backendUrl=import.meta.env.VITE_BACKEND_URL||"http://localhost:4002";
+  const backendUrl=import.meta.env.VITE_BACKEND_URL??"http://localhost:4002";
   const [forms,setForms]=useState([]);const [loading,setLoading]=useState(true);
   const [selForm,setSelForm]=useState(null);const [editMode,setEditMode]=useState("fields");const [newOpt,setNewOpt]=useState("");const [showNew,setShowNew]=useState(false);const [newName,setNewName]=useState("");
   const [submissions,setSubmissions]=useState([]);const [subTotal,setSubTotal]=useState(0);const [saveTimer,setSaveTimer]=useState(null);
