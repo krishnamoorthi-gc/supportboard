@@ -2,9 +2,16 @@ const router = require('express').Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid, parseJson } = require('../utils/helpers');
+const { broadcastToAll } = require('../ws');
 
 let emailSvc = null;
 try { emailSvc = require('../services/emailService'); } catch {}
+
+let whatsappSvc = null;
+try { whatsappSvc = require('../services/whatsappService'); } catch {}
+
+let smsSvc = null;
+try { smsSvc = require('../services/smsService'); } catch {}
 
 const nowIso = () => new Date().toISOString();
 
@@ -196,6 +203,14 @@ async function resolveSegmentAudience(segmentRow, agentId) {
   return dedupeAudience(contacts.filter(contact => matchesSegmentConditions(contact, segment.conditions)));
 }
 
+async function resolveGroupAudience(groupId, agentId) {
+  if (!groupId) return [];
+  const members = await db.prepare(
+    'SELECT c.* FROM contacts c INNER JOIN contact_group_members m ON c.id=m.contact_id WHERE m.group_id=? AND c.agent_id=? ORDER BY c.created_at ASC'
+  ).all(groupId, agentId);
+  return dedupeAudience(members);
+}
+
 async function resolveCampaignAudience(campaignRow, agentId) {
   const campaign = normalizeCampaignRow(campaignRow);
   if (!campaign) return [];
@@ -207,6 +222,17 @@ async function resolveCampaignAudience(campaignRow, agentId) {
     const placeholders = ids.map(() => '?').join(',');
     const contacts = await db.prepare(`SELECT * FROM contacts WHERE agent_id=? AND id IN (${placeholders}) ORDER BY created_at ASC`).all(agentId, ...ids);
     return dedupeAudience(contacts);
+  }
+
+  if (campaign.audience_mode === 'groups') {
+    const groupIds = toArray(campaign.selected_contacts);
+    if (!groupIds.length) return [];
+    let all = [];
+    for (const gid of groupIds) {
+      const members = await resolveGroupAudience(gid, agentId);
+      all = all.concat(members);
+    }
+    return dedupeAudience(all);
   }
 
   if (!campaign.segment_id) return [];
@@ -252,7 +278,7 @@ function mergeCampaignText(text, recipient) {
     status: custom.status || '',
     hours: custom.hours || '',
     points: custom.points || '',
-    unsubscribe: custom.unsubscribe || '',
+    unsubscribe: custom.unsubscribe || 'To unsubscribe, reply STOP',
   };
 
   return raw.replace(/\{\{(\w+)\}\}/g, (_match, key) => (
@@ -269,6 +295,41 @@ async function getLaunchableEmailInbox(agentId) {
     const cfg = normalizeInboxConfig(inbox.config);
     return !!(cfg.smtpHost && cfg.emailUser);
   }) || null;
+}
+
+async function getLaunchableWhatsAppInbox(agentId) {
+  const inboxes = await db.prepare(
+    'SELECT * FROM inboxes WHERE agent_id=? AND type=? AND active=1 ORDER BY created_at ASC, name ASC'
+  ).all(agentId, 'whatsapp');
+
+  return inboxes.find(inbox => {
+    const cfg = normalizeInboxConfig(inbox.config);
+    return !!(cfg.phoneNumberId && (cfg.apiKey || cfg.accessToken));
+  }) || null;
+}
+
+async function getLaunchableSmsInbox(agentId) {
+  const inboxes = await db.prepare(
+    'SELECT * FROM inboxes WHERE agent_id=? AND type=? AND active=1 ORDER BY created_at ASC, name ASC'
+  ).all(agentId, 'sms');
+
+  return inboxes.find(inbox => {
+    const cfg = normalizeInboxConfig(inbox.config);
+    return !!(cfg.accountSid && cfg.authToken && cfg.fromNumber);
+  }) || null;
+}
+
+function broadcastCampaignProgress(campaignId, data) {
+  broadcastToAll({
+    type: 'campaign_progress',
+    campaign_id: campaignId,
+    ...data,
+  });
+}
+
+function normalizePhone(phone) {
+  if (!phone) return '';
+  return phone.replace(/[\s\-\(\)\+]/g, '');
 }
 
 async function loadCampaignForAgent(campaignId, agentId) {
@@ -288,15 +349,45 @@ async function persistCampaignLaunch(campaignId, agentId, { status, sentAt, stat
   return loadCampaignForAgent(campaignId, agentId);
 }
 
+// Track campaigns currently being sent to prevent double-launch
+const sendingCampaigns = new Set();
+
 async function launchCampaign(campaignRow, agentId) {
   const campaign = normalizeCampaignRow(campaignRow);
   if (!campaign) throw marketingError('Campaign not found', 404);
 
+  // Prevent double-launch
+  if (sendingCampaigns.has(campaign.id)) {
+    throw marketingError('Campaign is already being sent', 422, { campaign });
+  }
+  if (campaign.status === 'sent') {
+    throw marketingError('Campaign has already been sent', 422, { campaign });
+  }
+
+  sendingCampaigns.add(campaign.id);
+
+  // Mark as sending in DB
+  await db.prepare('UPDATE campaigns SET status=? WHERE id=? AND agent_id=?').run('sending', campaign.id, agentId);
+
   const audience = await resolveCampaignAudience(campaign, agentId);
   if (!audience.length) {
+    sendingCampaigns.delete(campaign.id);
     throw marketingError('No recipients found for this campaign', 422, { campaign });
   }
 
+  // Broadcast campaign start
+  broadcastCampaignProgress(campaign.id, {
+    status: 'sending',
+    total: audience.length,
+    sent: 0,
+    failed: 0,
+    channel: campaign.type,
+    campaignName: campaign.name,
+  });
+
+  try {
+
+  // ── EMAIL CAMPAIGN ─────────────────────────────────────────────
   if (campaign.type === 'email') {
     if (!emailSvc?.sendEmail) throw marketingError('Email service is unavailable', 503, { campaign });
 
@@ -314,101 +405,220 @@ async function launchCampaign(campaignRow, agentId) {
     let failed = 0;
     const results = [];
 
-    for (const recipient of recipients) {
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
       try {
         const mergedSubject = mergeCampaignText(campaign.subject || campaign.name || 'Campaign', recipient).trim();
         const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+
+        // Build HTML email body
+        const isHtml = mergedBody.includes('<') && mergedBody.includes('>');
+        const htmlBody = isHtml ? mergedBody : `<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.6">${mergedBody.replace(/\n/g, '<br>')}</div>`;
 
         await emailSvc.sendEmail({
           inboxId: inbox.id,
           to: recipient.email,
           subject: mergedSubject || campaign.name || 'Campaign',
-          text: mergedBody || ' ',
+          text: mergedBody.replace(/<[^>]+>/g, '') || ' ',
+          html: htmlBody,
         });
 
         sent += 1;
         results.push({ email: recipient.email, name: recipient.name || null, status: 'sent' });
+
+        // Log send
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_email,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.email, 'email', 'sent', nowIso()
+        );
       } catch (err) {
         failed += 1;
         results.push({ email: recipient.email, name: recipient.name || null, status: 'failed', error: err.message });
+
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_email,channel,status,error_message) VALUES (?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.email, 'email', 'failed', err.message
+        );
       }
-    }
 
-    const stats = {
-      ...campaign.stats,
-      sent,
-      delivered: sent,
-      opens: 0,
-      clicks: 0,
-      failed,
-      unsub: Number(campaign.stats?.unsub || 0),
-    };
-
-    if (!sent) {
-      const updated = await persistCampaignLaunch(campaign.id, agentId, {
-        status: 'failed',
-        sentAt: null,
-        stats,
-      });
-      const firstError = results.find(result => result.error)?.error || 'Failed to send this campaign to any recipient';
-      throw marketingError(firstError, 422, {
-        campaign: updated,
-        summary: {
-          sent: 0,
-          failed,
-          totalRecipients: recipients.length,
-          channel: 'email',
-          inbox: inbox.name,
-        },
-        results,
-      });
-    }
-
-    const updated = await persistCampaignLaunch(campaign.id, agentId, {
-      status: 'sent',
-      sentAt: nowIso(),
-      stats,
-    });
-    return {
-      campaign: updated,
-      summary: {
+      // Broadcast progress every message
+      broadcastCampaignProgress(campaign.id, {
+        status: 'sending',
+        total: recipients.length,
         sent,
         failed,
-        totalRecipients: recipients.length,
+        current: i + 1,
+        currentContact: recipient.name || recipient.email,
         channel: 'email',
-        inbox: inbox.name,
-      },
-      results,
-    };
+      });
+    }
+
+    const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
+
+    if (!sent) {
+      const updated = await persistCampaignLaunch(campaign.id, agentId, { status: 'failed', sentAt: null, stats });
+      broadcastCampaignProgress(campaign.id, { status: 'failed', total: recipients.length, sent: 0, failed, channel: 'email' });
+      const firstError = results.find(result => result.error)?.error || 'Failed to send this campaign to any recipient';
+      throw marketingError(firstError, 422, { campaign: updated, summary: { sent: 0, failed, totalRecipients: recipients.length, channel: 'email', inbox: inbox.name }, results });
+    }
+
+    const updated = await persistCampaignLaunch(campaign.id, agentId, { status: 'sent', sentAt: nowIso(), stats });
+    broadcastCampaignProgress(campaign.id, { status: 'completed', total: recipients.length, sent, failed, channel: 'email' });
+    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'email', inbox: inbox.name }, results };
   }
 
-  const sent = audience.length;
-  const stats = {
-    ...campaign.stats,
-    sent,
-    delivered: sent,
-    opens: 0,
-    clicks: 0,
-    failed: 0,
-    unsub: Number(campaign.stats?.unsub || 0),
-  };
+  // ── WHATSAPP CAMPAIGN ──────────────────────────────────────────
+  if (campaign.type === 'whatsapp') {
+    const inbox = await getLaunchableWhatsAppInbox(agentId);
+    if (!inbox && whatsappSvc?.sendWhatsAppMessage) {
+      throw marketingError('No active WhatsApp inbox with API configured', 422, { campaign });
+    }
 
-  const updated = await persistCampaignLaunch(campaign.id, agentId, {
-    status: 'sent',
-    sentAt: nowIso(),
-    stats,
-  });
-  return {
-    campaign: updated,
-    summary: {
-      sent,
-      failed: 0,
-      totalRecipients: audience.length,
-      channel: campaign.type,
-      simulated: true,
-    },
-    results: [],
-  };
+    const recipients = audience.filter(contact => {
+      const phone = normalizePhone(contact.phone);
+      return phone.length >= 10;
+    });
+    if (!recipients.length) {
+      throw marketingError('No recipients with valid phone numbers found for this campaign', 422, { campaign });
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const results = [];
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      const phone = normalizePhone(recipient.phone);
+      const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+
+      try {
+        if (whatsappSvc?.sendWhatsAppMessage && inbox) {
+          await whatsappSvc.sendWhatsAppMessage({
+            inboxId: inbox.id,
+            to: phone,
+            text: mergedBody || campaign.name || 'Campaign message',
+          });
+        }
+        // If no WhatsApp service, still log as sent (simulated)
+
+        sent += 1;
+        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent' });
+
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'whatsapp', 'sent', nowIso()
+        );
+      } catch (err) {
+        failed += 1;
+        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'failed', error: err.message });
+
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,error_message) VALUES (?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'whatsapp', 'failed', err.message
+        );
+      }
+
+      broadcastCampaignProgress(campaign.id, {
+        status: 'sending',
+        total: recipients.length,
+        sent,
+        failed,
+        current: i + 1,
+        currentContact: recipient.name || recipient.phone,
+        channel: 'whatsapp',
+      });
+    }
+
+    const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
+    const finalStatus = sent ? 'sent' : 'failed';
+    const updated = await persistCampaignLaunch(campaign.id, agentId, { status: finalStatus, sentAt: sent ? nowIso() : null, stats });
+    broadcastCampaignProgress(campaign.id, { status: sent ? 'completed' : 'failed', total: recipients.length, sent, failed, channel: 'whatsapp' });
+
+    if (!sent) {
+      const firstError = results.find(r => r.error)?.error || 'Failed to send WhatsApp campaign';
+      throw marketingError(firstError, 422, { campaign: updated, summary: { sent: 0, failed, totalRecipients: recipients.length, channel: 'whatsapp' }, results });
+    }
+
+    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'whatsapp', simulated: !inbox }, results };
+  }
+
+  // ── SMS CAMPAIGN ───────────────────────────────────────────────
+  if (campaign.type === 'sms') {
+    const inbox = await getLaunchableSmsInbox(agentId);
+
+    const recipients = audience.filter(contact => {
+      const phone = normalizePhone(contact.phone);
+      return phone.length >= 10;
+    });
+    if (!recipients.length) {
+      throw marketingError('No recipients with valid phone numbers found for this campaign', 422, { campaign });
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const results = [];
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      const phone = normalizePhone(recipient.phone);
+      const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+
+      try {
+        if (smsSvc?.sendSms && inbox) {
+          await smsSvc.sendSms({
+            inboxId: inbox.id,
+            to: phone,
+            text: mergedBody || campaign.name || 'Campaign message',
+          });
+        }
+        // If no SMS service, still log as sent (simulated)
+
+        sent += 1;
+        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent' });
+
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'sms', 'sent', nowIso()
+        );
+      } catch (err) {
+        failed += 1;
+        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'failed', error: err.message });
+
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,error_message) VALUES (?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'sms', 'failed', err.message
+        );
+      }
+
+      broadcastCampaignProgress(campaign.id, {
+        status: 'sending',
+        total: recipients.length,
+        sent,
+        failed,
+        current: i + 1,
+        currentContact: recipient.name || recipient.phone,
+        channel: 'sms',
+      });
+    }
+
+    const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
+    const finalStatus = sent ? 'sent' : 'failed';
+    const updated = await persistCampaignLaunch(campaign.id, agentId, { status: finalStatus, sentAt: sent ? nowIso() : null, stats });
+    broadcastCampaignProgress(campaign.id, { status: sent ? 'completed' : 'failed', total: recipients.length, sent, failed, channel: 'sms' });
+
+    if (!sent) {
+      const firstError = results.find(r => r.error)?.error || 'Failed to send SMS campaign';
+      throw marketingError(firstError, 422, { campaign: updated, summary: { sent: 0, failed, totalRecipients: recipients.length, channel: 'sms' }, results });
+    }
+
+    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'sms', simulated: !inbox }, results };
+  }
+
+  // ── PUSH / FALLBACK (simulated) ────────────────────────────────
+  const sent = audience.length;
+  const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed: 0, unsub: Number(campaign.stats?.unsub || 0) };
+
+  const updated = await persistCampaignLaunch(campaign.id, agentId, { status: 'sent', sentAt: nowIso(), stats });
+  broadcastCampaignProgress(campaign.id, { status: 'completed', total: audience.length, sent, failed: 0, channel: campaign.type });
+  return { campaign: updated, summary: { sent, failed: 0, totalRecipients: audience.length, channel: campaign.type, simulated: true }, results: [] };
+
+  } finally {
+    sendingCampaigns.delete(campaign.id);
+  }
 }
 
 // Campaigns
@@ -725,6 +935,196 @@ router.delete('/templates/:id', auth, async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     console.error('❌ DELETE /api/marketing/templates/:id error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══ Contact Groups ═══
+router.get('/groups', auth, async (req, res) => {
+  try {
+    const groups = await db.prepare('SELECT * FROM contact_groups WHERE agent_id=? ORDER BY name ASC').all(req.agent.id);
+    // Attach member counts
+    for (const g of groups) {
+      const countRow = await db.prepare('SELECT COUNT(*) as cnt FROM contact_group_members WHERE group_id=?').get(g.id);
+      g.contact_count = countRow?.cnt || 0;
+    }
+    res.json({ groups });
+  } catch (e) {
+    console.error('❌ GET /api/marketing/groups error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/groups/:id', auth, async (req, res) => {
+  try {
+    const group = await db.prepare('SELECT * FROM contact_groups WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!group) return res.status(404).json({ error: 'Not found' });
+
+    const members = await db.prepare(
+      'SELECT c.*, m.added_at FROM contacts c INNER JOIN contact_group_members m ON c.id=m.contact_id WHERE m.group_id=? ORDER BY m.added_at DESC'
+    ).all(req.params.id);
+    group.contact_count = members.length;
+    group.members = members;
+    res.json({ group });
+  } catch (e) {
+    console.error('❌ GET /api/marketing/groups/:id error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/groups', auth, async (req, res) => {
+  try {
+    const { name, description = '', color = '#6366f1', icon = '👥', contact_ids = [] } = req.body;
+    if (!name) return res.status(400).json({ error: 'name required' });
+
+    const id = uid();
+    await db.prepare(
+      'INSERT INTO contact_groups (id,name,description,color,icon,contact_count,agent_id) VALUES (?,?,?,?,?,?,?)'
+    ).run(id, name, description, color, icon, 0, req.agent.id);
+
+    // Add initial members
+    const ids = toArray(contact_ids);
+    for (const cid of ids) {
+      await db.prepare('INSERT INTO contact_group_members (id,group_id,contact_id) VALUES (?,?,?)').run(uid(), id, cid);
+    }
+
+    // Update count
+    await db.prepare('UPDATE contact_groups SET contact_count=? WHERE id=?').run(ids.length, id);
+
+    const group = await db.prepare('SELECT * FROM contact_groups WHERE id=? AND agent_id=?').get(id, req.agent.id);
+    group.contact_count = ids.length;
+    res.status(201).json({ group });
+  } catch (e) {
+    console.error('❌ POST /api/marketing/groups error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.patch('/groups/:id', auth, async (req, res) => {
+  try {
+    const group = await db.prepare('SELECT * FROM contact_groups WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!group) return res.status(404).json({ error: 'Not found' });
+
+    const fields = ['name', 'description', 'color', 'icon'];
+    const updates = {};
+    for (const field of fields) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+    updates.updated_at = nowIso();
+
+    if (Object.keys(updates).length) {
+      const sets = Object.keys(updates).map(key => `${key}=?`).join(',');
+      await db.prepare(`UPDATE contact_groups SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+    }
+
+    const updated = await db.prepare('SELECT * FROM contact_groups WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    const countRow = await db.prepare('SELECT COUNT(*) as cnt FROM contact_group_members WHERE group_id=?').get(req.params.id);
+    updated.contact_count = countRow?.cnt || 0;
+    res.json({ group: updated });
+  } catch (e) {
+    console.error('❌ PATCH /api/marketing/groups/:id error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/groups/:id', auth, async (req, res) => {
+  try {
+    await db.prepare('DELETE FROM contact_group_members WHERE group_id=?').run(req.params.id);
+    await db.prepare('DELETE FROM contact_groups WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('❌ DELETE /api/marketing/groups/:id error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Add contacts to group
+router.post('/groups/:id/members', auth, async (req, res) => {
+  try {
+    const group = await db.prepare('SELECT * FROM contact_groups WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+
+    const { contact_ids = [] } = req.body;
+    const ids = toArray(contact_ids);
+    let added = 0;
+
+    for (const cid of ids) {
+      const existing = await db.prepare('SELECT id FROM contact_group_members WHERE group_id=? AND contact_id=?').get(req.params.id, cid);
+      if (!existing) {
+        await db.prepare('INSERT INTO contact_group_members (id,group_id,contact_id) VALUES (?,?,?)').run(uid(), req.params.id, cid);
+        added++;
+      }
+    }
+
+    const countRow = await db.prepare('SELECT COUNT(*) as cnt FROM contact_group_members WHERE group_id=?').get(req.params.id);
+    await db.prepare('UPDATE contact_groups SET contact_count=?, updated_at=? WHERE id=?').run(countRow?.cnt || 0, nowIso(), req.params.id);
+
+    res.json({ success: true, added, total: countRow?.cnt || 0 });
+  } catch (e) {
+    console.error('❌ POST /api/marketing/groups/:id/members error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Remove contacts from group
+router.post('/groups/:id/members/remove', auth, async (req, res) => {
+  try {
+    const group = await db.prepare('SELECT * FROM contact_groups WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+
+    const { contact_ids = [] } = req.body;
+    const ids = toArray(contact_ids);
+
+    for (const cid of ids) {
+      await db.prepare('DELETE FROM contact_group_members WHERE group_id=? AND contact_id=?').run(req.params.id, cid);
+    }
+
+    const countRow = await db.prepare('SELECT COUNT(*) as cnt FROM contact_group_members WHERE group_id=?').get(req.params.id);
+    await db.prepare('UPDATE contact_groups SET contact_count=?, updated_at=? WHERE id=?').run(countRow?.cnt || 0, nowIso(), req.params.id);
+
+    res.json({ success: true, removed: ids.length, total: countRow?.cnt || 0 });
+  } catch (e) {
+    console.error('❌ DELETE /api/marketing/groups/:id/members error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Campaign send log
+router.get('/campaigns/:id/log', auth, async (req, res) => {
+  try {
+    const logs = await db.prepare('SELECT * FROM campaign_send_log WHERE campaign_id=? ORDER BY created_at DESC').all(req.params.id);
+    res.json({ logs });
+  } catch (e) {
+    console.error('❌ GET /api/marketing/campaigns/:id/log error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Campaign responses — conversations started from campaign replies
+router.get('/campaigns/:id/responses', auth, async (req, res) => {
+  try {
+    const convs = await db.prepare(`
+      SELECT c.*, ct.name as contact_name, ct.email as contact_email,
+             ct.phone as contact_phone, ct.avatar as contact_avatar, ct.color as contact_color,
+             i.name as inbox_name, i.type as inbox_type
+      FROM conversations c
+      LEFT JOIN contacts ct ON c.contact_id = ct.id
+      LEFT JOIN inboxes i ON c.inbox_id = i.id
+      WHERE c.campaign_id=? AND c.agent_id=?
+      ORDER BY c.updated_at DESC
+    `).all(req.params.id, req.agent.id);
+
+    for (const cv of convs) {
+      const last = await db.prepare('SELECT text, role, created_at FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 1').get(cv.id);
+      cv.lastMessage = last || null;
+      const unreadRow = await db.prepare("SELECT COUNT(*) as c FROM messages WHERE conversation_id=? AND is_read=0 AND role='customer'").get(cv.id);
+      cv.unreadCount = unreadRow ? unreadRow.c : 0;
+      try { cv.labels = JSON.parse(cv.labels || '[]'); } catch { cv.labels = []; }
+    }
+
+    res.json({ conversations: convs, total: convs.length });
+  } catch (e) {
+    console.error('❌ GET /api/marketing/campaigns/:id/responses error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

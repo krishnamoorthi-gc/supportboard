@@ -565,16 +565,17 @@ export default function App(){
           // Merge/add conversation in list
           setConvs((p:any)=>{
             const exists=p.find((c:any)=>c.id===cv.id);
-            if(exists){return p.map((c:any)=>c.id===cv.id?{...c,cid:cv.contact_id||c.cid,iid:cv.inbox_id||c.iid,ch:"email",contact_name:cv.contact_name||c.contact_name,contact_email:cv.contact_email||c.contact_email,color:cv.contact_color||c.color,unread:(c.unread||0)+1,time:"now",updated_at:cv.updated_at}:c);}
+            if(exists){return p.map((c:any)=>c.id===cv.id?{...c,cid:cv.contact_id||c.cid,iid:cv.inbox_id||c.iid,ch:"email",contact_name:cv.contact_name||c.contact_name,contact_email:cv.contact_email||c.contact_email,color:cv.contact_color||c.color,campaign_id:cv.campaign_id||c.campaign_id,campaign_name:cv.campaign_name||c.campaign_name,unread:(c.unread||0)+1,time:"now",updated_at:cv.updated_at}:c);}
             // New conversation — prepend with basic shape
             return [{id:cv.id,subject:cv.subject,status:"open",priority:"normal",ch:"email",
               cid:cv.contact_id,iid:cv.inbox_id,inbox_name:cv.inbox_name,contact_name:cv.contact_name,contact_email:cv.contact_email,
-              contact_color:cv.contact_color,color:cv.contact_color||chC("email"),unread:1,time:"now",labels:[]},...p];
+              contact_color:cv.contact_color,color:cv.contact_color||chC("email"),campaign_id:cv.campaign_id||null,campaign_name:cv.campaign_name||null,unread:1,time:"now",labels:[]},...p];
           });
           // Append message
           setMsgs((p:any)=>({...p,[cv.id]:[...(p[cv.id]||[]).filter((x:any)=>x.id!==msg.id),msg]}));
           // Notification + sound
-          pushNotification({text:`📧 New email from ${cv.contact_name||cv.contact_email}`,type:"message",targetScreen:"inbox",conversationId:cv.id,targetConversation:cv});
+          const emailCampLabel=cv.campaign_name?`📣 Campaign reply from ${cv.contact_name||cv.contact_email} (${cv.campaign_name})`:`📧 New email from ${cv.contact_name||cv.contact_email}`;
+          pushNotification({text:emailCampLabel,type:"message",targetScreen:"inbox",conversationId:cv.id,targetConversation:cv});
           const emailPreview=msg.text?.slice(0,60)||(Array.isArray(msg.attachments)&&msg.attachments.length>0?"📷 Image":"New email");
           showT(`📧 ${cv.contact_name||cv.contact_email||"Email"}: ${emailPreview}`,"info");
         }
@@ -583,7 +584,7 @@ export default function App(){
           const cv=m.conversation||null;
           if(cv){
             const labels=typeof cv.labels==="string"?JSON.parse(cv.labels||"[]"):cv.labels||[];
-            const newConv={...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:0,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live")};
+            const newConv={...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||cv.type||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:0,time:"now",color:cv.contact_color||chC(cv.inbox_type||"live"),campaign_id:cv.campaign_id||m.campaign_id||null,campaign_name:cv.campaign_name||m.campaign_name||null};
             setConvs((p:any)=>{
               if(p.find((c:any)=>c.id===cv.id))return p; // already in list
               return [newConv,...p];
@@ -598,7 +599,8 @@ export default function App(){
               return [...p,{id:cid,name:m.contact_name||"Customer",email:m.contact_email||"",av,color:m.contact_color||"#4c82fb",tags:[],convs:1}];
             });
           }
-          pushNotification({text:"💬 New conversation from "+(m.contact_name||"visitor"),type:"message",targetScreen:"inbox",conversationId:cv?.id||m.conversation_id||null,targetConversation:cv||null});
+          const campLabel=cv?.campaign_name||m.campaign_name?"📣 Campaign reply":"💬 New conversation";
+          pushNotification({text:`${campLabel} from ${m.contact_name||"visitor"}${cv?.campaign_name||m.campaign_name?" ("+( cv?.campaign_name||m.campaign_name)+")":""}`,type:"message",targetScreen:"inbox",conversationId:cv?.id||m.conversation_id||null,targetConversation:cv||null});
           // AI Auto-Tag — classify new conversation
           const convId=cv?.id||m.conversation_id;
           const convSubject=cv?.subject||m.subject||"";

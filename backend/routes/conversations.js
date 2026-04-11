@@ -53,7 +53,7 @@ async function findOrCreateContactByEmail({ email, name, agentId, preferredId })
 // GET /api/conversations
 router.get('/', auth, async (req, res) => {
   const { offset, limit } = paginate(req);
-  const { status, priority, assignee, inbox, label, q } = req.query;
+  const { status, priority, assignee, inbox, label, q, campaign_id, campaign_replies } = req.query;
 
   let where = 'c.agent_id=?';
   const params = [req.agent.id];
@@ -61,6 +61,8 @@ router.get('/', auth, async (req, res) => {
   if (priority) { where += ' AND c.priority=?'; params.push(priority); }
   if (assignee) { where += ' AND c.assignee_id=?'; params.push(assignee); }
   if (inbox) { where += ' AND c.inbox_id=?'; params.push(inbox); }
+  if (campaign_id) { where += ' AND c.campaign_id=?'; params.push(campaign_id); }
+  if (campaign_replies === 'true') { where += ' AND c.campaign_id IS NOT NULL'; }
   if (q) { where += ' AND (c.subject LIKE ? OR ct.name LIKE ? OR ct.email LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq); }
 
   const convs = await db.prepare(`

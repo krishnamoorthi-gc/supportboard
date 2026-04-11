@@ -2,14 +2,14 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
 // ─── MARKETING ────────────────────────────────────────────────────────────
-const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points"];
+const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points","unsubscribe"];
 const mktGoalC=g=>({promotion:C.r,engagement:C.a,retention:C.p,transactional:C.cy}[g]||C.t3);
-const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y,failed:C.r}[s]||C.t3);
+const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y,failed:C.r,sending:C.cy}[s]||C.t3);
 const mktChC=c=>({whatsapp:"#25d366",email:C.a,sms:C.y,push:"#ff6b35"}[c]||C.t3);
 const mktChE=c=><ChIcon t={c} s={16}/>;
 const mktChL=c=>({whatsapp:"WhatsApp",email:"Email",sms:"SMS",push:"Push"}[c]||c);
 const mktPct=(a,b)=>b?Math.round(a/b*100):0;
-const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250"}[k]||m));
+const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250",unsubscribe:"To unsubscribe, reply STOP"}[k]||m));
 
 const mktParse=(value,fallback)=>{try{return value===undefined||value===null||value===""?fallback:typeof value==="string"?JSON.parse(value):value;}catch{return fallback;}};
 const mapApiCampaign=c=>{const stats=mktParse(c?.stats,{});const selectedContacts=Array.isArray(c?.selected_contacts)?c.selected_contacts:mktParse(c?.selected_contacts??c?.selectedContacts,[]);const audMode=c?.audience_mode||c?.audMode||"segments";const sent=Number(stats?.sent??c?.sent_count??0);const failed=Number(stats?.failed??0);const delivered=Number(stats?.delivered??c?.delivered_count??(sent?Math.round(sent*0.97):0));const read=Number(stats?.opens??c?.open_count??0);const clicked=Number(stats?.clicks??c?.click_count??0);const audience=sent||Number(c?.audience??(audMode==="individual"?selectedContacts.length:0));return{...c,ch:c?.type||c?.ch||"email",name:c?.name||"Campaign",goal:c?.goal||"promotion",status:c?.status||"draft",subject:c?.subject||"",body:c?.body||c?.template||"",template:c?.body||c?.template||"",segmentId:c?.segment_id||c?.segmentId||null,audMode,selectedContacts:Array.isArray(selectedContacts)?selectedContacts:[],audience,sent,delivered,read,clicked,failed,unsub:Number(stats?.unsub??0),revenue:c?.revenue||"â€”",cost:c?.cost||"â€”",roi:c?.roi||"â€”",date:c?.sent_at?.split("T")[0]||c?.scheduled_at?.split("T")[0]||c?.created_at?.split("T")[0]||"â€”",spark:c?.spark||[0,0,0,0,0,0,0],ab:!!(c?.ab_test||c?.ab),schedDate:c?.scheduled_at||c?.schedDate||""};};
@@ -20,6 +20,7 @@ export default function MarketingScr({contacts,pushNotification}){
   const [camps,setCamps]=useState([]);
   const [autos,setAutos]=useState([]);
   const [segments,setSegments]=useState([]);
+  const [groups,setGroups]=useState([]);
   const [filter,setFilter]=useState("all");
   const [search,setSearch]=useState("");
   const [showModal,setShowModal]=useState(false);
@@ -28,6 +29,20 @@ export default function MarketingScr({contacts,pushNotification}){
   const [selCamp,setSelCamp]=useState(null);
   const [viewCamp,setViewCamp]=useState(null);
   const [modalCh,setModalCh]=useState(null);
+  // Groups state
+  const [showGroupModal,setShowGroupModal]=useState(false);
+  const [editGroup,setEditGroup]=useState(null);
+  const [grpName,setGrpName]=useState("");
+  const [grpDesc,setGrpDesc]=useState("");
+  const [grpColor,setGrpColor]=useState("#6366f1");
+  const [grpIcon,setGrpIcon]=useState("👥");
+  const [grpSelContacts,setGrpSelContacts]=useState<string[]>([]);
+  const [grpSearch,setGrpSearch]=useState("");
+  const [grpViewMembers,setGrpViewMembers]=useState(null);
+  const [grpMembers,setGrpMembers]=useState([]);
+  const [grpAddOpen,setGrpAddOpen]=useState(false);
+  // Campaign progress state
+  const [campProgress,setCampProgress]=useState<{campaignId:string,status:string,total:number,sent:number,failed:number,current:number,currentContact:string,channel:string}|null>(null);
   // AI Studio state
   const [aiTool,setAiTool]=useState("subjects");
   const [aiInput,setAiInput]=useState("");
@@ -84,6 +99,40 @@ export default function MarketingScr({contacts,pushNotification}){
         console.log('✅ Automations loaded from DB:', r.automations.length);
       }
     }).catch(e=>console.error('❌ Failed to load automations:', e));
+
+    api.get("/marketing/groups").then(r=>{
+      if(r?.groups){
+        setGroups(r.groups);
+        console.log('✅ Groups loaded from DB:', r.groups.length);
+      }
+    }).catch(e=>console.error('❌ Failed to load groups:', e));
+  },[]);
+
+  // WebSocket listener for campaign progress
+  useEffect(()=>{
+    const handleWsMessage=(e)=>{
+      try{
+        const data=typeof e.data==="string"?JSON.parse(e.data):e.data;
+        if(data?.type==="campaign_progress"){
+          setCampProgress({
+            campaignId:data.campaign_id,
+            status:data.status,
+            total:data.total||0,
+            sent:data.sent||0,
+            failed:data.failed||0,
+            current:data.current||0,
+            currentContact:data.currentContact||"",
+            channel:data.channel||"",
+          });
+          if(data.status==="completed"||data.status==="failed"){
+            setTimeout(()=>setCampProgress(null),5000);
+          }
+        }
+      }catch{}
+    };
+    const ws=(window as any).__ws;
+    if(ws)ws.addEventListener("message",handleWsMessage);
+    return()=>{if(ws)ws.removeEventListener("message",handleWsMessage);};
   },[]);
   const [tplCatFilter,setTplCatFilter]=useState("all");
   const [tplPreview,setTplPreview]=useState(null);
@@ -174,6 +223,9 @@ export default function MarketingScr({contacts,pushNotification}){
     }
   };
   const launchCamp=id=>{
+    const camp=camps.find(c=>c.id===id);
+    if(camp&&(camp.status==="sent"||camp.status==="sending")){showT("Campaign already sent","info");return;}
+    setCamps(p=>p.map(c=>c.id===id?{...c,status:"sending"}:c));
     if(!api.isConnected()){setCamps(p=>p.map(c=>c.id===id?{...c,status:"sent",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));showT("Campaign marked as sent (offline mode)","info");return;}
     api.patch(`/marketing/campaigns/${id}`,{status:"sent"}).then(r=>{
       if(r?.campaign){const mapped=mapApiCampaign(r.campaign);setCamps(p=>p.map(c=>c.id===id?mapped:c));const sent=r?.summary?.sent??mapped.sent??0;const failed=r?.summary?.failed??mapped.failed??0;showT(`Campaign sent to ${sent} contact${sent===1?"":"s"}${failed?` | ${failed} failed`:""}`,failed?"warn":"success");notifyMarketing(mapped,r?.summary);}
@@ -231,7 +283,9 @@ export default function MarketingScr({contacts,pushNotification}){
       <Spark data={c.spark||[0,0,0,0,0,0,0]} color={mktChC(c.ch)}/>
       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
         {(c.status==="active"||c.status==="paused")&&<button onClick={()=>togglePause(c.id)} title={c.status==="paused"?"Resume":"Pause"} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">{c.status==="paused"?"▶":"⏸"}</button>}
-        {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<button onClick={()=>launchCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",color:C.g}}>▶</button>}
+        {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<button onClick={()=>launchCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",color:C.g}} title="Launch">▶</button>}
+        {c.status==="sending"&&<span style={{fontSize:9,color:C.cy,fontFamily:FM,fontWeight:700}}>Sending…</span>}
+        {c.status==="sent"&&<button onClick={()=>{if(!window.confirm("Resend this campaign to the same audience?"))return;setCamps(p=>p.map(x=>x.id===c.id?{...x,status:"draft"}:x));if(api.isConnected())api.patch(`/marketing/campaigns/${c.id}`,{status:"draft"}).then(()=>{launchCamp(c.id);}).catch(()=>{});}} title="Resend" style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.cy+"18",border:`1px solid ${C.cy}44`,cursor:"pointer",color:C.cy}} className="hov">↻</button>}
         <button onClick={()=>{setEditCamp(c);setShowModal(true);}} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">✎</button>
         <button onClick={()=>delCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",color:C.r}}>✕</button>
       </div>
@@ -268,7 +322,7 @@ export default function MarketingScr({contacts,pushNotification}){
 
     {/* Tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`,background:C.s1,padding:"0 24px"}}>
-      {[["overview","reports","Overview"],["whatsapp",null,"WhatsApp"],["email",null,"Email"],["sms",null,"SMS"],["push",null,"Push"],["automations","automations","Automations"],["ai_studio","aibot","AI Studio"],["segments","contacts","Segments"],["templates","knowledgebase","Templates"],["analytics","reports","Analytics"]].map(([id,navId,lbl])=>(
+      {[["overview","reports","Overview"],["whatsapp",null,"WhatsApp"],["email",null,"Email"],["sms",null,"SMS"],["push",null,"Push"],["groups","contacts","Groups"],["automations","automations","Automations"],["ai_studio","aibot","AI Studio"],["segments","contacts","Segments"],["templates","knowledgebase","Templates"],["analytics","reports","Analytics"]].map(([id,navId,lbl])=>(
         <button key={id} onClick={()=>{setMtab(id);setFilter("all");}} style={{padding:"11px 14px",fontSize:10.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.3px",color:mtab===id?C.a:C.t3,borderBottom:`2px solid ${mtab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>{navId?<NavIcon id={navId} s={13} col={mtab===id?C.a:C.t3}/>:<ChIcon t={id} s={13}/>} {lbl}</button>
       ))}
     </div>
@@ -331,6 +385,234 @@ export default function MarketingScr({contacts,pushNotification}){
           ))}
         </div>
         <CampTable data={vis}/>
+      </>}
+
+      {/* ═══ CAMPAIGN PROGRESS BANNER ═══ */}
+      {campProgress&&<div style={{background:campProgress.status==="completed"?C.gd:campProgress.status==="failed"?C.rd:C.ad,border:`1px solid ${campProgress.status==="completed"?C.g:campProgress.status==="failed"?C.r:C.a}44`,borderRadius:12,padding:"14px 18px",marginBottom:16,position:"relative",overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:36,height:36,borderRadius:9,background:mktChC(campProgress.channel)+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{mktChE(campProgress.channel)}</div>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <span style={{fontSize:13,fontWeight:700,color:C.t1}}>{campProgress.status==="sending"?"Sending Campaign…":campProgress.status==="completed"?"Campaign Sent!":"Campaign Failed"}</span>
+              {campProgress.status==="sending"&&<Spin/>}
+            </div>
+            <div style={{fontSize:11,color:C.t2}}>
+              {campProgress.status==="sending"
+                ?`Sending to ${campProgress.currentContact} (${campProgress.current}/${campProgress.total})`
+                :`${campProgress.sent} sent${campProgress.failed?` · ${campProgress.failed} failed`:""} via ${mktChL(campProgress.channel)}`}
+            </div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:22,fontWeight:800,fontFamily:FD,color:campProgress.status==="completed"?C.g:campProgress.status==="failed"?C.r:C.a}}>{campProgress.total>0?Math.round((campProgress.sent+campProgress.failed)/campProgress.total*100):0}%</div>
+            <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{campProgress.sent}/{campProgress.total}</div>
+          </div>
+          {campProgress.status!=="sending"&&<button onClick={()=>setCampProgress(null)} style={{position:"absolute",top:8,right:10,background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:14}}>×</button>}
+        </div>
+        {/* Progress bar */}
+        <div style={{marginTop:10,height:6,background:C.bg,borderRadius:3,overflow:"hidden"}}>
+          <div style={{height:"100%",borderRadius:3,background:campProgress.status==="failed"?C.r:`linear-gradient(90deg,${mktChC(campProgress.channel)}aa,${mktChC(campProgress.channel)})`,width:`${campProgress.total>0?(campProgress.sent+campProgress.failed)/campProgress.total*100:0}%`,transition:"width .3s"}}/>
+        </div>
+        {campProgress.failed>0&&<div style={{marginTop:6,display:"flex",gap:8,fontSize:10,fontFamily:FM}}>
+          <span style={{color:C.g}}>✓ {campProgress.sent} sent</span>
+          <span style={{color:C.r}}>✕ {campProgress.failed} failed</span>
+        </div>}
+      </div>}
+
+      {/* ═══ GROUPS ═══ */}
+      {mtab==="groups"&&<>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,fontFamily:FD}}>Contact Groups ({groups.length})</div>
+            <div style={{fontSize:12,color:C.t3}}>Organize contacts into groups for targeted campaigns</div>
+          </div>
+          <Btn ch="+ Create Group" v="primary" onClick={()=>{setGrpName("");setGrpDesc("");setGrpColor("#6366f1");setGrpIcon("👥");setGrpSelContacts([]);setEditGroup(null);setShowGroupModal(true);}}/>
+        </div>
+
+        {/* Group KPIs */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+          {[{l:"Total Groups",v:groups.length,c:C.a},{l:"Total Members",v:groups.reduce((s,g)=>s+(g.contact_count||0),0),c:C.g},{l:"Avg Group Size",v:groups.length?Math.round(groups.reduce((s,g)=>s+(g.contact_count||0),0)/groups.length):0,c:C.cy},{l:"Available Contacts",v:contacts.length,c:C.p}].map(k=>(
+            <div key={k.l} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"12px 14px",textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:k.c}}>{k.v}</div>
+              <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{k.l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+          {/* Create new group card */}
+          <div onClick={()=>{setGrpName("");setGrpDesc("");setGrpColor("#6366f1");setGrpIcon("👥");setGrpSelContacts([]);setEditGroup(null);setShowGroupModal(true);}} style={{background:C.bg,border:`2px dashed ${C.a}44`,borderRadius:14,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"28px 16px",cursor:"pointer",minHeight:180}} className="hov">
+            <div style={{width:44,height:44,borderRadius:14,background:C.ad,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:10,fontSize:20}}>➕</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.a,fontFamily:FD}}>Create Group</div>
+            <div style={{fontSize:10,color:C.t3,textAlign:"center",marginTop:4}}>Organize contacts for targeted campaigns</div>
+          </div>
+
+          {/* Group cards */}
+          {groups.map(g=>(
+            <div key={g.id} style={{background:C.s1,border:`1px solid ${g.color||C.b1}44`,borderRadius:14,padding:"16px",transition:"all .2s"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <div style={{width:40,height:40,borderRadius:10,background:(g.color||"#6366f1")+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{g.icon||"👥"}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.t1}}>{g.name}</div>
+                  {g.description&&<div style={{fontSize:10,color:C.t3,marginTop:1}}>{g.description}</div>}
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:18,fontWeight:800,fontFamily:FM,color:g.color||C.a}}>{g.contact_count||0}</div>
+                  <div style={{fontSize:8,color:C.t3,fontFamily:FM}}>contacts</div>
+                </div>
+              </div>
+
+              {/* Group actions */}
+              <div style={{display:"flex",gap:4,justifyContent:"flex-end",borderTop:`1px solid ${C.b1}`,paddingTop:10}}>
+                <button onClick={async()=>{
+                  setGrpViewMembers(g.id);
+                  if(api.isConnected()){
+                    const r=await api.get(`/marketing/groups/${g.id}`);
+                    if(r?.group?.members)setGrpMembers(r.group.members);
+                  }
+                }} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:600,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>View Members</button>
+                <button onClick={()=>{setGrpAddOpen(true);setGrpViewMembers(g.id);setGrpSelContacts([]);setGrpSearch("");}} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:600,color:C.g,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",fontFamily:FM}}>+ Add Contacts</button>
+                <button onClick={()=>{setGrpName(g.name);setGrpDesc(g.description||"");setGrpColor(g.color||"#6366f1");setGrpIcon(g.icon||"👥");setGrpSelContacts([]);setEditGroup(g);setShowGroupModal(true);}} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:600,color:C.t3,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",fontFamily:FM}}>Edit</button>
+                <button onClick={()=>{setGroups(p=>p.filter(x=>x.id!==g.id));showT("Group deleted","success");if(api.isConnected())api.del(`/marketing/groups/${g.id}`).catch(()=>{});}} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:600,color:C.r,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",fontFamily:FM}}>Delete</button>
+                <button onClick={()=>{setEditCamp(null);setModalCh(null);setShowModal(true);showT("Create campaign for "+g.name,"info");}} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:600,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer",fontFamily:FM}}>Campaign</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ═══ CREATE/EDIT GROUP MODAL ═══ */}
+        {showGroupModal&&<Mdl title={editGroup?"Edit Group":"Create New Group"} onClose={()=>{setShowGroupModal(false);setEditGroup(null);}} w={600}>
+          <div style={{display:"flex",gap:12}}>
+            <div style={{flex:1}}><Fld label="Group Name"><Inp val={grpName} set={setGrpName} ph="e.g. VIP Customers"/></Fld></div>
+            <div style={{flex:1}}><Fld label="Description"><Inp val={grpDesc} set={setGrpDesc} ph="Short description"/></Fld></div>
+          </div>
+          <div style={{display:"flex",gap:12}}>
+            <div style={{flex:1}}>
+              <Fld label="Color">
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {["#6366f1","#25d366","#ef4444","#f59e0b","#06b6d4","#8b5cf6","#ec4899","#10b981","#f97316","#3b82f6"].map(c=>(
+                    <button key={c} onClick={()=>setGrpColor(c)} style={{width:28,height:28,borderRadius:6,background:c,border:`2px solid ${grpColor===c?"#fff":c}`,cursor:"pointer",outline:grpColor===c?`2px solid ${c}`:"none"}}/>
+                  ))}
+                </div>
+              </Fld>
+            </div>
+            <div style={{flex:1}}>
+              <Fld label="Icon">
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {["👥","💎","🏢","🎯","🔥","⭐","🛒","📱","🌍","💰","🏆","🎪"].map(ic=>(
+                    <button key={ic} onClick={()=>setGrpIcon(ic)} style={{width:28,height:28,borderRadius:6,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${grpIcon===ic?C.a:C.b1}`,background:grpIcon===ic?C.ad:"transparent",cursor:"pointer"}}>{ic}</button>
+                  ))}
+                </div>
+              </Fld>
+            </div>
+          </div>
+
+          {/* Contact picker */}
+          {!editGroup&&<Fld label={`Add Contacts (${grpSelContacts.length} selected)`}>
+            <div style={{marginBottom:8}}>
+              <input value={grpSearch} onChange={e=>setGrpSearch(e.target.value)} placeholder="Search contacts by name, email, phone…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{maxHeight:200,overflowY:"auto",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8}}>
+              {contacts.filter(c=>{if(!grpSearch.trim())return true;const q=grpSearch.toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.email||"").toLowerCase().includes(q)||(c.phone||"").toLowerCase().includes(q);}).slice(0,50).map(c=>(
+                <div key={c.id} onClick={()=>setGrpSelContacts(p=>p.includes(c.id)?p.filter(x=>x!==c.id):[...p,c.id])} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",borderBottom:`1px solid ${C.b1}22`,background:grpSelContacts.includes(c.id)?C.ad:"transparent"}} className="hov">
+                  <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${grpSelContacts.includes(c.id)?C.a:C.b2}`,background:grpSelContacts.includes(c.id)?C.a:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:800,flexShrink:0}}>{grpSelContacts.includes(c.id)?"✓":""}</div>
+                  <Av name={c.name} s={22} color={c.color}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:600,color:C.t1}}>{c.name}</div>
+                    <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{c.email||c.phone||""}</div>
+                  </div>
+                </div>
+              ))}
+              {contacts.length===0&&<div style={{padding:20,textAlign:"center",fontSize:11,color:C.t3}}>No contacts found</div>}
+            </div>
+            {grpSelContacts.length>0&&<div style={{marginTop:6,fontSize:10,color:C.a,fontFamily:FM}}>{grpSelContacts.length} contact{grpSelContacts.length!==1?"s":""} selected</div>}
+          </Fld>}
+
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ch="Cancel" v="ghost" onClick={()=>{setShowGroupModal(false);setEditGroup(null);}}/>
+            <Btn ch={editGroup?"Update Group":"Create Group"} v="primary" onClick={()=>{
+              if(!grpName.trim())return showT("Group name is required","error");
+              if(editGroup){
+                setGroups(p=>p.map(g=>g.id===editGroup.id?{...g,name:grpName,description:grpDesc,color:grpColor,icon:grpIcon}:g));
+                showT("Group updated","success");
+                if(api.isConnected())api.patch(`/marketing/groups/${editGroup.id}`,{name:grpName,description:grpDesc,color:grpColor,icon:grpIcon}).catch(()=>{});
+              }else{
+                const nid="grp"+uid();
+                setGroups(p=>[{id:nid,name:grpName,description:grpDesc,color:grpColor,icon:grpIcon,contact_count:grpSelContacts.length},...p]);
+                showT(`Group '${grpName}' created with ${grpSelContacts.length} contacts!`,"success");
+                if(api.isConnected())api.post("/marketing/groups",{name:grpName,description:grpDesc,color:grpColor,icon:grpIcon,contact_ids:grpSelContacts}).then(r=>{
+                  if(r?.group)setGroups(p=>p.map(g=>g.id===nid?{...r.group}:g));
+                }).catch(()=>{});
+              }
+              setShowGroupModal(false);setEditGroup(null);
+            }}/>
+          </div>
+        </Mdl>}
+
+        {/* ═══ VIEW MEMBERS MODAL ═══ */}
+        {grpViewMembers&&!grpAddOpen&&<Mdl title={`Group Members — ${groups.find(g=>g.id===grpViewMembers)?.name||""}`} onClose={()=>{setGrpViewMembers(null);setGrpMembers([]);}} w={500}>
+          <div style={{maxHeight:400,overflowY:"auto"}}>
+            {grpMembers.length===0&&<div style={{padding:30,textAlign:"center",fontSize:12,color:C.t3}}>No members in this group yet. Click "Add Contacts" to add members.</div>}
+            {grpMembers.map(m=>(
+              <div key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.b1}22`}}>
+                <Av name={m.name} s={28} color={m.color}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:600,color:C.t1}}>{m.name}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{m.email||""}{m.email&&m.phone?" · ":""}{m.phone||""}</div>
+                </div>
+                <button onClick={async()=>{
+                  setGrpMembers(p=>p.filter(x=>x.id!==m.id));
+                  setGroups(p=>p.map(g=>g.id===grpViewMembers?{...g,contact_count:Math.max(0,(g.contact_count||0)-1)}:g));
+                  if(api.isConnected())api.post(`/marketing/groups/${grpViewMembers}/members/remove`,{contact_ids:[m.id]}).catch(()=>{});
+                  showT("Removed from group","success");
+                }} style={{padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,color:C.r,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",fontFamily:FM}}>Remove</button>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}>
+            <Btn ch="+ Add Contacts" v="primary" sm onClick={()=>{setGrpAddOpen(true);setGrpSelContacts([]);setGrpSearch("");}}/>
+            <Btn ch="Close" v="ghost" sm onClick={()=>{setGrpViewMembers(null);setGrpMembers([]);}}/>
+          </div>
+        </Mdl>}
+
+        {/* ═══ ADD CONTACTS TO GROUP MODAL ═══ */}
+        {grpViewMembers&&grpAddOpen&&<Mdl title={`Add Contacts to ${groups.find(g=>g.id===grpViewMembers)?.name||"Group"}`} onClose={()=>{setGrpAddOpen(false);setGrpViewMembers(null);}} w={500}>
+          <div style={{marginBottom:10}}>
+            <input value={grpSearch} onChange={e=>setGrpSearch(e.target.value)} placeholder="Search contacts…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t1,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+          </div>
+          <div style={{maxHeight:300,overflowY:"auto",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,marginBottom:12}}>
+            {contacts.filter(c=>{
+              if(grpMembers.some(m=>m.id===c.id))return false;
+              if(!grpSearch.trim())return true;const q=grpSearch.toLowerCase();
+              return(c.name||"").toLowerCase().includes(q)||(c.email||"").toLowerCase().includes(q)||(c.phone||"").toLowerCase().includes(q);
+            }).slice(0,50).map(c=>(
+              <div key={c.id} onClick={()=>setGrpSelContacts(p=>p.includes(c.id)?p.filter(x=>x!==c.id):[...p,c.id])} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",borderBottom:`1px solid ${C.b1}22`,background:grpSelContacts.includes(c.id)?C.ad:"transparent"}} className="hov">
+                <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${grpSelContacts.includes(c.id)?C.a:C.b2}`,background:grpSelContacts.includes(c.id)?C.a:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:800,flexShrink:0}}>{grpSelContacts.includes(c.id)?"✓":""}</div>
+                <Av name={c.name} s={22} color={c.color}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:600,color:C.t1}}>{c.name}</div>
+                  <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{c.email||c.phone||""}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,color:C.a,fontFamily:FM}}>{grpSelContacts.length} selected</span>
+            <div style={{display:"flex",gap:8}}>
+              <Btn ch="Cancel" v="ghost" sm onClick={()=>{setGrpAddOpen(false);}}/>
+              <Btn ch={`Add ${grpSelContacts.length} Contact${grpSelContacts.length!==1?"s":""}`} v="primary" sm onClick={async()=>{
+                if(!grpSelContacts.length)return showT("Select at least one contact","error");
+                setGroups(p=>p.map(g=>g.id===grpViewMembers?{...g,contact_count:(g.contact_count||0)+grpSelContacts.length}:g));
+                showT(`Added ${grpSelContacts.length} contact(s) to group`,"success");
+                if(api.isConnected()){
+                  api.post(`/marketing/groups/${grpViewMembers}/members`,{contact_ids:grpSelContacts}).then(r=>{
+                    if(r?.total)setGroups(p=>p.map(g=>g.id===grpViewMembers?{...g,contact_count:r.total}:g));
+                  }).catch(()=>{});
+                }
+                setGrpAddOpen(false);setGrpViewMembers(null);setGrpSelContacts([]);
+              }}/>
+            </div>
+          </div>
+        </Mdl>}
       </>}
 
       {/* ═══ AUTOMATIONS ═══ */}
@@ -809,12 +1091,14 @@ export default function MarketingScr({contacts,pushNotification}){
           <textarea value={tplBody} onChange={e=>setTplBody(e.target.value)} rows={6} placeholder={"Hi {{first_name}}!\n\nWrite your message here…\n\nBest,\n{{company}}"} style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
             <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
-              {MKT_VARS.slice(0,8).map(v=>(
+              {MKT_VARS.slice(0,10).map(v=>(
                 <button key={v} onClick={()=>setTplBody(p=>p+"{{"+v+"}}")} style={{padding:"2px 6px",borderRadius:4,fontSize:9,fontFamily:FM,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer"}}>{"{"+v+"}"}</button>
               ))}
             </div>
-            <div style={{display:"flex",gap:4}}>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
               {tplCh==="sms"&&<span style={{fontSize:10,color:tplBody.length>160?C.r:C.t3,fontFamily:FM}}>{tplBody.length}/160</span>}
+              {tplCh==="email"&&<><input id="tplImgUpload" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const reader=new FileReader();reader.onload=ev=>{const url=ev.target?.result;if(url)setTplBody(p=>p+`\n<img src="${url}" alt="${f.name}" style="max-width:100%;border-radius:8px;margin:8px 0" />\n`);showT("Image added to template","success");};reader.readAsDataURL(f);}}/>
+              <button onClick={()=>document.getElementById("tplImgUpload")?.click()} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>🖼 Image</button></>}
               <button onClick={async()=>{setTplAiLoad(true);try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,system:"You are a marketing copywriter. Write a short "+tplCh+" template for category: "+tplCat+". Use {{first_name}}, {{company}}, {{link}} variables. No markdown. "+(tplCh==="sms"?"Under 160 chars.":"2-4 sentences."),messages:[{role:"user",content:"Write a "+tplCat+" "+tplCh+" template"+(tplName?" called "+tplName:"")}]})});const d=await res.json();setTplBody(d.content?.[0]?.text||"");if(tplCh==="email"&&!tplSubj)setTplSubj(tplName||"Special for you");}catch(e){setTplBody("Hi {{first_name}}! We have something special for you. Check it out: {{link}}");}setTplAiLoad(false);}} disabled={tplAiLoad} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM}}>{tplAiLoad?"Generating…":"✦ AI Write"}</button>
             </div>
           </div>
@@ -827,7 +1111,7 @@ export default function MarketingScr({contacts,pushNotification}){
           {tplCh==="sms"&&<div style={{padding:"10px 12px",borderRadius:12,background:C.yd,border:`1px solid ${C.y}33`,fontSize:12,color:C.t2,lineHeight:1.5,maxWidth:"80%"}}>{mktFill(tplBody)}</div>}
           {tplCh==="email"&&<div style={{border:`1px solid ${C.b1}`,borderRadius:8,overflow:"hidden"}}>
             {tplSubj&&<div style={{padding:"8px 12px",background:C.s2,borderBottom:`1px solid ${C.b1}`,fontSize:11}}><span style={{color:C.t3}}>Subject: </span><span style={{fontWeight:600}}>{mktFill(tplSubj)}</span></div>}
-            <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6,whiteSpace:"pre-line"}}>{mktFill(tplBody)}</div>
+            <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}} dangerouslySetInnerHTML={{__html:mktFill(tplBody).replace(/\n/g,"<br>")}}/>
           </div>}
           {tplCh==="push"&&<div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"10px 12px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`}}><div style={{width:24,height:24,borderRadius:6,background:"#ff6b3522",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t="push" s={12}/></div>
             <div style={{fontSize:12,color:C.t2,lineHeight:1.4}}>{mktFill(tplBody)}</div></div>}
@@ -849,7 +1133,7 @@ export default function MarketingScr({contacts,pushNotification}){
     />}
 
     {/* ═══ CREATE/EDIT MODAL ═══ */}
-    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} contacts={contacts} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
+    {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} contacts={contacts} groups={groups} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
       const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.audMode==="segments"?camp.segmentId||null:null,audience_mode:camp.audMode||"segments",selected_contacts:camp.selectedContacts||[],scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0,launch_now:camp.status==="active"};
       if(editCamp){
         setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));
@@ -910,7 +1194,7 @@ export default function MarketingScr({contacts,pushNotification}){
   </div>;
 }
 
-function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onClose,onSave}){
+function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTemplates=[],onClose,onSave}){
   const [step,setStep]=useState(1);
   const [ch,setCh]=useState(editCamp?.ch||defaultCh||"whatsapp");
   const [name,setName]=useState(editCamp?.name||"");
@@ -922,12 +1206,18 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
   const [segment,setSegment]=useState(editCamp?.segmentId||segments[0]?.id||"");
   const [ab,setAb]=useState(editCamp?.ab||false);
   const [aiLoading,setAiLoading]=useState(false);
-  const [audMode,setAudMode]=useState<"segments"|"individual">(editCamp?.audMode||"segments");
+  const [audMode,setAudMode]=useState<"segments"|"individual"|"groups">(editCamp?.audMode||"segments");
   const [selContacts,setSelContacts]=useState<string[]>(editCamp?.selectedContacts||[]);
+  const [selGroups,setSelGroups]=useState<string[]>(editCamp?.audMode==="groups"?editCamp?.selectedContacts||[]:[]);
   const [cSearch,setCSearch]=useState("");
   const filteredContacts=contacts.filter(c=>{if(!cSearch.trim())return true;const q=cSearch.toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.email||"").toLowerCase().includes(q)||(c.phone||"").toLowerCase().includes(q);});
   const toggleContact=(id:string)=>setSelContacts(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
-  const audience=audMode==="segments"?(segments.find(s=>s.id===segment)?.count||0):selContacts.length;
+  const [showAddContact,setShowAddContact]=useState(false);
+  const [newCtName,setNewCtName]=useState("");
+  const [newCtEmail,setNewCtEmail]=useState("");
+  const [newCtPhone,setNewCtPhone]=useState("");
+  const toggleGroup=(id:string)=>setSelGroups(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const audience=audMode==="segments"?(segments.find(s=>s.id===segment)?.count||0):audMode==="groups"?groups.filter(g=>selGroups.includes(g.id)).reduce((s,g)=>s+(g.contact_count||0),0):selContacts.length;
   const templates=userTemplates.filter(t=>t.ch===ch).map(t=>({id:t.id,name:t.name,cat:t.cat||"General",text:t.body||"",subj:t.subj||""}));
 
   // ═══ CHANNEL VALIDATORS ═══
@@ -1013,7 +1303,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
     const v=validate();
     if(v.errs.length>0&&asStatus!=="draft"){showT("Fix "+v.errs.length+" error"+(v.errs.length>1?"s":"")+" before sending","error");return;}
     if(v.warns.length>0&&asStatus==="active"&&!window.confirm(v.warns.length+" warning"+(v.warns.length>1?"s":"")+": "+v.warns[0]+(v.warns.length>1?" (+more)":"")+"\n\nSend anyway?"))return;
-    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:[],audMode});
+    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:[],audMode});
   };
 
   return <Mdl title={editCamp?"Edit Campaign":"New Campaign"} onClose={onClose} w={600}>
@@ -1084,7 +1374,9 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             {ch==="sms"&&<span style={{fontSize:10,color:body.length>160?body.length>480?C.r:C.y:C.t3,fontFamily:FM,fontWeight:body.length>160?700:400}}>{body.length}/160{body.length>160?" ("+Math.ceil(body.length/160)+" parts)":""}</span>}
             {ch==="whatsapp"&&<span style={{fontSize:10,color:body.length>4096?C.r:body.length>1024?C.y:C.t3,fontFamily:FM}}>{body.length}/4096</span>}
-            {ch==="email"&&<span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{body.length} chars</span>}
+            {ch==="email"&&<><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{body.length} chars</span>
+              <input id="campImgUpload" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const reader=new FileReader();reader.onload=ev=>{const url=ev.target?.result;if(url)setBody(p=>p+`\n<img src="${url}" alt="${f.name}" style="max-width:100%;border-radius:8px;margin:8px 0" />\n`);showT("Image added","success");};reader.readAsDataURL(f);}}/>
+              <button onClick={()=>document.getElementById("campImgUpload")?.click()} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>🖼 Image</button></>}
             <button onClick={genAI} disabled={aiLoading} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM}}>{aiLoading?"Generating…":"✦ AI Generate"}</button>
           </div>
         </div>
@@ -1099,7 +1391,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
           <div style={{padding:"8px 12px",background:C.s2,borderBottom:`1px solid ${C.b1}`,fontSize:11}}>
             <span style={{color:C.t3}}>Subject: </span><span style={{fontWeight:600}}>{mktFill(subject)}</span>
           </div>
-          <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}}>{mktFill(body)}</div>
+          <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}} dangerouslySetInnerHTML={{__html:mktFill(body).replace(/\n/g,"<br>")}}/>
         </div>}
         {ch==="push"&&<div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"10px 12px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`}}><div style={{width:24,height:24,borderRadius:6,background:"#ff6b3522",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t="push" s={12}/></div>
           <div style={{fontSize:12,color:C.t2,lineHeight:1.4}}>{mktFill(body)}</div></div>}
@@ -1124,8 +1416,8 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
     {step===3&&<div>
       {/* Audience Mode Tabs */}
       <div style={{display:"flex",gap:0,marginBottom:14}}>
-        {([["segments","Audience Segments"],["individual","Individual Contacts"]] as const).map(([id,lbl])=>(
-          <button key={id} onClick={()=>setAudMode(id)} style={{flex:1,padding:"10px",fontSize:12,fontWeight:700,cursor:"pointer",background:audMode===id?C.ad:"transparent",color:audMode===id?C.a:C.t3,border:`1.5px solid ${audMode===id?C.a+"55":C.b1}`,borderRadius:id==="segments"?"10px 0 0 10px":"0 10px 10px 0",fontFamily:FB,transition:"all .15s"}}>{lbl}</button>
+        {([["segments","📋 Segments"],["groups","👥 Groups"],["individual","👤 Contacts"]] as const).map(([id,lbl],i)=>(
+          <button key={id} onClick={()=>setAudMode(id)} style={{flex:1,padding:"10px",fontSize:11,fontWeight:700,cursor:"pointer",background:audMode===id?C.ad:"transparent",color:audMode===id?C.a:C.t3,border:`1.5px solid ${audMode===id?C.a+"55":C.b1}`,borderRadius:i===0?"10px 0 0 10px":i===2?"0 10px 10px 0":"0",fontFamily:FB,transition:"all .15s"}}>{lbl}</button>
         ))}
       </div>
 
@@ -1144,6 +1436,31 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
         </div>
       </Fld>}
 
+      {audMode==="groups"&&<Fld label={`Select Contact Groups (${selGroups.length} selected)`}>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {groups.length===0&&<div style={{textAlign:"center",padding:20,fontSize:12,color:C.t3}}>No groups yet. Create one in the Groups tab.</div>}
+          {groups.map(g=>{const sel=selGroups.includes(g.id);return(
+            <button key={g.id} onClick={()=>toggleGroup(g.id)} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:sel?C.ad:C.s2,border:`1px solid ${sel?C.a+"55":C.b1}`,cursor:"pointer",transition:"background .12s"}}>
+              <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${sel?C.a:C.t3+"66"}`,background:sel?C.a:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .12s"}}>
+                {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:800}}>✓</span>}
+              </div>
+              <div style={{width:32,height:32,borderRadius:8,background:(g.color||"#6366f1")+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{g.icon||"👥"}</div>
+              <div style={{flex:1,textAlign:"left"}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.t1}}>{g.name}</div>
+                <div style={{fontSize:10,color:C.t3}}>{g.description||""}</div>
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:g.color||C.a,fontFamily:FM}}>{(g.contact_count||0).toLocaleString()}</span>
+            </button>
+          );})}
+        </div>
+        {selGroups.length>0&&<div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>
+          {selGroups.map(gid=>{const g=groups.find(x=>x.id===gid);return g?<span key={gid} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,background:(g.color||C.a)+"18",color:g.color||C.a,padding:"3px 8px",borderRadius:12,fontWeight:600,fontFamily:FM}}>
+            {g.icon} {g.name} ({g.contact_count||0})
+            <span onClick={()=>toggleGroup(gid)} style={{cursor:"pointer",fontWeight:800,fontSize:11,marginLeft:2}}>×</span>
+          </span>:null;})}
+        </div>}
+      </Fld>}
+
       {audMode==="individual"&&<div>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
           <div style={{flex:1,position:"relative"}}>
@@ -1151,7 +1468,27 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
             <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.t3}}>🔍</span>
           </div>
           {selContacts.length>0&&<button onClick={()=>setSelContacts([])} style={{fontSize:10,color:C.r,background:C.rd,border:`1px solid ${C.r}33`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>Clear All</button>}
+          <button onClick={()=>setShowAddContact(p=>!p)} style={{fontSize:10,color:C.g,background:C.gd,border:`1px solid ${C.g}33`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>{showAddContact?"Cancel":"+ Add Contact"}</button>
         </div>
+        {showAddContact&&<div style={{padding:"10px 12px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,marginBottom:10}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>ADD NEW CONTACT</div>
+          <div style={{display:"flex",gap:6,marginBottom:6}}>
+            <input value={newCtName} onChange={e=>setNewCtName(e.target.value)} placeholder="Name" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            <input value={newCtEmail} onChange={e=>setNewCtEmail(e.target.value)} placeholder="Email" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            <input value={newCtPhone} onChange={e=>setNewCtPhone(e.target.value)} placeholder="Phone" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+          </div>
+          <button onClick={()=>{
+            if(!newCtName.trim()&&!newCtEmail.trim())return showT("Name or email required","error");
+            const nid="ct"+uid();
+            const nc={id:nid,name:newCtName||newCtEmail.split("@")[0]||"Contact",email:newCtEmail,phone:newCtPhone,color:"#"+Math.floor(Math.random()*16777215).toString(16).padStart(6,"0"),tags:[],av:(newCtName||"C")[0]};
+            if(typeof (window as any).__addContact==="function")(window as any).__addContact(nc);
+            contacts.push(nc);
+            setSelContacts(p=>[...p,nid]);
+            if(api.isConnected())api.post("/contacts",{name:nc.name,email:nc.email,phone:nc.phone}).then(r=>{if(r?.contact){nc.id=r.contact.id;setSelContacts(p=>p.map(x=>x===nid?r.contact.id:x));}}).catch(()=>{});
+            setNewCtName("");setNewCtEmail("");setNewCtPhone("");setShowAddContact(false);
+            showT(`Contact "${nc.name}" added & selected`,"success");
+          }} style={{padding:"5px 14px",borderRadius:6,fontSize:10,fontWeight:700,color:"#fff",background:C.g,border:"none",cursor:"pointer",fontFamily:FM}}>Add & Select</button>
+        </div>}
         {selContacts.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
           {selContacts.map(sid=>{const ct=contacts.find(c=>c.id===sid);return ct?<span key={sid} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,background:C.ad,color:C.a,padding:"3px 8px",borderRadius:12,fontWeight:600,fontFamily:FM}}>
             {ct.name||ct.email||"Contact"}
@@ -1182,7 +1519,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
       <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"14px",textAlign:"center",marginBottom:10,marginTop:14}}>
         <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginBottom:4}}>ESTIMATED REACH</div>
         <div style={{fontSize:32,fontWeight:800,fontFamily:FD,color:C.a}}>{audience.toLocaleString()}</div>
-        <div style={{fontSize:11,color:C.t3}}>{audMode==="individual"?"selected contacts":"contacts"} via {mktChL(ch)}</div>
+        <div style={{fontSize:11,color:C.t3}}>{audMode==="individual"?"selected contacts":audMode==="groups"?`contacts from ${selGroups.length} group${selGroups.length!==1?"s":""}`:"contacts"} via {mktChL(ch)}</div>
       </div>
       <div style={{display:"flex",justifyContent:"space-between"}}>
         <Btn ch="← Back" v="ghost" onClick={()=>setStep(2)}/>
@@ -1194,7 +1531,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],userTemplates=[],onC
     {step===4&&<div>
       <div style={{fontSize:13,fontWeight:700,fontFamily:FD,marginBottom:10}}>Campaign Summary</div>
       <div style={{background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10,overflow:"hidden",marginBottom:14}}>
-        {[["Channel",<span key="ch" style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={ch} s={14}/> {mktChL(ch)}</span>],["Name",name],["Goal",goal],["Status",status],["Audience",audience.toLocaleString()+(audMode==="individual"?" individual contacts":" contacts (segment)")],["A/B Test",ab?"Yes":"No"]].map(([k,v])=>(
+        {[["Channel",<span key="ch" style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={ch} s={14}/> {mktChL(ch)}</span>],["Name",name],["Goal",goal],["Status",status],["Audience",audience.toLocaleString()+(audMode==="individual"?" individual contacts":audMode==="groups"?` contacts from ${selGroups.length} group${selGroups.length!==1?"s":""}`:" contacts (segment)")],["A/B Test",ab?"Yes":"No"]].map(([k,v])=>(
           <div key={k} style={{display:"flex",padding:"8px 12px",borderBottom:`1px solid ${C.b1}`}}>
             <span style={{fontSize:11,color:C.t3,fontFamily:FM,width:90,flexShrink:0}}>{k}</span>
             <span style={{fontSize:12,color:C.t1,fontWeight:600}}>{v}</span>
@@ -1462,11 +1799,23 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
   const [dtab,setDtab]=useState("overview");
   const [testAddr,setTestAddr]=useState("");
   const [showDelConfirm,setShowDelConfirm]=useState(false);
+  const [responses,setResponses]=useState([]);
+  const [responsesLoaded,setResponsesLoaded]=useState(false);
   const c=camp;
   const dr=mktPct(c.delivered,c.sent),rr=mktPct(c.read,c.delivered),cr=mktPct(c.clicked,c.read),fr=mktPct(c.failed,c.sent);
-  const tabs=[{id:"overview",l:"Overview"},{id:"content",l:"Content"},{id:"audience",l:"Audience"}];
+  const tabs=[{id:"overview",l:"Overview"},{id:"content",l:"Content"},{id:"audience",l:"Audience"},{id:"responses",l:`Responses`}];
   if(c.ab)tabs.push({id:"abtest",l:"A/B Results"});
   tabs.push({id:"settings",l:"Settings"});
+
+  // Load responses when tab is clicked
+  const loadResponses=async()=>{
+    if(responsesLoaded||!api.isConnected())return;
+    try{
+      const r=await api.get(`/marketing/campaigns/${c.id}/responses`);
+      if(r?.conversations)setResponses(r.conversations);
+      setResponsesLoaded(true);
+    }catch{}
+  };
 
   return <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:16,width:720,maxWidth:"95vw",maxHeight:"85vh",display:"flex",flexDirection:"column",overflow:"hidden",animation:"fadeUp .2s ease"}} onClick={e=>e.stopPropagation()}>
@@ -1611,6 +1960,40 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
           <div style={{background:C.ad,border:`1px solid ${C.a}44`,borderRadius:10,padding:"12px 14px",fontSize:11.5,color:C.t2,lineHeight:1.5}}>
             💡 Variant A is outperforming Variant B on open rate (+{3}pp) and click rate (+{5}pp). Consider declaring it the winner to maximize campaign performance.
           </div>
+        </>}
+
+        {/* ── Responses ── */}
+        {dtab==="responses"&&<>
+          {!responsesLoaded&&<div style={{textAlign:"center",padding:20}}><Btn ch="Load Campaign Responses" v="primary" onClick={loadResponses}/></div>}
+          {responsesLoaded&&responses.length===0&&<EmptyState icon="inbox" title="No responses yet" desc="When campaign recipients reply, their conversations will appear here."/>}
+          {responsesLoaded&&responses.length>0&&<>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+              {[{l:"Total Responses",v:responses.length,c2:C.a},{l:"Unread",v:responses.filter(r=>r.unreadCount>0).length,c2:C.r},{l:"Response Rate",v:c.sent?mktPct(responses.length,c.sent)+"%":"—",c2:C.g}].map(k=>(
+                <div key={k.l} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,padding:"12px",textAlign:"center"}}>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:k.c2}}>{k.v}</div>
+                  <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{k.l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
+              <div style={{display:"grid",gridTemplateColumns:"36px 1.5fr 1.5fr 0.8fr 0.6fr 70px",padding:"8px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>
+                {["","Contact","Subject","Channel","Unread","Time"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM}}>{h}</span>)}
+              </div>
+              {responses.map(r=>(
+                <div key={r.id} style={{display:"grid",gridTemplateColumns:"36px 1.5fr 1.5fr 0.8fr 0.6fr 70px",padding:"10px 14px",borderBottom:`1px solid ${C.b1}22`,alignItems:"center",cursor:"pointer"}} className="hov">
+                  <Av name={r.contact_name||"?"} s={26} color={r.contact_color}/>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:C.t1}}>{r.contact_name||"Unknown"}</div>
+                    <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{r.contact_email||r.contact_phone||""}</div>
+                  </div>
+                  <div style={{fontSize:11,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.subject}</div>
+                  <Tag text={r.inbox_type||r.channel||"whatsapp"} color={mktChC(r.inbox_type||r.channel||"whatsapp")}/>
+                  <span style={{fontSize:11,fontWeight:700,fontFamily:FM,color:r.unreadCount>0?C.r:C.g}}>{r.unreadCount>0?r.unreadCount:"✓"}</span>
+                  <span style={{fontSize:9,color:C.t3,fontFamily:FM}}>{r.updated_at?.split("T")[0]||r.updated_at?.split(" ")[0]||"—"}</span>
+                </div>
+              ))}
+            </div>
+          </>}
         </>}
 
         {/* ── Settings ── */}
