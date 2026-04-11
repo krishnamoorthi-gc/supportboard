@@ -87,7 +87,7 @@ const pollTasks = new Map(); // inboxId → cron.ScheduledTask
  */
 function scheduleInboxPolling(inboxId, intervalSecs) {
   const secs = intervalSecs || Math.floor(
-    parseInt(process.env.EMAIL_POLL_INTERVAL_MS || '30000', 10) / 1000
+    parseInt(process.env.EMAIL_POLL_INTERVAL_MS || '15000', 10) / 1000
   );
 
   // Stop existing task if any

@@ -343,7 +343,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       }
     };
 
-    const intervalId=window.setInterval(syncActiveEmailConversation,8000);
+    const intervalId=window.setInterval(syncActiveEmailConversation,5000);
     syncActiveEmailConversation();
     if(typeof document!=="undefined"){
       document.addEventListener("visibilitychange",onVisibilityChange);
@@ -508,7 +508,14 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       }
     }
     if(isNote)return; // Notes don't trigger replies
-    if(isEmailCh||isWhatsAppCh)return; // Real channels — wait for actual customer reply, no fake demo
+    if(isEmailCh||isWhatsAppCh){
+      // Trigger IMAP poll shortly after sending to pick up sent copy & fast auto-replies
+      if(isEmailCh&&conv?.iid){
+        setTimeout(()=>api.post("/email/poll-now",{inboxId:conv.iid}).catch(()=>{}),2000);
+        setTimeout(()=>api.post("/email/poll-now",{inboxId:conv.iid}).catch(()=>{}),6000);
+      }
+      return; // Real channels — wait for actual customer reply, no fake demo
+    }
     const pool=REPLY_POOL[aid]||["Thanks for the reply!"];
     setTimeout(()=>{
       setTyping(true);
@@ -953,11 +960,13 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           return <div key={m.id||i} style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",animation:"fadeUp .2s ease",flexDirection:"column",alignItems:isAg?"flex-end":"flex-start"}}>
             <div style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",width:"100%",position:"relative"}} className="msg-row">
               {!isAg&&contact&&<div style={{marginRight:8,flexShrink:0}}><Av i={contact.av} c={conv?.color||C.a} s={26}/></div>}
-              <div style={{maxWidth:"72%",background:isNt?C.yd:isAg?(isAuto?`linear-gradient(135deg,${C.p},#6b3fc0)`:`linear-gradient(135deg,${C.a},#2a5de8)`):C.s3,border:isNt?`1px solid ${C.y}44`:isAg?"none":`1px solid ${C.b1}`,borderRadius:isAg?"14px 14px 4px 14px":"4px 14px 14px 14px",padding:"10px 13px",position:"relative",outline:highlight?`2px solid ${C.y}`:"none"}}>
-                {isNt&&<div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.y,letterSpacing:"0.4px",marginBottom:4}}>📝 INTERNAL NOTE</div>}
-                {isAg&&ag&&<div style={{fontSize:10,color:isNt?"#8b7a2e":"rgba(255,255,255,.6)",marginBottom:4,fontFamily:FM,display:"flex",alignItems:"center",gap:5}}>{ag.name}{isAuto&&<span style={{background:"rgba(255,255,255,.18)",borderRadius:4,padding:"1px 5px",fontSize:9,letterSpacing:"0.3px"}}>✦ AI</span>}</div>}
-                {m.replyTo&&<div style={{fontSize:10,color:isNt?C.t2:isAg?"rgba(255,255,255,.5)":C.t3,padding:"4px 8px",borderLeft:`2px solid ${isAg?"rgba(255,255,255,.3)":C.b1}`,marginBottom:6,fontStyle:"italic"}}>↩ {m.replyText||"…"}</div>}
-                {m.text&&<p style={{fontSize:13.5,lineHeight:1.55,color:isNt?"#5a4e1a":isAg?"#fff":C.t1,margin:0}}>{highlight?(()=>{const re=new RegExp(`(${msgSearchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');return m.text.split(re).map((p:string,k:number)=>re.test(p)?<mark key={k} style={{background:C.y+"88",color:isAg?"#fff":C.t1,borderRadius:2,padding:"0 1px"}}>{p}</mark>:p);})():m.text}</p>}
+              <div style={{maxWidth:m.html&&!isAg&&isEmailCh?"92%":"72%",background:isNt?C.yd:isAg?(isAuto?`linear-gradient(135deg,${C.p},#6b3fc0)`:`linear-gradient(135deg,${C.a},#2a5de8)`):m.html&&isEmailCh?"#fff":C.s3,border:isNt?`1px solid ${C.y}44`:isAg?"none":`1px solid ${C.b1}`,borderRadius:isAg?"14px 14px 4px 14px":"4px 14px 14px 14px",padding:m.html&&!isAg&&isEmailCh?"0":"10px 13px",position:"relative",outline:highlight?`2px solid ${C.y}`:"none",overflow:"hidden"}}>
+                {isNt&&<div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.y,letterSpacing:"0.4px",marginBottom:4,padding:m.html?"10px 13px 0":0}}>📝 INTERNAL NOTE</div>}
+                {isAg&&ag&&<div style={{fontSize:10,color:isNt?"#8b7a2e":"rgba(255,255,255,.6)",marginBottom:4,fontFamily:FM,display:"flex",alignItems:"center",gap:5,padding:m.html?"10px 13px 0":0}}>{ag.name}{isAuto&&<span style={{background:"rgba(255,255,255,.18)",borderRadius:4,padding:"1px 5px",fontSize:9,letterSpacing:"0.3px"}}>✦ AI</span>}</div>}
+                {m.replyTo&&<div style={{fontSize:10,color:isNt?C.t2:isAg?"rgba(255,255,255,.5)":C.t3,padding:"4px 8px",borderLeft:`2px solid ${isAg?"rgba(255,255,255,.3)":C.b1}`,marginBottom:6,fontStyle:"italic",margin:m.html?"10px 13px 6px":0}}>↩ {m.replyText||"…"}</div>}
+                {m.html&&!isAg&&isEmailCh
+                  ?<iframe srcDoc={m.html} sandbox="" style={{width:"100%",minHeight:100,border:"none",display:"block"}} onLoad={(e:any)=>{try{const h=e.target.contentDocument?.documentElement?.scrollHeight||200;e.target.style.height=Math.min(Math.max(h,80),600)+"px";}catch{}}}/>
+                  :m.text&&<p style={{fontSize:13.5,lineHeight:1.55,color:isNt?"#5a4e1a":isAg?"#fff":C.t1,margin:0}}>{highlight?(()=>{const re=new RegExp(`(${msgSearchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');return m.text.split(re).map((p:string,k:number)=>re.test(p)?<mark key={k} style={{background:C.y+"88",color:isAg?"#fff":C.t1,borderRadius:2,padding:"0 1px"}}>{p}</mark>:p);})():m.text}</p>}
                 {normalizeAttachmentList(m.attachments||[]).length>0&&<div style={{marginTop:m.text?6:0,display:"flex",flexWrap:"wrap",gap:4}}>
                   {normalizeAttachmentList(m.attachments||[]).map((att:any,ai:number)=>{
                     const isImg=/\.(png|jpe?g|gif|webp|svg)$/i.test(att.name||att.url||"");
@@ -970,8 +979,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                     </a>);
                   })}
                 </div>}
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
-                  {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}</span>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5,padding:m.html&&!isAg&&isEmailCh?"2px 13px 8px":0}}>
+                  {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}{m.html&&!isAg&&isEmailCh?" · 📧 HTML":""}</span>}
                   {isAg&&!isNt&&(isWhatsAppCh?(
                     <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.55)":C.t3}} title={m.whatsapp_message_id?"Sent to WhatsApp":"Pending send"}>{m.whatsapp_message_id?"✓":"..."}</span>
                   ):(

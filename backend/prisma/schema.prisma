@@ -98,6 +98,8 @@ model Message {
   attachments      String?      @db.Text
   agent_id         String?
   is_read          Int          @default(0)
+  // Original HTML body for email messages (rendered as-is in frontend)
+  html             String?      @db.Text
   // IMAP de-duplication — stores the RFC2822 Message-Id header
   email_message_id String?      @db.VarChar(512)
   created_at       DateTime     @default(now())
