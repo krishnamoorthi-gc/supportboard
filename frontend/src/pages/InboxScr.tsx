@@ -1065,14 +1065,14 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                     <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>
                   ))}
                 </div>
-                <div className="msg-actions" style={{position:"absolute",top:-14,[isAg?"right":"left"]:8,display:"none",gap:2,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"2px",boxShadow:"0 4px 16px rgba(0,0,0,.4)",zIndex:10}}>
+              </div>
+              <div className="msg-actions" style={{position:"absolute",top:-14,[isAg?"right":"left"]:8,display:"none",gap:2,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"2px",boxShadow:"0 4px 16px rgba(0,0,0,.4)",zIndex:10}}>
                   <button onClick={()=>setReplyTo(m)} title="Reply" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">↩</button>
                   <button onClick={()=>copyMsg(m.text)} title="Copy" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">⎘</button>
                   {isAg&&<button onClick={()=>startEditMsg(m.id,m.text)} title="Edit" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">✎</button>}
                   {isAg&&<button onClick={()=>deleteMsg(m.id)} title="Delete" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.r}} className="hov">✕</button>}
                   <button onClick={()=>fwdMsg(m.text)} title="Forward" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">↗</button>
                 </div>
-              </div>
             </div>
           </div></>;
         })}
