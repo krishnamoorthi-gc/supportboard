@@ -1173,12 +1173,16 @@ app.patch('/api/integrations/:id', require('./middleware/auth'), (req, res) => {
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {
   // Clean URLs for policy pages (no .html extension)
-  for (const page of ['data-deletion', 'privacy', 'terms', 'about']) {
+  for (const page of ['data-deletion', 'privacy', 'terms', 'about', 'landing']) {
     app.get(`/${page}`, (req, res) => {
       const file = path.join(frontendDist, `${page}.html`);
       if (fs.existsSync(file)) return res.sendFile(file);
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
+  }
+  // Auth entry points — serve React SPA (handles /login → login form, /signup → register form)
+  for (const page of ['login', 'signup', 'register']) {
+    app.get(`/${page}`, (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
   }
   app.use(express.static(frontendDist));
   app.get('/{*path}', (req, res, next) => {

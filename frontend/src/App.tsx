@@ -74,8 +74,11 @@ export default function App(){
   const [apiOk,setApiOk]=useState(false);
   const [dataLoading,setDataLoading]=useState(false);
   const [showProfileMenu,setShowProfileMenu]=useState(false);
-  // Registration
-  const [showRegister,setShowRegister]=useState(false);
+  // Registration — auto-open if URL is /signup, /register, or ?register=1
+  const [showRegister,setShowRegister]=useState(()=>{
+    const p=window.location.pathname;
+    return p==="/signup"||p==="/register"||new URLSearchParams(window.location.search).get("register")==="1";
+  });
   const [regName,setRegName]=useState("");
   const [regEmail,setRegEmail]=useState("");
   const [regPass,setRegPass]=useState("");
@@ -550,6 +553,9 @@ export default function App(){
           // Sound + notification for customer messages
           if(msg.role==="customer"||msg.role==="contact"){
             pushNotification({text:"💬 New message in conversation",type:"message",targetScreen:"inbox",conversationId:m.conversationId||null,targetConversation:m.conversation||null});
+            const senderName=m.conversation?.contact_name||"Customer";
+            const preview=msg.text?.slice(0,60)||(Array.isArray(msg.attachments)&&msg.attachments.length>0?"📷 Image":"New message");
+            showT(`💬 ${senderName}: ${preview}`,"info");
           }
         }
         // ── Real-time: inbound email received via IMAP polling ────────────
@@ -569,6 +575,8 @@ export default function App(){
           setMsgs((p:any)=>({...p,[cv.id]:[...(p[cv.id]||[]).filter((x:any)=>x.id!==msg.id),msg]}));
           // Notification + sound
           pushNotification({text:`📧 New email from ${cv.contact_name||cv.contact_email}`,type:"message",targetScreen:"inbox",conversationId:cv.id,targetConversation:cv});
+          const emailPreview=msg.text?.slice(0,60)||(Array.isArray(msg.attachments)&&msg.attachments.length>0?"📷 Image":"New email");
+          showT(`📧 ${cv.contact_name||cv.contact_email||"Email"}: ${emailPreview}`,"info");
         }
         if(m.type==="new_conversation"){
           // ── Immediately add to conversation list ──
@@ -783,6 +791,7 @@ export default function App(){
       @keyframes badgePop{0%{transform:scale(1)}50%{transform:scale(1.3)}100%{transform:scale(1)}}
       @keyframes countUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
       @keyframes confetti{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(80px) rotate(360deg);opacity:0}}
+      @keyframes newMsgFlash{0%{background:${C.ad}}30%{background:${C.a}22}60%{background:${C.ad}}100%{background:transparent}}
       .hov:hover{background:${C.s3}!important}.nav:hover{background:${C.s2}!important;color:${C.t1}!important}.nav.nav-active:hover{background:${C.ad}!important;color:${C.a}!important}
       .msg-row:hover .msg-actions{display:flex!important}
       .btn-press:active{transform:scale(0.97)!important;filter:brightness(0.95)!important}
