@@ -48,7 +48,11 @@ router.post('/signup', handleRegister);
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { name, email, password } = req.body;
+
+  // If name is provided, treat as registration
+  if (name) return handleRegister(req, res);
+
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   const agent = await db.prepare('SELECT * FROM agents WHERE email = ?').get(email.toLowerCase().trim());
