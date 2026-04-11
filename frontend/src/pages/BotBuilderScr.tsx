@@ -390,7 +390,7 @@ export default function BotBuilderScr(){
     try{
       const form=new FormData();form.append("file",file);
       const token=(window as any).__sdToken||localStorage.getItem("sd_token");
-      const res=await fetch(`${import.meta.env.VITE_BACKEND_URL||"http://localhost:4002"}/api/upload`,{method:"POST",headers:{Authorization:"Bearer "+token},body:form});
+      const res=await fetch(`${import.meta.env.VITE_BACKEND_URL??"http://localhost:4002"}/api/upload`,{method:"POST",headers:{Authorization:"Bearer "+token},body:form});
       const uploaded=await res.json();
       const ext=file.name.split(".").pop()?.toLowerCase()||"";
       const fileType=ext==="pdf"?"pdf":["doc","docx"].includes(ext)?"word":["png","jpg","jpeg","gif","webp"].includes(ext)?"image":"text";
@@ -435,7 +435,7 @@ export default function BotBuilderScr(){
     navigator.clipboard.writeText(text).then(()=>{setCopied(key);setTimeout(()=>setCopied(""),2500);});
   };
   const origin=window.location.origin;
-  const backendOrigin=import.meta.env.VITE_BACKEND_URL||"http://localhost:4002";
+  const backendOrigin=import.meta.env.VITE_BACKEND_URL??"http://localhost:4002";
 
   const selNode=bot?.nodes.find(n=>n.id===sel);
   const kbFileTypes="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,text/plain";
@@ -904,7 +904,7 @@ export default function BotBuilderScr(){
                         <div style={{fontSize:13,fontWeight:700,color:C.t1,marginBottom:4}}>{k.title}</div>
                         {k.url?(
                           <div style={{fontSize:11,color:C.a,fontFamily:FM}}>
-                            {k.type==="image"?<img src={`${import.meta.env.VITE_BACKEND_URL||"http://localhost:4002"}${k.url}`} alt={k.title} style={{maxHeight:80,borderRadius:6,marginTop:4,display:"block"}}/>:<span>{k.content}</span>}
+                            {k.type==="image"?<img src={`${import.meta.env.VITE_BACKEND_URL??"http://localhost:4002"}${k.url}`} alt={k.title} style={{maxHeight:80,borderRadius:6,marginTop:4,display:"block"}}/>:<span>{k.content}</span>}
                           </div>
                         ):(
                           <div style={{fontSize:12,color:C.t3,maxHeight:60,overflow:"hidden",lineHeight:1.5}}>{k.content}</div>

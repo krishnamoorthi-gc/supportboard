@@ -110,7 +110,7 @@ export default function App(){
     setRegLoading(true);
     setRegError("");
     try{
-      const res=await api.post("/auth/register",{name:regName,email:regEmail,password:regPass});
+      const res=await api.post("/auth/login",{name:regName,email:regEmail,password:regPass});
       api.setToken(res.token);
       setIsLoggedIn(true);
       setApiOk(true);
@@ -471,7 +471,7 @@ export default function App(){
       const token=api.getToken()||_token.current;
       if(!token)return;
       const wsProto=window.location.protocol==="https:"?"wss":"ws";
-      const wsHost=(import.meta.env.VITE_BACKEND_URL||"http://localhost:4002").replace(/^https?:\/\//,"");
+      const wsHost=(import.meta.env.VITE_BACKEND_URL??window.location.origin).replace(/^https?:\/\//,"");
       const ws=new WebSocket(`${wsProto}://${wsHost}/ws?token=${encodeURIComponent(token)}`);
       ws.onopen=()=>{showT("Live connected","success");};
       ws.onmessage=e=>{try{const m=JSON.parse(e.data);

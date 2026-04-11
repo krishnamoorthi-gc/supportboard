@@ -19,6 +19,8 @@ function broadcast(data) {
 }
 
 const prisma = new PrismaClient();
+let _db;
+function getDb() { if (!_db) _db = require('../db'); return _db; }
 const activePolls = new Set();
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 
@@ -400,6 +402,9 @@ async function pollInbox(inboxId) {
 
   activePolls.add(inboxId);
 
+  // Ensure DB connection is alive (reconnects if idle-closed by MySQL)
+  try { await prisma.$connect(); } catch (_) {}
+
   const inbox = await prisma.inbox.findUnique({ where: { id: inboxId } });
   if (!inbox || inbox.type !== 'email' || inbox.active !== 1) {
     activePolls.delete(inboxId);
@@ -463,6 +468,8 @@ async function pollInbox(inboxId) {
 
 /** Parse one raw IMAP message and store it as a conversation+message */
 async function processIncomingEmail({ inbox, rawMsg, client }) {
+  // Force-reconnect Prisma to avoid stale MySQL pool
+  try { await prisma.$disconnect(); await prisma.$connect(); } catch (_) {}
   const parsed    = await simpleParser(rawMsg.source);
   const messageId = parsed.messageId || `generated-${uuidv4()}`;
   const headerDate = toValidDate(parsed.date);
@@ -483,7 +490,9 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
   const inboundAttachments = await saveInboundAttachments(parsed.attachments || []);
   const rawBodyText = getParsedBodyText(parsed);
   const bodyText  = stripQuotedEmailText(rawBodyText) || rawBodyText || '';
-  const rawHtml   = parsed?.html || null; // preserve original HTML for rendering
+  // Preserve original HTML for rendering (cap at 500KB to avoid MySQL packet limits)
+  const MAX_HTML = 500 * 1024;
+  const rawHtml   = parsed?.html ? (parsed.html.length > MAX_HTML ? parsed.html.slice(0, MAX_HTML) : parsed.html) : null;
   const normalizedSubject = normalizeSubject(subject);
   const replyReferenceIds = extractReplyReferenceIds(parsed);
   const inboxSender = normalizeEmailAddress(parseConfig(inbox.config)?.emailUser || '');
@@ -582,26 +591,27 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
     });
   }
 
-  // ── Persist message ───────────────────────────────────────────────────────
-  const newMsg = await prisma.message.create({
-    data: {
-      id:               uuidv4(),
-      conversation_id:  conversation.id,
-      role:             'customer',
-      text:             bodyText || null,
-      html:             rawHtml || null,
-      attachments:      inboundAttachments.length ? JSON.stringify(inboundAttachments) : null,
-      email_message_id: messageId,
-      is_read:          0,
-      created_at:       messageDate,
-    },
-  });
+  // ── Persist message (raw SQL — avoids Prisma stale-connection issues) ────
+  const db = getDb();
+  const msgId = uuidv4();
+  const createdAt = messageDate.toISOString().slice(0, 19).replace('T', ' ');
+  await db.prepare(
+    'INSERT INTO messages (id,conversation_id,role,text,html,attachments,email_message_id,is_read,created_at) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(
+    msgId,
+    conversation.id,
+    'customer',
+    bodyText || null,
+    rawHtml || null,
+    inboundAttachments.length ? JSON.stringify(inboundAttachments) : null,
+    messageId,
+    0,
+    createdAt
+  );
+  const newMsg = { id: msgId, conversation_id: conversation.id, role: 'customer', text: bodyText || null, html: rawHtml || null, attachments: inboundAttachments, email_message_id: messageId, is_read: 0, created_at: createdAt };
 
   // Bump conversation.updated_at
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data:  { updated_at: messageDate },
-  });
+  await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(createdAt, conversation.id);
 
   // ── Mark as Seen on IMAP ─────────────────────────────────────────────────
   await client.messageFlagsAdd({ uid: rawMsg.uid }, ['\\Seen'], { uid: true });

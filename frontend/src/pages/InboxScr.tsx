@@ -9,6 +9,36 @@ const parseMsgSortTime=(msg)=>{
   const ts=raw?Date.parse(raw):NaN;
   return Number.isNaN(ts)?Number.MAX_SAFE_INTEGER:ts;
 };
+const getMsgDateKey=(msg)=>{
+  const raw=msg?.created_at||msg?.updated_at||"";if(!raw)return"";
+  const d=new Date(raw.replace(" ","T"));if(isNaN(d.getTime()))return"";
+  return d.toISOString().slice(0,10);
+};
+const formatDateLabel=(dateKey)=>{
+  if(!dateKey)return"";
+  const d=new Date(dateKey+"T00:00:00");const now=new Date();
+  const today=now.toISOString().slice(0,10);
+  const yest=new Date(now.getTime()-86400000).toISOString().slice(0,10);
+  if(dateKey===today)return"Today";
+  if(dateKey===yest)return"Yesterday";
+  return d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:d.getFullYear()!==now.getFullYear()?"numeric":undefined});
+};
+const formatMsgTime=(msg)=>{
+  const raw=msg?.created_at||msg?.updated_at||"";if(!raw)return msg?.t||"";
+  const d=new Date(raw.replace(" ","T"));if(isNaN(d.getTime()))return msg?.t||"";
+  const hh=String(d.getHours()).padStart(2,"0");const mm=String(d.getMinutes()).padStart(2,"0");
+  return`${hh}:${mm}`;
+};
+const formatConvTime=(raw)=>{
+  if(!raw||raw==="now")return"now";
+  const d=new Date(String(raw).replace(" ","T"));if(isNaN(d.getTime()))return raw;
+  const now=new Date();const today=now.toISOString().slice(0,10);const yest=new Date(now.getTime()-86400000).toISOString().slice(0,10);
+  const dk=d.toISOString().slice(0,10);
+  const hh=String(d.getHours()).padStart(2,"0");const mm=String(d.getMinutes()).padStart(2,"0");
+  if(dk===today)return hh+":"+mm;
+  if(dk===yest)return"Yesterday";
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+};
 
 const sortConversationMessages=(list=[])=>list
   .map((msg,index)=>({msg,index}))
@@ -804,7 +834,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                   <span style={{fontSize:12,fontWeight:cv.unread>0?700:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"68%"}}>{ct?.name||"Unknown"}</span>
                   <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
                     {cv.unread>0&&<span style={{background:C.a,color:"#fff",fontSize:9,fontWeight:700,padding:"0 5px",lineHeight:"15px",borderRadius:8,fontFamily:FM}}>{cv.unread}</span>}
-                    <span style={{fontSize:9,color:C.t3,fontFamily:FM}}>{cv.time}</span>
+                    <span style={{fontSize:9,color:C.t3,fontFamily:FM}}>{formatConvTime(cv.updated_at||cv.time)}</span>
                   </div>
                 </div>
                 {/* Row 2: subject */}
@@ -845,7 +875,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
               <div key={cv.id} onClick={()=>{setAid(cv.id);setViewMode("list");}} className="hov" style={{padding:"10px 12px",background:C.s2,border:`1px solid ${aid===cv.id?col.color+"66":C.b1}`,borderRadius:10,cursor:"pointer",transition:"all .12s",borderLeft:`3px solid ${col.color}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{fontSize:11,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{cv.subject}</span>
-                  <span style={{fontSize:9,color:C.t3,fontFamily:FM,flexShrink:0,marginLeft:6}}>{cv.time}</span>
+                  <span style={{fontSize:9,color:C.t3,fontFamily:FM,flexShrink:0,marginLeft:6}}>{formatConvTime(cv.updated_at||cv.time)}</span>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
                   <Av i={ct?.av||"?"} c={cv.color} s={18}/>
@@ -950,14 +980,22 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
         {!aid?<EmptyState icon="💬" title="Select a conversation" desc="Choose a conversation from the left to start messaging"/>:
         msgsLoading?<SkelMsgs n={5}/>:convMsgs.length===0?<EmptyState icon="💬" title="No messages yet" desc="Start the conversation by sending a message below"/>:
-        convMsgs.filter(m=>!msgSearchQ||m.text?.toLowerCase().includes(msgSearchQ.toLowerCase())).map((m,i)=>{
-          if(m.role==="sys")return <div key={m.id||i} style={{textAlign:"center",fontSize:10.5,color:C.t3,fontFamily:FM,letterSpacing:"0.3px",animation:"fadeUp .2s ease"}}>── {m.text} ──</div>;
+        convMsgs.filter(m=>!msgSearchQ||m.text?.toLowerCase().includes(msgSearchQ.toLowerCase())).map((m,i,arr)=>{
+          const dateKey=getMsgDateKey(m);
+          const prevDateKey=i>0?getMsgDateKey(arr[i-1]):"";
+          const showDateSep=dateKey&&dateKey!==prevDateKey;
+          const dateSep=showDateSep?<div key={"date-"+dateKey+i} style={{textAlign:"center",margin:"8px 0",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,height:1,background:C.b1}}/>
+            <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,letterSpacing:"0.4px",padding:"3px 10px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`,flexShrink:0}}>{formatDateLabel(dateKey)}</span>
+            <div style={{flex:1,height:1,background:C.b1}}/>
+          </div>:null;
+          if(m.role==="sys")return <>{dateSep}<div key={m.id||i} style={{textAlign:"center",fontSize:10.5,color:C.t3,fontFamily:FM,letterSpacing:"0.3px",animation:"fadeUp .2s ease"}}>── {m.text} ──</div></>;
           const isAg=m.role==="agent";
           const ag=isAg?agents.find(a=>a.id===m.aid):null;
           const isAuto=!!(m.auto);
           const isNt=!!(m.isNote);
           const highlight=!!(msgSearchQ&&m.text?.toLowerCase().includes(msgSearchQ.toLowerCase()));
-          return <div key={m.id||i} style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",animation:"fadeUp .2s ease",flexDirection:"column",alignItems:isAg?"flex-end":"flex-start"}}>
+          return <>{dateSep}<div key={m.id||i} style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",animation:"fadeUp .2s ease",flexDirection:"column",alignItems:isAg?"flex-end":"flex-start"}}>
             <div style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",width:"100%",position:"relative"}} className="msg-row">
               {!isAg&&contact&&<div style={{marginRight:8,flexShrink:0}}><Av i={contact.av} c={conv?.color||C.a} s={26}/></div>}
               <div style={{maxWidth:m.html&&!isAg&&isEmailCh?"92%":"72%",background:isNt?C.yd:isAg?(isAuto?`linear-gradient(135deg,${C.p},#6b3fc0)`:`linear-gradient(135deg,${C.a},#2a5de8)`):m.html&&isEmailCh?"#fff":C.s3,border:isNt?`1px solid ${C.y}44`:isAg?"none":`1px solid ${C.b1}`,borderRadius:isAg?"14px 14px 4px 14px":"4px 14px 14px 14px",padding:m.html&&!isAg&&isEmailCh?"0":"10px 13px",position:"relative",outline:highlight?`2px solid ${C.y}`:"none",overflow:"hidden"}}>
@@ -980,7 +1018,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                   })}
                 </div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5,padding:m.html&&!isAg&&isEmailCh?"2px 13px 8px":0}}>
-                  {m.t&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{m.t}{m.edited?" · edited":""}{m.html&&!isAg&&isEmailCh?" · 📧 HTML":""}</span>}
+                  {(m.t||m.created_at)&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{formatMsgTime(m)}{m.edited?" · edited":""}{m.html&&!isAg&&isEmailCh?" · 📧 HTML":""}</span>}
                   {isAg&&!isNt&&(isWhatsAppCh?(
                     <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.55)":C.t3}} title={m.whatsapp_message_id?"Sent to WhatsApp":"Pending send"}>{m.whatsapp_message_id?"✓":"..."}</span>
                   ):(
@@ -996,7 +1034,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                 </div>
               </div>
             </div>
-          </div>;
+          </div></>;
         })}
         {typing&&<div style={{display:"flex",justifyContent:"flex-start",animation:"fadeUp .2s ease"}}>
           {contact&&<div style={{marginRight:8}}><Av i={contact.av} c={conv?.color||C.a} s={26}/></div>}

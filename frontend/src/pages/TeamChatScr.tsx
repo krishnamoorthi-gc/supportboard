@@ -225,7 +225,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     if(!token)return;
     let ws:WebSocket;let reconnTimer:any;let pingTimer:any;
     const connect=()=>{
-      const base=(import.meta.env.VITE_BACKEND_URL||'http://localhost:4002').replace(/^http/,'ws');
+      const base=(import.meta.env.VITE_BACKEND_URL??window.location.origin).replace(/^http/,'ws');
       ws=new WebSocket(`${base}/ws?token=${token}`);
       wsRef.current=ws;
       ws.onopen=()=>{pingTimer=setInterval(()=>{if(ws.readyState===1)ws.send(JSON.stringify({type:'ping'}));},25000);};
