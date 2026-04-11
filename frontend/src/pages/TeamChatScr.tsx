@@ -72,13 +72,37 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // ═══ MULTI-PANE ═══
   const [panes,setPanes]=useState([]); // secondary pane channel/dm IDs (max 2)
   const [paneInputs,setPaneInputs]=useState({});
-  const openPane=(chId)=>{if(chId===activeCh||panes.includes(chId))return;setPanes(p=>p.length>=2?[p[1],chId]:[...p,chId]);
-    if(api.isConnected()&&!tcMsgs[chId]?.length)api.get(`/chat/messages/${chId}`).then(r=>{if(r?.messages?.length)setTcMsgs(p=>({...p,[chId]:r.messages.map(m=>({id:m.id,uid:m.author_id,text:m.text,t:m.timestamp||"",date:m.date_label||"Today",reactions:(m.reactions||[]).map(rx=>({emoji:rx.emoji,users:rx.user_ids||[]})),thread:m.thread||[],pinned:!!m.pinned,file:m.file_name?{name:m.file_name,size:m.file_size}:null}))}));}).catch(()=>{});};
+  function parseApiMsg(m) {
+    let rxArr = [];
+    try {
+      const raw = typeof m.reactions === 'string' ? JSON.parse(m.reactions || '{}') : (m.reactions || {});
+      rxArr = Object.entries(raw).map(function(entry) { return { emoji: entry[0], users: entry[1] }; });
+    } catch(e) {}
+    const atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments || '[]') : (m.attachments || []);
+    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type } : null;
+    const t = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
+    return { id: m.id, uid: m.sender_id, text: m.text || '', t, date: 'Today', reactions: rxArr, thread: m.thread || [], pinned: false, file };
+  }
+  const openPane = (chId) => {
+    if (chId === activeCh || panes.includes(chId)) return;
+    setPanes(p => p.length >= 2 ? [p[1], chId] : [...p, chId]);
+    if (api.isConnected() && !tcMsgs[chId]?.length) {
+      api.get(`/chat/channels/${chId}/messages`).then(r => {
+        if (r?.messages?.length) setTcMsgs(p => ({ ...p, [chId]: r.messages.map(parseApiMsg) }));
+      }).catch(() => {});
+    }
+  };
   const closePane=(chId)=>setPanes(p=>p.filter(x=>x!==chId));
-  const paneSend=(chId)=>{const txt=(paneInputs[chId]||"").trim();if(!txt)return;setTcMsgs(p=>({...p,[chId]:[...(p[chId]||[]),{id:"tm"+uid(),uid:"a1",text:txt,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null}]}));setPaneInputs(p=>({...p,[chId]:""}));if(api.isConnected()){const isDm=chId.startsWith("dm");api.post("/chat/messages",{[isDm?"dm_id":"channel_id"]:chId,text:txt}).catch(()=>{});}};
+  const paneSend=(chId:string)=>{
+    const txt=(paneInputs[chId]||"").trim();if(!txt)return;
+    const myId=myIdRef.current;
+    setTcMsgs(p=>({...p,[chId]:[...(p[chId]||[]),{id:"tm"+uid(),uid:myId,text:txt,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null}]}));
+    setPaneInputs(p=>({...p,[chId]:""}));
+    if(api.isConnected())api.post(`/chat/channels/${chId}/messages`,{text:txt}).catch(()=>{});
+  };;
   // Public channels auto-include all agents/members
   const getChMembers=ch=>{if(!ch)return[];if(!ch.private)return agents.map(a=>a.id);return ch.members||[];};
-  const [tcMsgs,setTcMsgs]=useState(TC_MSGS_INIT);
+  const [tcMsgs,setTcMsgs]=useState<Record<string,any[]>>({});
   const [activeCh,setActiveCh]=useState("ch1");
   const [tcInp,setTcInp]=useState("");
   const [showThread,setShowThread]=useState(null);const [threadInp,setThreadInp]=useState("");
@@ -103,18 +127,179 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const [showNewDm,setShowNewDm]=useState(false);
   const [showDeleteCh,setShowDeleteCh]=useState(false);
   const [typingUsers,setTypingUsers]=useState({});
-  // Typing simulation — show other agents typing periodically for realism
+  // ── Decode JWT to get current agent ID ──
   useEffect(()=>{
-    const iv=setInterval(()=>{
-      const others=["a2","a3","a4"];const ch=["ch1","ch2","ch3"];
-      const randomCh=ch[Math.floor(Math.random()*ch.length)];
-      const randomAgent=others[Math.floor(Math.random()*others.length)];
-      if(Math.random()>0.7){setTypingUsers(p=>({...p,[randomCh]:[randomAgent]}));setTimeout(()=>setTypingUsers(p=>({...p,[randomCh]:[]})),2500);}
-    },8000);
-    return()=>clearInterval(iv);
+    const token=api.getToken();
+    if(token){try{const p=JSON.parse(atob(token.split('.')[1]));if(p.id)myIdRef.current=p.id;}catch{}}
   },[]);
-  // Send typing event (no-op until WebSocket is passed as prop)
-  const sendTypingEvent=()=>{};
+
+  // ── Keep activeChRef in sync ──
+  useEffect(()=>{activeChRef.current=activeCh;},[activeCh]);
+
+  // ── WebSocket: handle incoming real-time events ──
+  const handleWsMsg=useCallback((msg:any)=>{
+    switch(msg.type){
+      case 'tc_message':
+        if(msg.message&&msg.message.sender_id!==myIdRef.current){
+          const m=msg.message;
+          const atts=typeof m.attachments==='string'?JSON.parse(m.attachments||'[]'):m.attachments||[];
+          const file=atts.length>0?{name:atts[0].name,size:atts[0].size,type:atts[0].type}:null;
+          setTcMsgs(p=>({...p,[msg.channelId]:[...(p[msg.channelId]||[]),{
+            id:m.id,uid:m.sender_id,text:m.text||'',
+            t:new Date(m.created_at||Date.now()).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'}),
+            date:'Today',reactions:[],thread:m.thread||[],pinned:false,file
+          }]}));
+          if(msg.channelId!==activeChRef.current)
+            setChannels(p=>p.map(c=>c.id===msg.channelId?{...c,unread:(c.unread||0)+1}:c));
+          try{playNotifSound?.();}catch{}
+        }
+        break;
+      case 'tc_typing':
+        if(msg.from!==myIdRef.current){
+          setTypingUsers(p=>({...p,[msg.channelId]:msg.isTyping?[msg.from]:(p[msg.channelId]||[]).filter((u:string)=>u!==msg.from)}));
+          if(msg.isTyping)setTimeout(()=>setTypingUsers(p=>({...p,[msg.channelId]:(p[msg.channelId]||[]).filter((u:string)=>u!==msg.from)})),4000);
+        }
+        break;
+      case 'tc_reaction':
+        if(msg.agentId!==myIdRef.current){
+          setTcMsgs(p=>{
+            const msgs=p[msg.channelId];if(!msgs)return p;
+            return{...p,[msg.channelId]:msgs.map((m:any)=>{
+              if(m.id!==msg.messageId)return m;
+              const reactions=Object.entries(msg.reactions||{}).map(([emoji,users])=>({emoji,users}));
+              return{...m,reactions};
+            })};
+          });
+        }
+        break;
+      case 'tc_msg_delete':
+        setTcMsgs(p=>{const msgs=p[msg.channelId];if(!msgs)return p;return{...p,[msg.channelId]:msgs.filter((m:any)=>m.id!==msg.messageId)};});
+        break;
+      case 'tc_msg_edit':
+        setTcMsgs(p=>{const msgs=p[msg.channelId];if(!msgs)return p;return{...p,[msg.channelId]:msgs.map((m:any)=>m.id===msg.messageId?{...m,text:msg.text,edited:true}:m)};});
+        break;
+      case 'tc_channel_new':
+        if(msg.channel){
+          const ch=msg.channel;
+          let mems:string[]=[];try{mems=typeof ch.members==='string'?JSON.parse(ch.members):ch.members||[];}catch{}
+          setChannels(p=>{if(p.some((c:any)=>c.id===ch.id))return p;return[...p,{id:ch.id,name:ch.name,desc:ch.description||'',icon:ch.type==='private'?'🔒':'#',private:ch.type==='private',members:mems,unread:0,starred:false,muted:false,topic:'',bookmarks:[]}];});
+        }
+        break;
+      case 'tc_poll_new':
+        if(msg.poll&&msg.channelId){
+          const pl=msg.poll;
+          const opts=(pl.options||[]).map((o:any)=>({text:o.text,votes:o.votes||[]}));
+          setPolls(p=>({...p,[msg.channelId]:[...(p[msg.channelId]||[]).filter((x:any)=>x.id!==pl.id),{id:pl.id,q:pl.question,opts,closed:!!pl.closed}]}));
+        }
+        break;
+      case 'tc_poll_vote':
+        setPolls(p=>({...p,[msg.channelId]:(p[msg.channelId]||[]).map((pl:any)=>pl.id===msg.pollId?{...pl,opts:msg.options.map((o:any)=>({text:o.text,votes:o.votes||[]}))}:pl)}));
+        break;
+      case 'tc_thread_reply':
+        if(msg.message&&msg.message.sender_id!==myIdRef.current){
+          const t2=msg.message;
+          setTcMsgs(p=>{const msgs=p[msg.channelId];if(!msgs)return p;return{...p,[msg.channelId]:msgs.map((m:any)=>m.id===msg.parentId?{...m,thread:[...m.thread,{id:t2.id,uid:t2.sender_id,text:t2.text,t:new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}]}:m)};});
+        }
+        break;
+      case 'presence':
+        if(setAgents)setAgents((p:any[])=>p.map(a=>a.id===msg.agentId?{...a,status:msg.status}:a));
+        break;
+      case 'tc_call_offer':
+        setIncomingCall({from:msg.from,callId:msg.callId,offer:msg.offer,callerName:msg.callerName||'Team Member'});
+        break;
+      case 'tc_call_answer':
+        if(peerRef.current)peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.answer)).catch(()=>{});
+        break;
+      case 'tc_call_ice':
+        if(peerRef.current&&msg.candidate)peerRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(()=>{});
+        break;
+      case 'tc_call_end':
+        endCall(false);
+        break;
+    }
+  },[setAgents]);
+
+  // ── WebSocket connection with auto-reconnect ──
+  useEffect(()=>{
+    const token=api.getToken();
+    if(!token)return;
+    let ws:WebSocket;let reconnTimer:any;let pingTimer:any;
+    const connect=()=>{
+      const base=(import.meta.env.VITE_BACKEND_URL||'http://localhost:4002').replace(/^http/,'ws');
+      ws=new WebSocket(`${base}/ws?token=${token}`);
+      wsRef.current=ws;
+      ws.onopen=()=>{pingTimer=setInterval(()=>{if(ws.readyState===1)ws.send(JSON.stringify({type:'ping'}));},25000);};
+      ws.onmessage=(e)=>{try{handleWsMsg(JSON.parse(e.data));}catch{}};
+      ws.onclose=()=>{clearInterval(pingTimer);wsRef.current=null;reconnTimer=setTimeout(connect,3000);};
+      ws.onerror=()=>{ws.close();};
+    };
+    connect();
+    return()=>{clearTimeout(reconnTimer);clearInterval(pingTimer);wsRef.current?.close();};
+  },[handleWsMsg]);
+
+  const sendWs=(data:any)=>{if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify(data));};
+
+  // ── WebRTC call helpers ──
+  const endCall=(sendSignal=true)=>{
+    if(sendSignal&&callTargetRef.current)sendWs({type:'tc_call_end',targetId:callTargetRef.current,callId:callIdRef.current});
+    peerRef.current?.close();peerRef.current=null;
+    localStreamRef.current?.getTracks().forEach(t=>t.stop());localStreamRef.current=null;
+    if(localVideoRef.current)localVideoRef.current.srcObject=null;
+    if(remoteVideoRef.current)remoteVideoRef.current.srcObject=null;
+    callIdRef.current=null;callTargetRef.current=null;
+    setActiveCall(null);setShowHuddle(false);setHuddleMic(true);setHuddleCam(false);setHuddleScreen(false);
+  };
+
+  const initCall=async(targetId:string)=>{
+    const callId='call'+uid();
+    callIdRef.current=callId;callTargetRef.current=targetId;
+    const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+    peerRef.current=pc;
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:huddleCam});
+      localStreamRef.current=stream;
+      if(localVideoRef.current)localVideoRef.current.srcObject=stream;
+      stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+    }catch{showT('Microphone access required for calls','error');}
+    pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId,callId,candidate:e.candidate});};
+    pc.ontrack=(e)=>{if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];};
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const callerName=agents.find((a:any)=>a.id===myIdRef.current)?.name||'Team Member';
+    sendWs({type:'tc_call_offer',targetId,callId,offer,callerName,channelId:activeCh});
+    setActiveCall({callId,targetId,type:'outgoing'});setShowHuddle(true);
+    showT('Calling…','info');
+  };
+
+  const acceptCall=async()=>{
+    if(!incomingCall)return;
+    const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+    peerRef.current=pc;callIdRef.current=incomingCall.callId;callTargetRef.current=incomingCall.from;
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:huddleCam});
+      localStreamRef.current=stream;
+      if(localVideoRef.current)localVideoRef.current.srcObject=stream;
+      stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+    }catch{}
+    pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId:incomingCall.from,callId:incomingCall.callId,candidate:e.candidate});};
+    pc.ontrack=(e)=>{if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];};
+    await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendWs({type:'tc_call_answer',targetId:incomingCall.from,callId:incomingCall.callId,answer});
+    setActiveCall({callId:incomingCall.callId,targetId:incomingCall.from,type:'incoming'});
+    setIncomingCall(null);setShowHuddle(true);
+  };
+
+  // Send typing event via WebSocket
+  const sendTypingEvent=()=>{
+    sendWs({type:'tc_typing',channelId:activeCh,isTyping:true});
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current=setTimeout(()=>sendWs({type:'tc_typing',channelId:activeCh,isTyping:false}),3000);
+  };
+  // ── Call / WebRTC state ──
+  const [incomingCall,setIncomingCall]=useState<{from:string,callId:string,offer:RTCSessionDescriptionInit,callerName:string}|null>(null);
+  const [activeCall,setActiveCall]=useState<{callId:string,targetId:string,type:string}|null>(null);
   const [showSchedule,setShowSchedule]=useState(false);const [scheduleTime,setScheduleTime]=useState("");
   const [msgSearch,setMsgSearch]=useState("");const [showMsgSearch,setShowMsgSearch]=useState(false);
   const [showSlash,setShowSlash]=useState(false);
@@ -126,10 +311,51 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const [aiStandup,setAiStandup]=useState(null);const [aiStdLoad,setAiStdLoad]=useState(false);
   // ── Invite to workspace (shared with Settings) ──
   const [showWsInvite,setShowWsInvite]=useState(false);const [wsInvName,setWsInvName]=useState("");const [wsInvEmail,setWsInvEmail]=useState("");
-  const inviteToWorkspace=()=>{if(!wsInvEmail.includes("@"))return showT("Valid email required","error");const nm=wsInvName.trim()||wsInvEmail.split("@")[0];setAgents(p=>[...p,{id:"a"+uid(),name:nm,email:wsInvEmail,role:"Member",av:nm.slice(0,2).toUpperCase(),color:[C.a,C.g,C.p,C.cy,C.y,"#ff6b35"][Math.floor(Math.random()*6)],status:"offline",maxConvs:8}]);showT(nm+" added to workspace as Member","success");setShowWsInvite(false);setWsInvName("");setWsInvEmail("");};
+  const inviteToWorkspace=async()=>{
+    if(!wsInvEmail.includes("@"))return showT("Valid email required","error");
+    const nm=wsInvName.trim()||wsInvEmail.split("@")[0];
+    if(api.isConnected()){
+      const r=await api.post("/settings/agents",{name:nm,email:wsInvEmail,role:"member"}).catch(()=>null);
+      if(r?.agent)setAgents((p:any[])=>[...p,{...r.agent,av:r.agent.avatar||nm.slice(0,2).toUpperCase(),color:r.agent.color||C.a,status:"offline"}]);
+      else setAgents((p:any[])=>[...p,{id:"a"+uid(),name:nm,email:wsInvEmail,role:"Member",av:nm.slice(0,2).toUpperCase(),color:[C.a,C.g,C.p,C.cy,C.y,"#ff6b35"][Math.floor(Math.random()*6)],status:"offline",maxConvs:8}]);
+    }else{
+      setAgents((p:any[])=>[...p,{id:"a"+uid(),name:nm,email:wsInvEmail,role:"Member",av:nm.slice(0,2).toUpperCase(),color:[C.a,C.g,C.p,C.cy,C.y,"#ff6b35"][Math.floor(Math.random()*6)],status:"offline",maxConvs:8}]);
+    }
+    showT(nm+" added to workspace as Member","success");setShowWsInvite(false);setWsInvName("");setWsInvEmail("");
+  };
   const ref=useRef(null);
   const fileRef=useRef(null);
-  const handleFileUpload=e=>{const f=e.target.files?.[0];if(!f)return;const sizeMB=(f.size/1024/1024).toFixed(1);const ext=f.name.split('.').pop()?.toLowerCase()||'file';const msg=`📎 ${f.name}`;setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"tm"+uid(),uid:"a1",text:msg,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:{name:f.name,size:sizeMB+" MB",type:ext}}]}));if(api.isConnected()){const isDm=activeCh.startsWith("dm");api.post("/chat/messages",{[isDm?"dm_id":"channel_id"]:activeCh,text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext}).catch(()=>{});}showT("File shared: "+f.name,"success");e.target.value="";};
+  // ── Real-time refs ──
+  const wsRef=useRef<WebSocket|null>(null);
+  const myIdRef=useRef<string>("a1"); // current logged-in agent ID (default a1 for demo)
+  const activeChRef=useRef<string>("ch1");
+  const typingTimeoutRef=useRef<any>(null);
+  const peerRef=useRef<RTCPeerConnection|null>(null);
+  const localStreamRef=useRef<MediaStream|null>(null);
+  const localVideoRef=useRef<HTMLVideoElement|null>(null);
+  const remoteVideoRef=useRef<HTMLVideoElement|null>(null);
+  const callIdRef=useRef<string|null>(null);
+  const callTargetRef=useRef<string|null>(null);
+  const handleFileUpload=async(e:any)=>{
+    const f=e.target.files?.[0];if(!f)return;
+    const sizeMB=(f.size/1024/1024).toFixed(1);const ext=f.name.split('.').pop()?.toLowerCase()||'file';
+    const myId=myIdRef.current;
+    const msg=`📎 ${f.name}`;
+    const fileObj={name:f.name,size:sizeMB+" MB",type:ext};
+    setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"tm"+uid(),uid:myId,text:msg,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj}]}));
+    if(api.isConnected()){
+      // Try real file upload first
+      try{
+        const fd=new FormData();fd.append("file",f);
+        const r=await api.upload("/upload",fd).catch(()=>null);
+        const url=r?.url||null;
+        api.post(`/chat/channels/${activeCh}/messages`,{text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext,attachments:url?[{name:f.name,size:sizeMB+" MB",type:ext,url}]:[]}).catch(()=>{});
+      }catch{
+        api.post(`/chat/channels/${activeCh}/messages`,{text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext}).catch(()=>{});
+      }
+    }
+    showT("File shared: "+f.name,"success");e.target.value="";
+  };
   // ── New features state ──
   const [drafts,setDrafts]=useState({});
   const [scheduledMsgs,setScheduledMsgs]=useState([]);
@@ -147,18 +373,39 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // ═══ TEAM CHAT API LOADING ═══
   useEffect(()=>{
     if(!api.isConnected())return;
-    api.get("/chat/channels").then(r=>{if(r?.channels?.length)setChannels(r.channels.map(c=>({...c,unread:c.message_count||0,starred:c.members?.some(m=>m.agent_id==="a1"&&m.starred)||false,muted:c.members?.some(m=>m.agent_id==="a1"&&m.muted)||false})));}).catch(()=>{});
-    api.get("/chat/dms").then(r=>{if(r?.dms?.length)setTcDms(r.dms.map(d=>({id:d.id,agentId:d.agent1_id==="a1"?d.agent2_id:d.agent1_id,unread:0,starred:false})));}).catch(()=>{});
+    api.get("/chat/channels").then((r:any)=>{
+      if(r?.channels?.length)setChannels(r.channels.map((c:any)=>{
+        let mems:string[]=[];try{mems=typeof c.members==='string'?JSON.parse(c.members):c.members||[];}catch{}
+        return{...c,unread:0,starred:false,muted:false,desc:c.description||'',icon:c.type==='private'?'🔒':'#',private:c.type==='private',members:mems,topic:'',bookmarks:[]};
+      }));
+    }).catch(()=>{});
+    api.get("/chat/dms").then((r:any)=>{
+      if(r?.dms?.length)setTcDms(r.dms.map((d:any)=>{
+        let mems:string[]=[];try{mems=typeof d.members==='string'?JSON.parse(d.members):d.members||[];}catch{}
+        const otherId=mems.find((m:string)=>m!==myIdRef.current)||mems[1];
+        return{id:d.id,agentId:otherId,unread:0,starred:false};
+      }));
+    }).catch(()=>{});
   },[]);
-  // Load messages when switching channel
+
+  // Load messages and polls when switching channel
   const [tcMsgsLoading,setTcMsgsLoading]=useState(false);
   useEffect(()=>{
     if(!api.isConnected()||!activeCh)return;
-    if(tcMsgs[activeCh]?.length>0)return; // Already loaded
-    setTcMsgsLoading(true);
-    api.get(`/chat/messages/${activeCh}`).then(r=>{
-      if(r?.messages?.length)setTcMsgs(p=>({...p,[activeCh]:r.messages.map(m=>({id:m.id,uid:m.author_id,text:m.text,t:m.timestamp||"",date:m.date_label||"Today",reactions:(m.reactions||[]).map(rx=>({emoji:rx.emoji,users:rx.user_ids||[]})),thread:m.thread||[],pinned:!!m.pinned,file:m.file_name?{name:m.file_name,size:m.file_size}:null}))}));
-    }).catch(()=>{}).finally(()=>setTcMsgsLoading(false));
+    if(!tcMsgs[activeCh]?.length){
+      setTcMsgsLoading(true);
+      api.get(`/chat/channels/${activeCh}/messages`).then(r => {
+        if (r?.messages?.length) setTcMsgs(p => ({ ...p, [activeCh]: r.messages.map(parseApiMsg) }));
+      }).catch(() => {}).finally(() => setTcMsgsLoading(false));
+    }
+    // Load polls for channel
+    api.get(`/chat/channels/${activeCh}/polls`).then((r:any)=>{
+      if(r?.polls?.length)setPolls(p=>({...p,[activeCh]:r.polls.map((pl:any)=>({
+        id:pl.id,q:pl.question,
+        opts:(pl.options||[]).map((o:any)=>({text:o.text,votes:o.votes||[]})),
+        closed:!!pl.closed
+      }))}));
+    }).catch(()=>{});
   },[activeCh]);
   // Keyboard shortcuts
   useEffect(()=>{const h=e=>{if(e.ctrlKey&&e.key==="/"){e.preventDefault();setTcInp("/");setShowSlash(true);}if(e.ctrlKey&&e.shiftKey&&e.key==="M"){e.preventDefault();setChannels(p=>p.map(c=>c.id===activeCh?{...c,muted:!c.muted}:c));showT(aCh?.muted?"Unmuted":"Muted","info");}if(e.key==="Escape"){setShowThread(null);setShowMembers(false);setShowChInfo(false);setShowAiPanel(false);setShowFilesPanel(false);setShowEmojiPicker(false);setMentionSearch(null);setProfilePop(null);}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[activeCh]);
@@ -196,31 +443,140 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     if(t.startsWith("/leave")){leaveCh(activeCh);return;}
     addMsg(t);
   };
-  const addMsg=(text,isBot)=>{setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"tm"+uid(),uid:isBot?"bot":"a1",text,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null,isBot}]}));if(!isBot&&api.isConnected()){const isDm=activeCh.startsWith("dm");api.post("/chat/messages",{[isDm?"dm_id":"channel_id"]:activeCh,text}).catch(()=>{});}};
-  const sendTh=()=>{if(!threadInp.trim()||!showThread)return;const text=threadInp.trim();setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map(m=>m.id===showThread.id?{...m,thread:[...m.thread,{id:"tr"+uid(),uid:"a1",text,t:now()}]}:m)}));setThreadInp("");if(api.isConnected())api.post(`/chat/messages/${showThread.id}/thread`,{text}).catch(()=>{});};
-  const react=(mid,em)=>{setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map(m=>{if(m.id!==mid)return m;const ex=m.reactions.find(r=>r.emoji===em);if(ex){if(ex.users.includes("a1"))return{...m,reactions:m.reactions.map(r=>r.emoji===em?{...r,users:r.users.filter(u=>u!=="a1")}:r).filter(r=>r.users.length>0)};return{...m,reactions:m.reactions.map(r=>r.emoji===em?{...r,users:[...r.users,"a1"]}:r)};}return{...m,reactions:[...m.reactions,{emoji:em,users:["a1"]}]};})}));setShowReactions(null);if(api.isConnected())api.post(`/chat/messages/${mid}/reactions`,{emoji:em}).catch(()=>{});};
-  const del=mid=>{setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).filter(m=>m.id!==mid)}));showT("Deleted","success");};
-  const saveEd=()=>{setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map(m=>m.id===editingMsg?{...m,text:editText,edited:true}:m)}));if(api.isConnected())api.patch(`/chat/messages/${editingMsg}`,{text:editText}).catch(()=>{});setEditingMsg(null);showT("Edited","success");};
+  const addMsg=(text:string,isBot?:boolean)=>{
+    const myId=myIdRef.current;
+    const newMsg={id:"tm"+uid(),uid:isBot?"bot":myId,text,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null,isBot};
+    setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),newMsg]}));
+    if(!isBot&&api.isConnected())api.post(`/chat/channels/${activeCh}/messages`,{text}).catch(()=>{});
+  };
+  const sendTh=()=>{
+    if(!threadInp.trim()||!showThread)return;const text=threadInp.trim();
+    const myId=myIdRef.current;
+    setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===showThread.id?{...m,thread:[...m.thread,{id:"tr"+uid(),uid:myId,text,t:now()}]}:m)}));
+    setThreadInp("");
+    if(api.isConnected())api.post(`/chat/messages/${showThread.id}/thread`,{text}).catch(()=>{});
+  };
+  const react=(mid:string,em:string)=>{
+    const myId=myIdRef.current;
+    setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>{
+      if(m.id!==mid)return m;
+      const ex=m.reactions.find((r:any)=>r.emoji===em);
+      if(ex){
+        if(ex.users.includes(myId))return{...m,reactions:m.reactions.map((r:any)=>r.emoji===em?{...r,users:r.users.filter((u:string)=>u!==myId)}:r).filter((r:any)=>r.users.length>0)};
+        return{...m,reactions:m.reactions.map((r:any)=>r.emoji===em?{...r,users:[...r.users,myId]}:r)};
+      }
+      return{...m,reactions:[...m.reactions,{emoji:em,users:[myId]}]};
+    })}));
+    setShowReactions(null);
+    if(api.isConnected())api.post(`/chat/messages/${mid}/react`,{emoji:em}).catch(()=>{});
+  };
+  const del=(mid:string)=>{
+    setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).filter((m:any)=>m.id!==mid)}));
+    showT("Deleted","success");
+    if(api.isConnected())api.del(`/chat/messages/${mid}`).catch(()=>{});
+  };
+  const saveEd=()=>{
+    setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===editingMsg?{...m,text:editText,edited:true}:m)}));
+    if(api.isConnected())api.patch(`/chat/messages/${editingMsg}`,{text:editText}).catch(()=>{});
+    setEditingMsg(null);showT("Edited","success");
+  };
   const pin=mid=>{setPinnedMsgs(p=>{const c=p[activeCh]||[];const isPinned=c.includes(mid);const next=isPinned?c.filter(x=>x!==mid):[...c,mid];if(api.isConnected())api.patch(`/chat/messages/${mid}`,{pinned:!isPinned}).catch(()=>{});return{...p,[activeCh]:next};});showT("Pin toggled","success");};
   const star=cid=>{setChannels(p=>p.map(c=>c.id===cid?{...c,starred:!c.starred}:c));};
-  const fwd=(msg,to)=>{setTcMsgs(p=>({...p,[to]:[...(p[to]||[]),{id:"tm"+uid(),uid:"a1",text:`↪️ Fwd from ${chLabel}:\n> ${msg.text.slice(0,200)}`,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null}]}));showT("Forwarded","success");setShowFwd(null);};
-  const createCh=()=>{if(!newChName.trim())return showT("Name required","error");const id="ch"+uid();setChannels(p=>[...p,{id,name:newChName.trim().toLowerCase().replace(/\s+/g,"-"),desc:newChDesc,icon:newChPrivate?"🔒":"#",private:newChPrivate,members:["a1"],unread:0,starred:false,muted:false,topic:"",bookmarks:[]}]);setActiveCh(id);setShowNewCh(false);setNewChName("");setNewChDesc("");showT("Created!","success");
-    addMsg("📢 Channel created by Priya Sharma",true);
+  const fwd=(msg:any,to:string)=>{
+    const myId=myIdRef.current;
+    setTcMsgs(p=>({...p,[to]:[...(p[to]||[]),{id:"tm"+uid(),uid:myId,text:`↪️ Fwd from ${chLabel}:\n> ${msg.text.slice(0,200)}`,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null}]}));
+    showT("Forwarded","success");setShowFwd(null);
+    if(api.isConnected())api.post(`/chat/channels/${to}/messages`,{text:`↪️ Fwd from ${chLabel}:\n> ${msg.text.slice(0,200)}`}).catch(()=>{});
+  };
+  const createCh=async()=>{
+    if(!newChName.trim())return showT("Name required","error");
+    const myId=myIdRef.current;
+    const chName=newChName.trim().toLowerCase().replace(/\s+/g,"-");
+    if(api.isConnected()){
+      const r=await api.post("/chat/channels",{name:chName,description:newChDesc,type:newChPrivate?"private":"public",members:[myId]}).catch(()=>null);
+      if(r?.channel){
+        const ch=r.channel;let mems:string[]=[];try{mems=typeof ch.members==='string'?JSON.parse(ch.members):ch.members||[];}catch{}
+        setChannels((p:any[])=>{if(p.some(c=>c.id===ch.id))return p;return[...p,{id:ch.id,name:ch.name,desc:ch.description||newChDesc,icon:newChPrivate?"🔒":"#",private:newChPrivate,members:mems,unread:0,starred:false,muted:false,topic:"",bookmarks:[]}];});
+        setActiveCh(ch.id);
+      }
+    }else{
+      const id="ch"+uid();
+      setChannels((p:any[])=>[...p,{id,name:chName,desc:newChDesc,icon:newChPrivate?"🔒":"#",private:newChPrivate,members:[myId],unread:0,starred:false,muted:false,topic:"",bookmarks:[]}]);
+      setActiveCh(id);
+    }
+    setShowNewCh(false);setNewChName("");setNewChDesc("");showT("Channel created!","success");
   };
   // ── Channel management ──
-  const addMember=(chId,agId)=>{setChannels(p=>p.map(c=>c.id===chId?{...c,members:[...new Set([...c.members,agId])]}:c));showT(agents.find(a=>a.id===agId)?.name+" added","success");
-    addMsg("👤 "+agents.find(a=>a.id===agId)?.name+" was added to the channel",true);
+  const addMember=(chId:string,agId:string)=>{
+    setChannels((p:any[])=>p.map((c:any)=>c.id===chId?{...c,members:[...new Set([...c.members,agId])]}:c));
+    const name=(agents as any[]).find((a:any)=>a.id===agId)?.name||agId;
+    showT(name+" added","success");
+    addMsg("👤 "+name+" was added to the channel",true);
+    if(api.isConnected()){
+      const ch=(channels as any[]).find((c:any)=>c.id===chId);
+      let mems:string[]=ch?.members||[];
+      if(!mems.includes(agId))mems=[...mems,agId];
+      api.patch(`/chat/channels/${chId}`,{members:mems}).catch(()=>{});
+    }
   };
-  const removeMember=(chId,agId)=>{if(agId==="a1")return showT("Can't remove yourself — use Leave","error");setChannels(p=>p.map(c=>c.id===chId?{...c,members:c.members.filter(m=>m!==agId)}:c));showT("Member removed","success");
+  const removeMember=(chId:string,agId:string)=>{if(agId===myIdRef.current)return showT("Can't remove yourself — use Leave","error");setChannels((p:any[])=>p.map((c:any)=>c.id===chId?{...c,members:c.members.filter((m:string)=>m!==agId)}:c));showT("Member removed","success");
     addMsg("👤 "+agents.find(a=>a.id===agId)?.name+" was removed from the channel",true);
   };
-  const leaveCh=(chId)=>{setChannels(p=>p.map(c=>c.id===chId?{...c,members:c.members.filter(m=>m!=="a1")}:c));showT("Left channel","info");switchCh("ch1");};
-  const editChSave=()=>{setChannels(p=>p.map(c=>c.id===activeCh?{...c,name:editChName||c.name,desc:editChDesc||c.desc,topic:editChTopic!==undefined?editChTopic:c.topic,private:editChPrivate,icon:editChPrivate?"🔒":"#"}:c));setShowEditCh(false);showT("Channel updated","success");};
-  const deleteCh=(chId)=>{const ch=channels.find(c=>c.id===chId);setChannels(p=>p.filter(c=>c.id!==chId));setTcMsgs(p=>{const n={...p};delete n[chId];return n;});switchCh("ch1");setShowDeleteCh(false);setShowChInfo(false);showT("#"+(ch?.name||"channel")+" deleted","success");if(api.isConnected())api.del(`/chat/channels/${chId}`).catch(()=>{});};
+  const leaveCh=(chId:string)=>{
+    const myId=myIdRef.current;
+    setChannels((p:any[])=>p.map((c:any)=>c.id===chId?{...c,members:c.members.filter((m:string)=>m!==myId)}:c));
+    showT("Left channel","info");
+    const fallback=(channels as any[]).find((c:any)=>c.id!==chId)?.id||"ch1";
+    switchCh(fallback);
+  };
+  const editChSave=()=>{
+    setChannels((p:any[])=>p.map((c:any)=>c.id===activeCh?{...c,name:editChName||c.name,desc:editChDesc||c.desc,topic:editChTopic!==undefined?editChTopic:c.topic,private:editChPrivate,icon:editChPrivate?"🔒":"#"}:c));
+    setShowEditCh(false);showT("Channel updated","success");
+    if(api.isConnected())api.patch(`/chat/channels/${activeCh}`,{name:editChName,description:editChDesc,topic:editChTopic}).catch(()=>{});
+  };
+  const deleteCh=(chId:string)=>{
+    const ch=(channels as any[]).find((c:any)=>c.id===chId);
+    setChannels((p:any[])=>p.filter((c:any)=>c.id!==chId));
+    setTcMsgs(p=>{const n={...p};delete n[chId];return n;});
+    // Switch to first available channel
+    const fallback=(channels as any[]).find((c:any)=>c.id!==chId)?.id||"ch1";
+    switchCh(fallback);setShowDeleteCh(false);setShowChInfo(false);
+    showT("#"+(ch?.name||"channel")+" deleted","success");
+    if(api.isConnected())api.del(`/chat/channels/${chId}`).catch(()=>{});
+  };
   const openEditCh=()=>{if(!aCh)return;setEditChName(aCh.name);setEditChDesc(aCh.desc);setEditChTopic(aCh.topic);setEditChPrivate(aCh.private);setShowEditCh(true);};
-  const startDm=(agId)=>{const existing=tcDms.find(d=>d.agentId===agId);if(existing){switchCh(existing.id);setProfilePop(null);return;}const id="dm"+uid();setTcDms(p=>[...p,{id,agentId:agId,unread:0,starred:false}]);switchCh(id);setProfilePop(null);setShowNewDm(false);showT("DM opened with "+agents.find(a=>a.id===agId)?.name,"success");};
-  const votePoll=(pid,oi)=>{setPolls(p=>({...p,[activeCh]:(p[activeCh]||[]).map(pl=>pl.id===pid?{...pl,opts:pl.opts.map((o,i)=>i===oi?{...o,votes:o.votes.includes("a1")?o.votes.filter(v=>v!=="a1"):[...o.votes,"a1"]}:o)}:pl)}));};
-  const createPoll=()=>{const opts=pollOpts.filter(o=>o.trim());if(!pollQ.trim()||opts.length<2)return showT("Need question + 2 options","error");setPolls(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"poll"+uid(),q:pollQ,opts:opts.map(o=>({text:o,votes:[]})),closed:false}]}));setShowPoll(false);setPollQ("");setPollOpts(["","",""]);showT("Poll created!","success");};
+  const startDm=async(agId:string)=>{
+    const existing=tcDms.find((d:any)=>d.agentId===agId);
+    if(existing){switchCh(existing.id);setProfilePop(null);return;}
+    let dmId="dm"+uid();
+    if(api.isConnected()){
+      const r=await api.post("/chat/dms",{agentId:agId}).catch(()=>null);
+      if(r?.channel)dmId=r.channel.id;
+    }
+    setTcDms((p:any[])=>[...p,{id:dmId,agentId:agId,unread:0,starred:false}]);
+    switchCh(dmId);setProfilePop(null);setShowNewDm(false);
+    showT("DM opened with "+agents.find((a:any)=>a.id===agId)?.name,"success");
+  };
+  const votePoll=async(pid:string,oi:number)=>{
+    const myId=myIdRef.current;
+    // Optimistic update
+    setPolls((p:any)=>({...p,[activeCh]:(p[activeCh]||[]).map((pl:any)=>pl.id!==pid?pl:{...pl,opts:pl.opts.map((o:any,i:number)=>i===oi?{...o,votes:o.votes.includes(myId)?o.votes.filter((v:string)=>v!==myId):[...o.votes,myId]}:o)})}));
+    if(api.isConnected())api.post(`/chat/polls/${pid}/vote`,{optionIndex:oi}).catch(()=>{});
+  };
+  const createPoll=async()=>{
+    const opts=pollOpts.filter(o=>o.trim());
+    if(!pollQ.trim()||opts.length<2)return showT("Need question + 2 options","error");
+    if(api.isConnected()){
+      const r=await api.post(`/chat/channels/${activeCh}/polls`,{question:pollQ,options:opts}).catch(()=>null);
+      if(!r?.poll){// fallback if API fails
+        setPolls((p:any)=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"poll"+uid(),q:pollQ,opts:opts.map(o=>({text:o,votes:[]})),closed:false}]}));
+      }
+      // if API ok, poll comes back via WS broadcast tc_poll_new
+    }else{
+      setPolls((p:any)=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"poll"+uid(),q:pollQ,opts:opts.map(o=>({text:o,votes:[]})),closed:false}]}));
+    }
+    setShowPoll(false);setPollQ("");setPollOpts(["","",""]);showT("Poll created!","success");
+  };
   // AI
   const aiSum=async()=>{setAiSumLoad(true);setAiSummary(null);try{const ctx=curMsgs.slice(-15).map(m=>`[${ag[m.uid]?.name||"Bot"}] ${m.text}`).join("\n");const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,system:"Summarize team chat in 3-4 bullet points. Decisions, actions, updates. No markdown.",messages:[{role:"user",content:ctx}]})});const d=await r.json();setAiSummary(d.content?.[0]?.text||"");}catch(e){setAiSummary("• Resolved Arjun Mehta payment (Stripe fraud filter)\n• AI Auto-Reply enabled for WhatsApp — 12s response time\n• CSV Export v2.4 deployed\n• API auth 401 — token rotation rolled back");}setAiSumLoad(false);};
   const aiReply=async()=>{setAiSugLoad(true);setAiSugs([]);try{const ctx=curMsgs.slice(-3).map(m=>`[${ag[m.uid]?.name}] ${m.text}`).join("\n");const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:250,system:"Suggest 3 short team chat replies. Return JSON array of 3 strings only.",messages:[{role:"user",content:ctx}]})});const d=await r.json();const p=JSON.parse((d.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim());setAiSugs(Array.isArray(p)?p:["Got it, on it.","Thanks!","Good call."]);}catch(e){setAiSugs(["Got it, I'll handle this.","Thanks for the update!","Makes sense — let's do it."]);}setAiSugLoad(false);};
@@ -229,8 +585,9 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const togSec=id=>setCollapsed(p=>({...p,[id]:!p[id]}));
   const starredChs=channels.filter(c=>c.starred);const starredDms=tcDms.filter(d=>d.starred);
 
-  const renderMsg=(m,isThread)=>{
-    const a2=m.isBot?{name:"SupportDesk AI",av:"✦",color:C.p,status:"online",role:"Bot"}:ag[m.uid]||{name:"?",av:"??",color:C.t3};
+  const renderMsg=(m:any,isThread:boolean)=>{
+    const myId=myIdRef.current;
+    const a2=m.isBot?{name:"SupportDesk AI",av:"✦",color:C.p,status:"online",role:"Bot"}:ag[m.uid]||{name:m.sender_name||"?",av:(m.sender_name||"?").slice(0,2).toUpperCase(),color:C.t3};
     const isPinned=chPins.includes(m.id);const isBm=bookmarks.includes(m.id);const isEd=editingMsg===m.id;
     const hl=msgSearch&&m.text.toLowerCase().includes(msgSearch.toLowerCase());
     return <div key={m.id} className="msg-row" style={{display:"flex",gap:9,padding:isThread?"6px 0":"10px 22px",position:"relative",background:hl?C.yd+"55":"transparent",borderLeft:isPinned&&!isThread?`3px solid ${C.y}`:"3px solid transparent"}}>
@@ -264,7 +621,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           <span style={{color:C.a,fontSize:13}}>↓</span>
         </div>}
         {m.reactions?.length>0&&<div style={{display:"flex",gap:2,marginTop:3,flexWrap:"wrap"}}>
-          {m.reactions.map(r=><button key={r.emoji} onClick={()=>react(m.id,r.emoji)} title={r.users.map(u=>ag[u]?.name||u).join(", ")} style={{display:"flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:10,fontSize:12,background:r.users.includes("a1")?C.ad:C.s3,border:`1px solid ${r.users.includes("a1")?C.a+"55":C.b1}`,cursor:"pointer"}}>{r.emoji}<span style={{fontSize:9.5,fontFamily:FM,color:r.users.includes("a1")?C.a:C.t3}}>{r.users.length}</span></button>)}
+          {m.reactions.map((r:any)=><button key={r.emoji} onClick={()=>react(m.id,r.emoji)} title={(r.users||[]).map((u:string)=>ag[u]?.name||u).join(", ")} style={{display:"flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:10,fontSize:12,background:(r.users||[]).includes(myId)?C.ad:C.s3,border:`1px solid ${(r.users||[]).includes(myId)?C.a+"55":C.b1}`,cursor:"pointer"}}>{r.emoji}<span style={{fontSize:9.5,fontFamily:FM,color:(r.users||[]).includes(myId)?C.a:C.t3}}>{(r.users||[]).length}</span></button>)}
           <button onClick={()=>setShowReactions(showReactions===m.id?null:m.id)} style={{width:18,height:18,borderRadius:9,fontSize:9,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
         </div>}
         {showReactions===m.id&&<div style={{display:"flex",gap:1,flexWrap:"wrap",padding:3,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:7,marginTop:2}}>
@@ -275,7 +632,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           {m.thread.length} {m.thread.length===1?"reply":"replies"}
         </button>}
         {!isThread&&<div className="msg-actions" style={{position:"absolute",top:-4,right:22,display:"none",gap:1,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:7,padding:2,boxShadow:"0 4px 16px rgba(0,0,0,.25)"}}>
-          {[{i:"😊",fn:()=>setShowReactions(m.id),t:"React"},{i:"💬",fn:()=>setShowThread(m),t:"Thread"},{i:"📌",fn:()=>pin(m.id),t:"Pin"},{i:"🔖",fn:()=>{setBookmarks(p=>p.includes(m.id)?p.filter(x=>x!==m.id):[...p,m.id]);showT("Saved","success");},t:"Save"},{i:"↪️",fn:()=>setShowFwd(m),t:"Forward"},{i:"⏰",fn:()=>setReminderMsg(m),t:"Remind"},{i:"🔗",fn:()=>copyPermalink(m.id),t:"Link"},...(m.uid==="a1"?[{i:"✎",fn:()=>{setEditingMsg(m.id);setEditText(m.text);},t:"Edit"},{i:"✕",fn:()=>del(m.id),t:"Del",c:C.r}]:[]),{i:"⎘",fn:()=>{navigator.clipboard?.writeText(m.text);showT("Copied","success");},t:"Copy"}].map(b=>
+          {[{i:"😊",fn:()=>setShowReactions(m.id),t:"React"},{i:"💬",fn:()=>setShowThread(m),t:"Thread"},{i:"📌",fn:()=>pin(m.id),t:"Pin"},{i:"🔖",fn:()=>{setBookmarks((p:string[])=>p.includes(m.id)?p.filter(x=>x!==m.id):[...p,m.id]);showT("Saved","success");},t:"Save"},{i:"↪️",fn:()=>setShowFwd(m),t:"Forward"},{i:"⏰",fn:()=>setReminderMsg(m),t:"Remind"},{i:"🔗",fn:()=>copyPermalink(m.id),t:"Link"},...(m.uid===myId?[{i:"✎",fn:()=>{setEditingMsg(m.id);setEditText(m.text);},t:"Edit"},{i:"✕",fn:()=>del(m.id),t:"Del",c:C.r}]:[]),{i:"⎘",fn:()=>{navigator.clipboard?.writeText(m.text);showT("Copied","success");},t:"Copy"}].map(b=>
             <button key={b.t} onClick={b.fn} title={b.t} style={{width:26,height:26,borderRadius:5,fontSize:12,background:"transparent",border:"none",cursor:"pointer",color:b.c||C.t3,display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">{b.i}</button>
           )}
         </div>}
@@ -341,8 +698,8 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         <SideSection id="channels" name="CHANNELS" action={{fn:()=>setShowNewCh(true),tip:"New Channel",icon:"+"}}>
           {channels.filter(c=>!tcSearch||c.name.includes(tcSearch)).map(ch=><ChBtn key={ch.id} ch={ch}/>)}
         </SideSection>
-        <SideSection id="dms" name={"MEMBERS ("+agents.filter(a=>a.id!=="a1").length+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
-          {agents.filter(a=>a.id!=="a1").filter(a=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase())).map(a=>{const dm=tcDms.find(d=>d.agentId===a.id);return(
+        <SideSection id="dms" name={"MEMBERS ("+(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).length+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
+          {(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase())).map((a:any)=>{const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);return(
             <button key={a.id} onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}} onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}} className="hov" style={{width:"100%",padding:"5px 10px 5px 16px",display:"flex",alignItems:"center",gap:4,background:dm&&activeCh===dm.id?C.ad:dm&&panes.includes(dm.id)?C.pd+"44":"transparent",border:"none",cursor:"pointer",borderRadius:4,marginBottom:1}}>
               <Av i={a.av} c={a.color} s={20} dot={a.status==="online"}/><span style={{fontSize:13,color:dm&&activeCh===dm.id?C.t1:C.t2,fontWeight:dm?.unread?700:500,flex:1,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
               <span style={{fontSize:8,padding:"1px 4px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:a.role==="Member"?C.yd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:a.role==="Member"?C.y:C.t3,fontFamily:FM,fontWeight:700}}>{a.role}</span>
@@ -399,7 +756,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           {i>0&&fMsgs[i-1]?.id===lastRead[activeCh]&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 22px"}}><div style={{flex:1,height:2,background:C.r}}/><span style={{fontSize:11,color:C.r,fontFamily:FM,fontWeight:700,background:C.rd,padding:"2px 10px",borderRadius:12}}>New messages</span><div style={{flex:1,height:2,background:C.r}}/></div>}
           {renderMsg(m,false)}
           {/* Read receipts on last own message */}
-          {i===fMsgs.length-1&&m.uid==="a1"&&<div style={{padding:"2px 22px 6px",display:"flex",gap:2,alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>Seen by</span>{agents.filter(a=>a.id!=="a1"&&a.status==="online").slice(0,3).map(a=><span key={a.id} style={{marginLeft:-2}} title={a.name}><Av i={a.av} c={a.color} s={16}/></span>)}<span style={{fontSize:9,color:C.g,marginLeft:2}}>✓✓</span></div>}
+          {i===fMsgs.length-1&&m.uid===myIdRef.current&&<div style={{padding:"2px 22px 6px",display:"flex",gap:2,alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>Seen by</span>{agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online").slice(0,3).map((a:any)=><span key={a.id} style={{marginLeft:-2}} title={a.name}><Av i={a.av} c={a.color} s={16}/></span>)}<span style={{fontSize:9,color:C.g,marginLeft:2}}>✓✓</span></div>}
         </div>)}
         {/* Typing indicator */}
         {(typingUsers[activeCh]||[]).length>0&&<div style={{padding:"6px 22px",display:"flex",alignItems:"center",gap:6}}>
@@ -502,7 +859,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       {/* Pane Messages */}
       <div style={{flex:1,overflowY:"auto",padding:10,display:"flex",flexDirection:"column",gap:6}}>
         {pMsgs.length===0?<EmptyState icon="💬" title="No messages" desc="Start typing below"/>:
-        pMsgs.map(m=>{const isMe=m.uid==="a1";const a=ag[m.uid];
+        pMsgs.map((m:any)=>{const isMe=m.uid===myIdRef.current;const a=ag[m.uid];
           return <div key={m.id} style={{display:"flex",gap:6,padding:"4px 0"}}>
             {!isMe&&<Av i={a?.av||"?"} c={a?.color||C.t3} s={22}/>}
             <div style={{flex:1,minWidth:0}}>
@@ -547,8 +904,8 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       <div style={{flex:1,overflowY:"auto",padding:5}}>
         {(aCh?agents.filter(a=>getChMembers(aCh).includes(a.id)):agents).map(a=><div key={a.id} className="hov" onClick={()=>setProfilePop(a.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 7px",borderRadius:5,cursor:"pointer"}}>
           <Av i={a.av} c={a.color} s={22} dot={a.status==="online"}/>
-          <div style={{flex:1}}><div style={{fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:3}}>{a.name}{a.id==="a1"?" (You)":""}<span style={{fontSize:7,padding:"0px 3px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:C.t3,fontWeight:700,fontFamily:FM}}>{a.role}</span></div><div style={{fontSize:8.5,color:C.t3,fontFamily:FM}}>{a.status}</div></div>
-          {aCh&&a.id!=="a1"&&<button onClick={e=>{e.stopPropagation();removeMember(activeCh,a.id);}} title="Remove" style={{fontSize:8,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>}
+          <div style={{flex:1}}><div style={{fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:3}}>{a.name}{a.id===myIdRef.current?" (You)":""}<span style={{fontSize:7,padding:"0px 3px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:C.t3,fontWeight:700,fontFamily:FM}}>{a.role}</span></div><div style={{fontSize:8.5,color:C.t3,fontFamily:FM}}>{a.status}</div></div>
+          {aCh&&a.id!==myIdRef.current&&<button onClick={e=>{e.stopPropagation();removeMember(activeCh,a.id);}} title="Remove" style={{fontSize:8,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>}
         </div>)}
         {aCh&&agents.filter(a=>!getChMembers(aCh).includes(a.id)).length>0&&<>
           <div style={{fontSize:8.5,fontWeight:700,fontFamily:FM,color:C.t3,marginTop:8,marginBottom:3,paddingLeft:7}}>NOT IN CHANNEL</div>
@@ -571,7 +928,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         {getChMembers(aCh).map(mid=>{const a2=ag[mid];return a2?<div key={mid} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0"}}>
           <Av i={a2.av} c={a2.color} s={24} dot={a2.status==="online"}/>
           <span style={{fontSize:12,flex:1,fontWeight:500}}>{a2.name}</span>
-          {mid==="a1"?<span style={{fontSize:9,color:C.p,fontFamily:FM,fontWeight:600}}>You</span>:<button onClick={()=>removeMember(activeCh,mid)} style={{fontSize:10,color:C.r,background:"none",border:"none",cursor:"pointer",fontFamily:FM}}>Remove</button>}
+          {mid===myIdRef.current?<span style={{fontSize:9,color:C.p,fontFamily:FM,fontWeight:600}}>You</span>:<button onClick={()=>removeMember(activeCh,mid)} style={{fontSize:10,color:C.r,background:"none",border:"none",cursor:"pointer",fontFamily:FM}}>Remove</button>}
         </div>:null;})}
         <button onClick={()=>setShowInvite(true)} className="hov" style={{width:"100%",padding:"8px",borderRadius:8,fontSize:12,background:C.ad,color:C.a,border:`1px dashed ${C.a}44`,cursor:"pointer",marginTop:8,fontWeight:600}}>+ Add Members</button>
         <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:4}}>
@@ -635,21 +992,40 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     </Mdl>}
 
     {/* ═══ MODALS ═══ */}
-    {showHuddle&&<Mdl title={"Huddle — "+chLabel} onClose={()=>setShowHuddle(false)} w={400}>
-      <div style={{textAlign:"center",padding:"14px 0"}}>
-        <div style={{fontSize:40,marginBottom:10}}>🎧</div>
-        <div style={{fontSize:16,fontWeight:700,fontFamily:FD,marginBottom:4}}>Voice Huddle</div>
-        <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Live audio conversation with your team</div>
-        <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:16}}>
-          {agents.filter(a=>a.status==="online").map(a=><div key={a.id} style={{textAlign:"center"}}><Av i={a.av} c={a.color} s={36} dot/><div style={{fontSize:10,color:C.t2,marginTop:3}}>{a.name.split(" ")[0]}</div></div>)}
+    {showHuddle&&<Mdl title={(activeCall?"Live Call — ":"Huddle — ")+chLabel} onClose={()=>endCall(true)} w={480}>
+      <div style={{textAlign:"center",padding:"8px 0"}}>
+        {/* Video area */}
+        {(huddleCam||activeCall)&&<div style={{position:"relative",background:"#111",borderRadius:10,overflow:"hidden",marginBottom:10,height:200}}>
+          <video ref={remoteVideoRef} autoPlay playsInline style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          <video ref={localVideoRef} autoPlay playsInline muted style={{position:"absolute",bottom:8,right:8,width:100,height:70,borderRadius:6,objectFit:"cover",border:`2px solid ${C.a}`}}/>
+          {!activeCall&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+            <div style={{fontSize:40,marginBottom:8}}>🎧</div>
+            <div style={{fontSize:13,color:"#ccc"}}>Voice Huddle</div>
+          </div>}
+        </div>}
+        {!huddleCam&&!activeCall&&<><div style={{fontSize:40,marginBottom:8}}>🎧</div><div style={{fontSize:15,fontWeight:700,fontFamily:FD,marginBottom:4}}>Voice Huddle</div></>}
+        {activeCall?<div style={{fontSize:11,color:C.g,fontFamily:FM,fontWeight:700,marginBottom:10}}>● Live — connected</div>
+          :<div style={{fontSize:12,color:C.t3,marginBottom:12}}>Start a call with team members online</div>}
+        {/* Online members to call */}
+        {!activeCall&&<div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+          {agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online").map((a:any)=>(
+            <button key={a.id} onClick={()=>initCall(a.id)} title={"Call "+a.name} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:8,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer"}}>
+              <Av i={a.av} c={a.color} s={32} dot/>
+              <div style={{fontSize:10,color:C.t2}}>{a.name.split(" ")[0]}</div>
+              <div style={{fontSize:9,color:C.a,fontWeight:700}}>📞 Call</div>
+            </button>
+          ))}
+          {agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online").length===0&&
+            <div style={{fontSize:11,color:C.t3}}>No teammates online right now</div>}
+        </div>}
+        {/* Controls */}
+        <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:10}}>
+          <button onClick={()=>{setHuddleMic(p=>!p);const track=localStreamRef.current?.getAudioTracks()[0];if(track)track.enabled=!huddleMic;}} style={{width:44,height:44,borderRadius:"50%",background:huddleMic?C.g:C.rd,border:`2px solid ${huddleMic?C.g:C.r}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleMic?"Mute":"Unmute"}>{huddleMic?"🎤":"🔇"}</button>
+          <button onClick={()=>{setHuddleCam(p=>!p);const track=localStreamRef.current?.getVideoTracks()[0];if(track)track.enabled=!huddleCam;}} style={{width:44,height:44,borderRadius:"50%",background:huddleCam?C.a:C.s3,border:`2px solid ${huddleCam?C.a:C.b1}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleCam?"Camera Off":"Camera On"}>{huddleCam?"📹":"📷"}</button>
+          <button onClick={async()=>{setHuddleScreen(p=>!p);if(!huddleScreen&&peerRef.current){try{const s=await(navigator.mediaDevices as any).getDisplayMedia({video:true});const t=s.getVideoTracks()[0];const sender=peerRef.current.getSenders().find((s2:any)=>s2.track?.kind==="video");if(sender)sender.replaceTrack(t);}catch{}}}} style={{width:44,height:44,borderRadius:"50%",background:huddleScreen?C.p:C.s3,border:`2px solid ${huddleScreen?C.p:C.b1}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleScreen?"Stop Share":"Share Screen"}>{huddleScreen?"🖥":"💻"}</button>
+          <button onClick={()=>endCall(true)} style={{width:44,height:44,borderRadius:"50%",background:C.r,border:"none",cursor:"pointer",fontSize:18,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         </div>
-        <div style={{display:"flex",justifyContent:"center",gap:8}}>
-          <button onClick={()=>setHuddleMic(p=>!p)} style={{width:44,height:44,borderRadius:"50%",background:huddleMic?C.g:C.rd,border:`2px solid ${huddleMic?C.g:C.r}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleMic?"Mute":"Unmute"}>{huddleMic?"🎤":"🔇"}</button>
-          <button onClick={()=>setHuddleCam(p=>!p)} style={{width:44,height:44,borderRadius:"50%",background:huddleCam?C.a:C.s3,border:`2px solid ${huddleCam?C.a:C.b1}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleCam?"Camera Off":"Camera On"}>{huddleCam?"📹":"📷"}</button>
-          <button onClick={()=>setHuddleScreen(p=>!p)} style={{width:44,height:44,borderRadius:"50%",background:huddleScreen?C.p:C.s3,border:`2px solid ${huddleScreen?C.p:C.b1}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleScreen?"Stop Share":"Share Screen"}>{huddleScreen?"🖥":"💻"}</button>
-          <button onClick={()=>{setShowHuddle(false);setHuddleMic(true);setHuddleCam(false);setHuddleScreen(false);showT("Huddle ended","info");}} style={{width:44,height:44,borderRadius:"50%",background:C.r,border:"none",cursor:"pointer",fontSize:18,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-        </div>
-        <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:14}}>
+        <div style={{display:"flex",justifyContent:"center",gap:16}}>
           {[{l:"Mic",v:huddleMic,c:C.g},{l:"Camera",v:huddleCam,c:C.a},{l:"Screen",v:huddleScreen,c:C.p}].map(s=>(
             <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:10,color:s.v?s.c:C.t3,fontWeight:700,fontFamily:FM}}>{s.v?"ON":"OFF"}</div><div style={{fontSize:9,color:C.t3}}>{s.l}</div></div>
           ))}
@@ -696,7 +1072,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     {showNewDm&&<Mdl title="New Direct Message" onClose={()=>setShowNewDm(false)} w={380}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:11.5,color:C.t3}}>All workspace members ({agents.length-1}):</span>{setAgents&&<button onClick={()=>{setShowNewDm(false);setShowWsInvite(true);}} style={{fontSize:10,color:C.g,background:C.gd,border:`1px solid ${C.g}44`,borderRadius:5,padding:"2px 8px",cursor:"pointer",fontFamily:FM}}>+ Invite New</button>}</div>
       <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:280,overflowY:"auto"}}>
-        {agents.filter(a=>a.id!=="a1").map(a=>{const existing=tcDms.find(d=>d.agentId===a.id);return(
+        {(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).map((a:any)=>{const existing=(tcDms as any[]).find((d:any)=>d.agentId===a.id);return(
           <button key={a.id} onClick={()=>startDm(a.id)} className="hov" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,background:existing?C.ad:C.s2,border:`1.5px solid ${existing?C.a+"44":C.b1}`,cursor:"pointer",transition:"all .1s"}}>
             <Av i={a.av} c={a.color} s={32} dot={a.status==="online"}/>
             <div style={{flex:1,textAlign:"left"}}><div style={{fontSize:12.5,fontWeight:600,color:C.t1,display:"flex",alignItems:"center",gap:4}}>{a.name}<span style={{fontSize:7.5,padding:"1px 4px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:C.t3,fontWeight:700,fontFamily:FM}}>{a.role}</span></div><div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{a.email||"No email"} · {a.status}</div></div>
@@ -728,9 +1104,24 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       </div>
       <div style={{display:"flex",gap:6}}>
         <Btn ch="💬 Message" v="primary" full sm onClick={()=>startDm(profilePop)}/>
-        <Btn ch="📞 Huddle" v="ghost" full sm onClick={()=>{setProfilePop(null);setShowHuddle(true);}}/>
+        <Btn ch="📞 Call" v="ghost" full sm onClick={()=>{const id=profilePop;setProfilePop(null);initCall(id);}}/>
       </div>
     </div></div>;})()}
+
+    {/* ── Incoming Call Notification ── */}
+    {incomingCall&&<div style={{position:"fixed",top:20,right:20,zIndex:200,width:320,background:C.s2,border:`1px solid ${C.g}44`,borderRadius:14,padding:18,boxShadow:"0 16px 50px rgba(0,0,0,.6)",animation:"fadeUp .2s ease"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <div style={{width:44,height:44,borderRadius:"50%",background:C.gd,border:`2px solid ${C.g}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,animation:"pulse 1s infinite"}}>📞</div>
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:C.t1}}>{incomingCall.callerName}</div>
+          <div style={{fontSize:11,color:C.t3}}>Incoming call…</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={acceptCall} style={{flex:1,padding:"10px",borderRadius:8,background:C.g,color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:700}}>📞 Answer</button>
+        <button onClick={()=>{sendWs({type:'tc_call_end',targetId:incomingCall.from,callId:incomingCall.callId});setIncomingCall(null);}} style={{flex:1,padding:"10px",borderRadius:8,background:C.r,color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:700}}>✕ Decline</button>
+      </div>
+    </div>}
   </div>;
 }
 

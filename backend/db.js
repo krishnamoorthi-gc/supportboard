@@ -400,6 +400,16 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS chat_polls (
+  id VARCHAR(255) PRIMARY KEY,
+  channel_id VARCHAR(255) NOT NULL,
+  created_by VARCHAR(255),
+  question TEXT NOT NULL,
+  options TEXT NOT NULL,
+  closed TINYINT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Marketing
 CREATE TABLE IF NOT EXISTS campaigns (
   id VARCHAR(255) PRIMARY KEY,
@@ -904,7 +914,12 @@ async function ensureSchemaColumns() {
         await run('ALTER TABLE messages ADD INDEX idx_wa_message_id (whatsapp_message_id)');
         console.log('✅ Added whatsapp_message_id to messages');
       }
-    } catch (e) { console.error('email/wa_message_id column:', e.message); }
+      // ── html column for original email HTML body ─────────────────────
+      if (!msgCols.has('html')) {
+        await run('ALTER TABLE messages ADD COLUMN html TEXT NULL');
+        console.log('✅ Added html to messages');
+      }
+    } catch (e) { console.error('email/wa_message_id/html column:', e.message); }
 
     // ── conversations: channel column (for non-email channels) ───────────
     try {

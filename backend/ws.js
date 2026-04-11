@@ -65,6 +65,26 @@ function handleMessage(ws, senderId, msg) {
     case 'notification':
       if (msg.targetAgentId) sendToAgent(msg.targetAgentId, { type: 'notification', ...msg.payload });
       break;
+    // ── Team Chat real-time events ──
+    case 'tc_typing':
+      broadcast({ type: 'tc_typing', from: senderId, channelId: msg.channelId, isTyping: msg.isTyping }, senderId);
+      break;
+    case 'tc_call_offer':
+      if (msg.targetId) sendToAgent(msg.targetId, { type: 'tc_call_offer', from: senderId, offer: msg.offer, callId: msg.callId, channelId: msg.channelId, callerName: msg.callerName });
+      break;
+    case 'tc_call_answer':
+      if (msg.targetId) sendToAgent(msg.targetId, { type: 'tc_call_answer', from: senderId, answer: msg.answer, callId: msg.callId });
+      break;
+    case 'tc_call_ice':
+      if (msg.targetId) sendToAgent(msg.targetId, { type: 'tc_call_ice', from: senderId, candidate: msg.candidate, callId: msg.callId });
+      break;
+    case 'tc_call_end':
+      if (msg.targetId) sendToAgent(msg.targetId, { type: 'tc_call_end', from: senderId, callId: msg.callId });
+      else broadcast({ type: 'tc_call_end', from: senderId, callId: msg.callId }, senderId);
+      break;
+    case 'tc_status':
+      broadcast({ type: 'presence', agentId: senderId, status: msg.status }, senderId);
+      break;
     default:
       broadcast(msg, senderId);
   }

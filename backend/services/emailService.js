@@ -472,6 +472,7 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
   const inboundAttachments = await saveInboundAttachments(parsed.attachments || []);
   const rawBodyText = getParsedBodyText(parsed);
   const bodyText  = stripQuotedEmailText(rawBodyText) || rawBodyText || '';
+  const rawHtml   = parsed?.html || null; // preserve original HTML for rendering
   const normalizedSubject = normalizeSubject(subject);
   const replyReferenceIds = extractReplyReferenceIds(parsed);
   const inboxSender = normalizeEmailAddress(parseConfig(inbox.config)?.emailUser || '');
@@ -577,6 +578,7 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
       conversation_id:  conversation.id,
       role:             'customer',
       text:             bodyText || null,
+      html:             rawHtml || null,
       attachments:      inboundAttachments.length ? JSON.stringify(inboundAttachments) : null,
       email_message_id: messageId,
       is_read:          0,
@@ -613,6 +615,7 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
       conversation_id: newMsg.conversation_id,
       role:            'customer',
       text:            newMsg.text,
+      html:            newMsg.html || null,
       attachments:     inboundAttachments,
       is_read:         0,
       created_at:      newMsg.created_at,
