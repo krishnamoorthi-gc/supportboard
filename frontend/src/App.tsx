@@ -110,7 +110,7 @@ export default function App(){
     setRegLoading(true);
     setRegError("");
     try{
-      const res=await api.post("/auth/register",{name:regName,email:regEmail,password:regPass});
+      const res=await api.post("/auth/signup",{name:regName,email:regEmail,password:regPass});
       api.setToken(res.token);
       setIsLoggedIn(true);
       setApiOk(true);
