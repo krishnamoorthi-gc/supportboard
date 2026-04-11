@@ -983,6 +983,19 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         <span style={{fontSize:11,color:C.p,fontFamily:FM,fontWeight:600}}>{collisionAgents[aid].name} is {collisionAgents[aid].typing?"typing in":"viewing"} this conversation</span>
       </div>}
 
+      {/* Campaign reply banner */}
+      {aid&&conv?.campaign_name&&<div style={{margin:"0",padding:"10px 16px",background:"linear-gradient(135deg,#8b5cf618,#6366f118)",borderBottom:"1px solid #8b5cf633",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:30,height:30,borderRadius:8,background:"#8b5cf622",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>📣</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#8b5cf6",fontFamily:FM}}>Campaign Reply</span>
+            <span style={{fontSize:10,fontWeight:600,color:C.t1}}>{conv.campaign_name}</span>
+          </div>
+          <div style={{fontSize:10,color:C.t3,lineHeight:1.4}}>This conversation was started when the contact replied to your <strong>{conv.campaign_name}</strong> campaign</div>
+        </div>
+        <button onClick={()=>{if((window as any).setScreen)(window as any).setScreen("marketing");}} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:700,color:"#8b5cf6",background:"#8b5cf614",border:"1px solid #8b5cf644",cursor:"pointer",fontFamily:FM,whiteSpace:"nowrap"}}>View Campaign</button>
+      </div>}
+
       {/* AI Summary bar */}
       {(sumLoad||sumData)&&<div style={{margin:"10px 14px 0",padding:"11px 14px",background:`linear-gradient(135deg,${C.pd},${C.ad})`,border:`1px solid ${C.p}44`,borderRadius:12,animation:"fadeUp .25s ease"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>

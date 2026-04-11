@@ -2,14 +2,14 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
 // ─── MARKETING ────────────────────────────────────────────────────────────
-const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points"];
+const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points","unsubscribe"];
 const mktGoalC=g=>({promotion:C.r,engagement:C.a,retention:C.p,transactional:C.cy}[g]||C.t3);
 const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y,failed:C.r,sending:C.cy}[s]||C.t3);
 const mktChC=c=>({whatsapp:"#25d366",email:C.a,sms:C.y,push:"#ff6b35"}[c]||C.t3);
 const mktChE=c=><ChIcon t={c} s={16}/>;
 const mktChL=c=>({whatsapp:"WhatsApp",email:"Email",sms:"SMS",push:"Push"}[c]||c);
 const mktPct=(a,b)=>b?Math.round(a/b*100):0;
-const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250"}[k]||m));
+const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250",unsubscribe:"To unsubscribe, reply STOP"}[k]||m));
 
 const mktParse=(value,fallback)=>{try{return value===undefined||value===null||value===""?fallback:typeof value==="string"?JSON.parse(value):value;}catch{return fallback;}};
 const mapApiCampaign=c=>{const stats=mktParse(c?.stats,{});const selectedContacts=Array.isArray(c?.selected_contacts)?c.selected_contacts:mktParse(c?.selected_contacts??c?.selectedContacts,[]);const audMode=c?.audience_mode||c?.audMode||"segments";const sent=Number(stats?.sent??c?.sent_count??0);const failed=Number(stats?.failed??0);const delivered=Number(stats?.delivered??c?.delivered_count??(sent?Math.round(sent*0.97):0));const read=Number(stats?.opens??c?.open_count??0);const clicked=Number(stats?.clicks??c?.click_count??0);const audience=sent||Number(c?.audience??(audMode==="individual"?selectedContacts.length:0));return{...c,ch:c?.type||c?.ch||"email",name:c?.name||"Campaign",goal:c?.goal||"promotion",status:c?.status||"draft",subject:c?.subject||"",body:c?.body||c?.template||"",template:c?.body||c?.template||"",segmentId:c?.segment_id||c?.segmentId||null,audMode,selectedContacts:Array.isArray(selectedContacts)?selectedContacts:[],audience,sent,delivered,read,clicked,failed,unsub:Number(stats?.unsub??0),revenue:c?.revenue||"â€”",cost:c?.cost||"â€”",roi:c?.roi||"â€”",date:c?.sent_at?.split("T")[0]||c?.scheduled_at?.split("T")[0]||c?.created_at?.split("T")[0]||"â€”",spark:c?.spark||[0,0,0,0,0,0,0],ab:!!(c?.ab_test||c?.ab),schedDate:c?.scheduled_at||c?.schedDate||""};};
@@ -285,6 +285,7 @@ export default function MarketingScr({contacts,pushNotification}){
         {(c.status==="active"||c.status==="paused")&&<button onClick={()=>togglePause(c.id)} title={c.status==="paused"?"Resume":"Pause"} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">{c.status==="paused"?"▶":"⏸"}</button>}
         {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<button onClick={()=>launchCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",color:C.g}} title="Launch">▶</button>}
         {c.status==="sending"&&<span style={{fontSize:9,color:C.cy,fontFamily:FM,fontWeight:700}}>Sending…</span>}
+        {c.status==="sent"&&<button onClick={()=>{if(!window.confirm("Resend this campaign to the same audience?"))return;setCamps(p=>p.map(x=>x.id===c.id?{...x,status:"draft"}:x));if(api.isConnected())api.patch(`/marketing/campaigns/${c.id}`,{status:"draft"}).then(()=>{launchCamp(c.id);}).catch(()=>{});}} title="Resend" style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.cy+"18",border:`1px solid ${C.cy}44`,cursor:"pointer",color:C.cy}} className="hov">↻</button>}
         <button onClick={()=>{setEditCamp(c);setShowModal(true);}} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">✎</button>
         <button onClick={()=>delCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",color:C.r}}>✕</button>
       </div>
@@ -1090,12 +1091,14 @@ export default function MarketingScr({contacts,pushNotification}){
           <textarea value={tplBody} onChange={e=>setTplBody(e.target.value)} rows={6} placeholder={"Hi {{first_name}}!\n\nWrite your message here…\n\nBest,\n{{company}}"} style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
             <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
-              {MKT_VARS.slice(0,8).map(v=>(
+              {MKT_VARS.slice(0,10).map(v=>(
                 <button key={v} onClick={()=>setTplBody(p=>p+"{{"+v+"}}")} style={{padding:"2px 6px",borderRadius:4,fontSize:9,fontFamily:FM,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer"}}>{"{"+v+"}"}</button>
               ))}
             </div>
-            <div style={{display:"flex",gap:4}}>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
               {tplCh==="sms"&&<span style={{fontSize:10,color:tplBody.length>160?C.r:C.t3,fontFamily:FM}}>{tplBody.length}/160</span>}
+              {tplCh==="email"&&<><input id="tplImgUpload" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const reader=new FileReader();reader.onload=ev=>{const url=ev.target?.result;if(url)setTplBody(p=>p+`\n<img src="${url}" alt="${f.name}" style="max-width:100%;border-radius:8px;margin:8px 0" />\n`);showT("Image added to template","success");};reader.readAsDataURL(f);}}/>
+              <button onClick={()=>document.getElementById("tplImgUpload")?.click()} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>🖼 Image</button></>}
               <button onClick={async()=>{setTplAiLoad(true);try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,system:"You are a marketing copywriter. Write a short "+tplCh+" template for category: "+tplCat+". Use {{first_name}}, {{company}}, {{link}} variables. No markdown. "+(tplCh==="sms"?"Under 160 chars.":"2-4 sentences."),messages:[{role:"user",content:"Write a "+tplCat+" "+tplCh+" template"+(tplName?" called "+tplName:"")}]})});const d=await res.json();setTplBody(d.content?.[0]?.text||"");if(tplCh==="email"&&!tplSubj)setTplSubj(tplName||"Special for you");}catch(e){setTplBody("Hi {{first_name}}! We have something special for you. Check it out: {{link}}");}setTplAiLoad(false);}} disabled={tplAiLoad} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM}}>{tplAiLoad?"Generating…":"✦ AI Write"}</button>
             </div>
           </div>
@@ -1108,7 +1111,7 @@ export default function MarketingScr({contacts,pushNotification}){
           {tplCh==="sms"&&<div style={{padding:"10px 12px",borderRadius:12,background:C.yd,border:`1px solid ${C.y}33`,fontSize:12,color:C.t2,lineHeight:1.5,maxWidth:"80%"}}>{mktFill(tplBody)}</div>}
           {tplCh==="email"&&<div style={{border:`1px solid ${C.b1}`,borderRadius:8,overflow:"hidden"}}>
             {tplSubj&&<div style={{padding:"8px 12px",background:C.s2,borderBottom:`1px solid ${C.b1}`,fontSize:11}}><span style={{color:C.t3}}>Subject: </span><span style={{fontWeight:600}}>{mktFill(tplSubj)}</span></div>}
-            <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6,whiteSpace:"pre-line"}}>{mktFill(tplBody)}</div>
+            <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}} dangerouslySetInnerHTML={{__html:mktFill(tplBody).replace(/\n/g,"<br>")}}/>
           </div>}
           {tplCh==="push"&&<div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"10px 12px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`}}><div style={{width:24,height:24,borderRadius:6,background:"#ff6b3522",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t="push" s={12}/></div>
             <div style={{fontSize:12,color:C.t2,lineHeight:1.4}}>{mktFill(tplBody)}</div></div>}
@@ -1209,6 +1212,10 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   const [cSearch,setCSearch]=useState("");
   const filteredContacts=contacts.filter(c=>{if(!cSearch.trim())return true;const q=cSearch.toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.email||"").toLowerCase().includes(q)||(c.phone||"").toLowerCase().includes(q);});
   const toggleContact=(id:string)=>setSelContacts(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const [showAddContact,setShowAddContact]=useState(false);
+  const [newCtName,setNewCtName]=useState("");
+  const [newCtEmail,setNewCtEmail]=useState("");
+  const [newCtPhone,setNewCtPhone]=useState("");
   const toggleGroup=(id:string)=>setSelGroups(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const audience=audMode==="segments"?(segments.find(s=>s.id===segment)?.count||0):audMode==="groups"?groups.filter(g=>selGroups.includes(g.id)).reduce((s,g)=>s+(g.contact_count||0),0):selContacts.length;
   const templates=userTemplates.filter(t=>t.ch===ch).map(t=>({id:t.id,name:t.name,cat:t.cat||"General",text:t.body||"",subj:t.subj||""}));
@@ -1367,7 +1374,9 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             {ch==="sms"&&<span style={{fontSize:10,color:body.length>160?body.length>480?C.r:C.y:C.t3,fontFamily:FM,fontWeight:body.length>160?700:400}}>{body.length}/160{body.length>160?" ("+Math.ceil(body.length/160)+" parts)":""}</span>}
             {ch==="whatsapp"&&<span style={{fontSize:10,color:body.length>4096?C.r:body.length>1024?C.y:C.t3,fontFamily:FM}}>{body.length}/4096</span>}
-            {ch==="email"&&<span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{body.length} chars</span>}
+            {ch==="email"&&<><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{body.length} chars</span>
+              <input id="campImgUpload" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const reader=new FileReader();reader.onload=ev=>{const url=ev.target?.result;if(url)setBody(p=>p+`\n<img src="${url}" alt="${f.name}" style="max-width:100%;border-radius:8px;margin:8px 0" />\n`);showT("Image added","success");};reader.readAsDataURL(f);}}/>
+              <button onClick={()=>document.getElementById("campImgUpload")?.click()} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>🖼 Image</button></>}
             <button onClick={genAI} disabled={aiLoading} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM}}>{aiLoading?"Generating…":"✦ AI Generate"}</button>
           </div>
         </div>
@@ -1382,7 +1391,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
           <div style={{padding:"8px 12px",background:C.s2,borderBottom:`1px solid ${C.b1}`,fontSize:11}}>
             <span style={{color:C.t3}}>Subject: </span><span style={{fontWeight:600}}>{mktFill(subject)}</span>
           </div>
-          <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}}>{mktFill(body)}</div>
+          <div style={{padding:"12px",fontSize:12,color:C.t2,lineHeight:1.6}} dangerouslySetInnerHTML={{__html:mktFill(body).replace(/\n/g,"<br>")}}/>
         </div>}
         {ch==="push"&&<div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"10px 12px",background:C.s2,borderRadius:10,border:`1px solid ${C.b1}`}}><div style={{width:24,height:24,borderRadius:6,background:"#ff6b3522",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t="push" s={12}/></div>
           <div style={{fontSize:12,color:C.t2,lineHeight:1.4}}>{mktFill(body)}</div></div>}
@@ -1459,7 +1468,27 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
             <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.t3}}>🔍</span>
           </div>
           {selContacts.length>0&&<button onClick={()=>setSelContacts([])} style={{fontSize:10,color:C.r,background:C.rd,border:`1px solid ${C.r}33`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>Clear All</button>}
+          <button onClick={()=>setShowAddContact(p=>!p)} style={{fontSize:10,color:C.g,background:C.gd,border:`1px solid ${C.g}33`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>{showAddContact?"Cancel":"+ Add Contact"}</button>
         </div>
+        {showAddContact&&<div style={{padding:"10px 12px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,marginBottom:10}}>
+          <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:6}}>ADD NEW CONTACT</div>
+          <div style={{display:"flex",gap:6,marginBottom:6}}>
+            <input value={newCtName} onChange={e=>setNewCtName(e.target.value)} placeholder="Name" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            <input value={newCtEmail} onChange={e=>setNewCtEmail(e.target.value)} placeholder="Email" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            <input value={newCtPhone} onChange={e=>setNewCtPhone(e.target.value)} placeholder="Phone" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+          </div>
+          <button onClick={()=>{
+            if(!newCtName.trim()&&!newCtEmail.trim())return showT("Name or email required","error");
+            const nid="ct"+uid();
+            const nc={id:nid,name:newCtName||newCtEmail.split("@")[0]||"Contact",email:newCtEmail,phone:newCtPhone,color:"#"+Math.floor(Math.random()*16777215).toString(16).padStart(6,"0"),tags:[],av:(newCtName||"C")[0]};
+            if(typeof (window as any).__addContact==="function")(window as any).__addContact(nc);
+            contacts.push(nc);
+            setSelContacts(p=>[...p,nid]);
+            if(api.isConnected())api.post("/contacts",{name:nc.name,email:nc.email,phone:nc.phone}).then(r=>{if(r?.contact){nc.id=r.contact.id;setSelContacts(p=>p.map(x=>x===nid?r.contact.id:x));}}).catch(()=>{});
+            setNewCtName("");setNewCtEmail("");setNewCtPhone("");setShowAddContact(false);
+            showT(`Contact "${nc.name}" added & selected`,"success");
+          }} style={{padding:"5px 14px",borderRadius:6,fontSize:10,fontWeight:700,color:"#fff",background:C.g,border:"none",cursor:"pointer",fontFamily:FM}}>Add & Select</button>
+        </div>}
         {selContacts.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
           {selContacts.map(sid=>{const ct=contacts.find(c=>c.id===sid);return ct?<span key={sid} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,background:C.ad,color:C.a,padding:"3px 8px",borderRadius:12,fontWeight:600,fontFamily:FM}}>
             {ct.name||ct.email||"Contact"}

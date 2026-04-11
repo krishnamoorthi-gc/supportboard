@@ -278,7 +278,7 @@ function mergeCampaignText(text, recipient) {
     status: custom.status || '',
     hours: custom.hours || '',
     points: custom.points || '',
-    unsubscribe: custom.unsubscribe || '',
+    unsubscribe: custom.unsubscribe || 'To unsubscribe, reply STOP',
   };
 
   return raw.replace(/\{\{(\w+)\}\}/g, (_match, key) => (
@@ -411,11 +411,16 @@ async function launchCampaign(campaignRow, agentId) {
         const mergedSubject = mergeCampaignText(campaign.subject || campaign.name || 'Campaign', recipient).trim();
         const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
 
+        // Build HTML email body
+        const isHtml = mergedBody.includes('<') && mergedBody.includes('>');
+        const htmlBody = isHtml ? mergedBody : `<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.6">${mergedBody.replace(/\n/g, '<br>')}</div>`;
+
         await emailSvc.sendEmail({
           inboxId: inbox.id,
           to: recipient.email,
           subject: mergedSubject || campaign.name || 'Campaign',
-          text: mergedBody || ' ',
+          text: mergedBody.replace(/<[^>]+>/g, '') || ' ',
+          html: htmlBody,
         });
 
         sent += 1;
