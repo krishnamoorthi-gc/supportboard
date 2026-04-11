@@ -591,8 +591,43 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
     });
   }
 
-  // ── Persist message (raw SQL — avoids Prisma stale-connection issues) ────
+  // ── Check if this is a campaign reply ────────────────────────────────────
   const db = getDb();
+  let campaignId = null;
+  let campaignName = null;
+  try {
+    const campLog = await db.prepare(`
+      SELECT l.campaign_id, c.name as campaign_name
+      FROM campaign_send_log l
+      LEFT JOIN campaigns c ON l.campaign_id = c.id
+      WHERE l.contact_email=?
+        AND l.channel='email'
+        AND l.status='sent'
+        AND l.sent_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+      ORDER BY l.sent_at DESC LIMIT 1
+    `).get(fromAddr);
+    if (campLog) {
+      campaignId = campLog.campaign_id;
+      campaignName = campLog.campaign_name;
+      // Tag the conversation with campaign info
+      await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=? AND campaign_id IS NULL')
+        .run(campaignId, campaignName, conversation.id);
+      // Increment reply count on campaign
+      try {
+        const camp = await db.prepare('SELECT stats FROM campaigns WHERE id=?').get(campaignId);
+        if (camp) {
+          const stats = JSON.parse(camp.stats || '{}');
+          stats.replies = (stats.replies || 0) + 1;
+          await db.prepare('UPDATE campaigns SET stats=? WHERE id=?').run(JSON.stringify(stats), campaignId);
+        }
+      } catch {}
+      console.log(`[emailService] Campaign reply detected: ${fromAddr} → campaign "${campaignName}"`);
+    }
+  } catch (e) {
+    console.log('[emailService] Campaign lookup skipped:', e.message);
+  }
+
+  // ── Persist message (raw SQL — avoids Prisma stale-connection issues) ────
   const msgId = uuidv4();
   const createdAt = messageDate.toISOString().slice(0, 19).replace('T', ' ');
   await db.prepare(
@@ -629,6 +664,8 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
       contact_name:  contact.name,
       contact_email: contact.email,
       contact_color: contact.color,
+      campaign_id:   campaignId,
+      campaign_name: campaignName,
       updated_at:    messageDate.toISOString(),
     },
     message: {

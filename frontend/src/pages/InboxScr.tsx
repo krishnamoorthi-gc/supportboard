@@ -301,7 +301,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const filtered=convs.filter(cv=>{
     const ct=contacts.find(c=>c.id===cv.cid);
     if(fStatus!=="all"&&cv.status!==fStatus)return false;
-    if(fCh!=="all"&&cv.ch!==fCh)return false;
+    if(fCh==="campaign"&&!cv.campaign_id)return false;
+    if(fCh!=="all"&&fCh!=="campaign"&&cv.ch!==fCh)return false;
     if(fOwner==="mine"&&cv.agent!=="a1")return false;
     if(fOwner==="unassigned"&&cv.agent)return false;
     if(search&&!ct?.name.toLowerCase().includes(search.toLowerCase())&&!cv.subject.toLowerCase().includes(search.toLowerCase()))return false;
@@ -803,7 +804,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
 
       {/* Channel filter */}
       <div style={{display:"flex",gap:4,padding:"6px 10px",borderBottom:`1px solid ${C.b1}`,overflowX:"auto"}}>
-        {([["all","All",null],["live","Live","#1fd07a"],["email","Email",C.a],["whatsapp","WA","#25d366"],["facebook","FB","#1877f2"],["instagram","IG","#e1306c"],["sms","SMS",C.y]] as [string,string,string|null][]).map(([ch,lbl,col])=>{
+        {([["all","All",null],["live","Live","#1fd07a"],["email","Email",C.a],["whatsapp","WA","#25d366"],["facebook","FB","#1877f2"],["instagram","IG","#e1306c"],["sms","SMS",C.y],["campaign","📣 Campaign","#8b5cf6"]] as [string,string,string|null][]).map(([ch,lbl,col])=>{
           const active=fCh===ch;
           const c2=col||C.a;
           const botOn=aiAutoReply&&ch!=="all"&&aiChannels[ch];
@@ -873,6 +874,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                   {(cv.labels||[]).includes("bot-handoff")&&<Tag text="🤖 bot" color="#ef4444"/>}
                   {aiAutoReply&&aiChannels[cv.ch]&&!convBotOff.has(cv.id)&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:C.p,background:C.pd,padding:"1px 5px",borderRadius:3,flexShrink:0}}>✦ Bot</span>}
                   {aiAutoReply&&aiChannels[cv.ch]&&convBotOff.has(cv.id)&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:C.t3,background:C.s3,padding:"1px 5px",borderRadius:3,flexShrink:0,textDecoration:"line-through"}}>Bot off</span>}
+                  {cv.campaign_name&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:"#8b5cf6",background:"#8b5cf618",padding:"1px 5px",borderRadius:3,flexShrink:0}}>📣 {cv.campaign_name}</span>}
                   {cv.labels.filter((l:string)=>l!=="bot-handoff").slice(0,1).map((l:string)=><Tag key={l} text={l} color={lc(l)}/>)}
                   {sla&&cv.status==="open"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:getSlaColor(sla.firstReply,sla.target),background:getSlaColor(sla.firstReply,sla.target)+"18",padding:"1px 5px",borderRadius:3}}>{getSlaText(sla.firstReply,sla.target)}</span>}
                   {agAv&&<div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:3}} title={agAv.name}><Av i={agAv.av} c={agAv.color} s={14}/></div>}
@@ -907,6 +909,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                   <span style={{marginLeft:"auto",fontSize:9,color:chC(cv.ch)}}><ChIcon t={cv.ch} s={10}/></span>
                 </div>
                 <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center"}}>
+                  {cv.campaign_name&&<span style={{fontSize:7,fontWeight:700,fontFamily:FM,color:"#8b5cf6",background:"#8b5cf618",padding:"1px 4px",borderRadius:3}}>📣 Campaign</span>}
                   {cv.priority!=="normal"&&<Tag text={cv.priority} color={prC(cv.priority)}/>}
                   {cv.unread>0&&<span style={{background:C.a,color:"#fff",borderRadius:8,padding:"0 5px",fontSize:8,fontWeight:700}}>{cv.unread}</span>}
                   {sla&&cv.status==="open"&&<span style={{fontSize:7,fontWeight:700,fontFamily:FM,color:getSlaColor(sla.firstReply,sla.target),background:getSlaColor(sla.firstReply,sla.target)+"18",padding:"1px 4px",borderRadius:3,marginLeft:"auto"}}>{getSlaText(sla.firstReply,sla.target)}</span>}

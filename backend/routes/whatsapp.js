@@ -142,6 +142,39 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
     }
   }
 
+  // ── check if this is a campaign reply ──────────────────────────────────
+  let campaignId = null;
+  let campaignName = null;
+  try {
+    // Look for a recent campaign send to this phone (within 30 days)
+    const campLog = await db.prepare(`
+      SELECT l.campaign_id, c.name as campaign_name
+      FROM campaign_send_log l
+      LEFT JOIN campaigns c ON l.campaign_id = c.id
+      WHERE (l.contact_phone=? OR l.contact_phone=?)
+        AND l.channel='whatsapp'
+        AND l.status='sent'
+        AND l.sent_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+      ORDER BY l.sent_at DESC LIMIT 1
+    `).get('+' + fromPhone, fromPhone);
+    if (campLog) {
+      campaignId = campLog.campaign_id;
+      campaignName = campLog.campaign_name;
+
+      // Update campaign stats: increment reply count
+      try {
+        const camp = await db.prepare('SELECT stats FROM campaigns WHERE id=?').get(campaignId);
+        if (camp) {
+          const stats = JSON.parse(camp.stats || '{}');
+          stats.replies = (stats.replies || 0) + 1;
+          await db.prepare('UPDATE campaigns SET stats=? WHERE id=?').run(JSON.stringify(stats), campaignId);
+        }
+      } catch {}
+    }
+  } catch (e) {
+    console.log('[whatsapp] Campaign lookup skipped:', e.message);
+  }
+
   // ── conversation ──────────────────────────────────────────────────────────
   // Find open conversation for this contact + inbox within 30 days
   let conv = await db.prepare(`
@@ -152,12 +185,15 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
 
   if (!conv) {
     const cvId = 'cv' + uid();
-    const subject = `WhatsApp: ${senderName}`;
+    const subject = campaignName
+      ? `Campaign Reply: ${campaignName} — ${senderName}`
+      : `WhatsApp: ${senderName}`;
     await db.prepare(`
       INSERT INTO conversations
-        (id, contact_id, inbox_id, subject, status, channel, assignee_id, agent_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+        (id, contact_id, inbox_id, subject, status, channel, campaign_id, campaign_name, assignee_id, agent_id, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(cvId, contact.id, inbox.id, subject, 'open', 'whatsapp',
+           campaignId, campaignName,
            null, inbox.agent_id || null, ts, ts);
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
@@ -169,8 +205,14 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
       subject,
       contact_name: contact.name,
       contact_phone: '+' + fromPhone,
+      campaign_id: campaignId,
+      campaign_name: campaignName,
       conversation: fullConv,
     });
+  } else if (campaignId && !conv.campaign_id) {
+    // Tag existing conversation with campaign if not already tagged
+    await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
+      .run(campaignId, campaignName, conv.id);
   }
 
   // ── parse message body ────────────────────────────────────────────────────
@@ -261,7 +303,8 @@ async function buildFullConv(convId) {
     const cv = await db.prepare(`
       SELECT c.*, ct.name as contact_name, ct.email as contact_email,
              ct.phone as contact_phone, ct.avatar as contact_avatar, ct.color as contact_color,
-             i.name as inbox_name, i.type as inbox_type, i.color as inbox_color
+             i.name as inbox_name, i.type as inbox_type, i.color as inbox_color,
+             c.campaign_id, c.campaign_name
       FROM conversations c
       LEFT JOIN contacts ct ON c.contact_id = ct.id
       LEFT JOIN inboxes i ON c.inbox_id = i.id
