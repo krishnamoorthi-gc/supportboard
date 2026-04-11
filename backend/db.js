@@ -1135,6 +1135,38 @@ async function ensureSchemaColumns() {
       } catch (e) { console.error(`agent_id on ${tbl}:`, e.message); }
     }
 
+    // ── Ensure contact_groups & contact_group_members tables exist ────────
+    try {
+      const [tables] = await db.query("SHOW TABLES LIKE 'contact_groups'");
+      if (tables.length === 0) {
+        await run(`CREATE TABLE IF NOT EXISTS contact_groups (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          description TEXT,
+          color VARCHAR(50) DEFAULT '#6366f1',
+          icon VARCHAR(20) DEFAULT '👥',
+          contact_count INT DEFAULT 0,
+          agent_id VARCHAR(255),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        console.log('✅ Created contact_groups table');
+      }
+    } catch (e) { console.error('contact_groups table:', e.message); }
+
+    try {
+      const [tables] = await db.query("SHOW TABLES LIKE 'contact_group_members'");
+      if (tables.length === 0) {
+        await run(`CREATE TABLE IF NOT EXISTS contact_group_members (
+          id VARCHAR(255) PRIMARY KEY,
+          group_id VARCHAR(255) NOT NULL,
+          contact_id VARCHAR(255) NOT NULL,
+          added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        console.log('✅ Created contact_group_members table');
+      }
+    } catch (e) { console.error('contact_group_members table:', e.message); }
+
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
