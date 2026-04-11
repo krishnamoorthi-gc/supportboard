@@ -19,13 +19,16 @@ async function init() {
   await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\``);
   await connection.end();
 
-  // Now connect with DB
-  db = await mysql.createConnection({
+  // Now connect with DB — use pool for auto-reconnection on stale/dead connections
+  db = mysql.createPool({
     host,
     user,
     password,
     database,
-    multipleStatements: true
+    multipleStatements: true,
+    waitForConnections: true,
+    connectionLimit: 10,
+    idleTimeout: 60000,
   });
   console.log('Using MySQL database:', database);
 
