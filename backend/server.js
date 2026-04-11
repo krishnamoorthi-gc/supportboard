@@ -1184,6 +1184,16 @@ if (fs.existsSync(frontendDist)) {
   for (const page of ['login', 'signup', 'register']) {
     app.get(`/${page}`, (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
   }
+  // Root: serve landing page for social/bot crawlers, React SPA for browsers
+  const CRAWLER_UA = /facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|Slackbot|TelegramBot|googlebot|bingbot|applebot|DuckDuckBot|ia_archiver|curl|wget/i;
+  app.get('/', (req, res) => {
+    const ua = req.headers['user-agent'] || '';
+    const landingFile = path.join(frontendDist, 'landing.html');
+    if (CRAWLER_UA.test(ua) && fs.existsSync(landingFile)) {
+      return res.sendFile(landingFile);
+    }
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
   app.use(express.static(frontendDist));
   app.get('/{*path}', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/ws')) return next();
