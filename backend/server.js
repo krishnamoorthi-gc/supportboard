@@ -1172,6 +1172,14 @@ app.patch('/api/integrations/:id', require('./middleware/auth'), (req, res) => {
 // ── Serve frontend (production) ──
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {
+  // Clean URLs for policy pages (no .html extension)
+  for (const page of ['data-deletion', 'privacy', 'terms']) {
+    app.get(`/${page}`, (req, res) => {
+      const file = path.join(frontendDist, `${page}.html`);
+      if (fs.existsSync(file)) return res.sendFile(file);
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+  }
   app.use(express.static(frontendDist));
   app.get('/{*path}', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/ws')) return next();
