@@ -153,6 +153,22 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const bulkResolve=()=>{setConvs(p=>p.map(c=>bulkSel.includes(c.id)?{...c,status:"resolved"}:c));showT(bulkSel.length+" conversations resolved","success");setBulkSel([]);setBulkMode(false);};
   const bulkAssign=agId=>{setConvs(p=>p.map(c=>bulkSel.includes(c.id)?{...c,agent:agId}:c));showT(bulkSel.length+" conversations assigned","success");setBulkSel([]);setBulkMode(false);};
   const bulkLabel=lbl=>{setConvs(p=>p.map(c=>bulkSel.includes(c.id)?{...c,labels:[...new Set([...c.labels,lbl])]}:c));showT("Label added to "+bulkSel.length+" conversations","success");setBulkSel([]);setBulkMode(false);};
+  // ── New message flash tracking ──
+  const [flashingConvs,setFlashingConvs]=useState<Set<string>>(new Set());
+  const prevUnreadRef=useRef<Record<string,number>>({});
+  useEffect(()=>{
+    const newFlash=new Set<string>();
+    convs.forEach(cv=>{
+      const prev=prevUnreadRef.current[cv.id]||0;
+      if(cv.unread>prev&&cv.id!==aid)newFlash.add(cv.id);
+      prevUnreadRef.current[cv.id]=cv.unread;
+    });
+    if(newFlash.size>0){
+      setFlashingConvs(p=>{const next=new Set([...p,...newFlash]);return next;});
+      const ids=[...newFlash];
+      setTimeout(()=>setFlashingConvs(p=>{const next=new Set(p);ids.forEach(id=>next.delete(id));return next;}),3000);
+    }
+  },[convs,aid]);
   // ── Presence ──
   const [viewingAgents]=useState({"cv1":["a2"],"cv3":["a3"]});
   // ── View mode (list/kanban) ──
@@ -290,6 +306,10 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     if(fOwner==="unassigned"&&cv.agent)return false;
     if(search&&!ct?.name.toLowerCase().includes(search.toLowerCase())&&!cv.subject.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
+  }).sort((a,b)=>{
+    const ta=a.time==="now"?Date.now():new Date(String(a.updated_at||a.time||"").replace(" ","T")).getTime()||0;
+    const tb=b.time==="now"?Date.now():new Date(String(b.updated_at||b.time||"").replace(" ","T")).getTime()||0;
+    return tb-ta;
   });
   const ownerCounts={
     all:convs.filter(cv=>fStatus==="all"||cv.status===fStatus).length,
@@ -819,8 +839,9 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           const sla=slaTimers[cv.id];
           const isAct=aid===cv.id;
           const priColor=cv.priority==="urgent"?C.r:cv.priority==="high"?C.y:"transparent";
-          return <div key={cv.id} className="hov" onClick={()=>{if(bulkMode){toggleBulk(cv.id);return;}setAid(cv.id);setConvs(p=>p.map(c=>c.id===cv.id?{...c,unread:0}:c));setSumData(null);setAiSugs([]);}}
-            style={{padding:"10px 11px",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",transition:"background .1s",background:bulkSel.includes(cv.id)?C.yd:isAct?C.ad:"transparent",borderLeft:`3px solid ${isAct?C.a:priColor}`}}>
+          const isFlashing=flashingConvs.has(cv.id);
+          return <div key={cv.id} className="hov" onClick={()=>{if(bulkMode){toggleBulk(cv.id);return;}setAid(cv.id);setConvs(p=>p.map(c=>c.id===cv.id?{...c,unread:0}:c));setSumData(null);setAiSugs([]);setFlashingConvs(p=>{const n=new Set(p);n.delete(cv.id);return n;});}}
+            style={{padding:"10px 11px",borderBottom:`1px solid ${C.b1}22`,cursor:"pointer",transition:isFlashing?"none":"background .1s",background:bulkSel.includes(cv.id)?C.yd:isAct?C.ad:"transparent",borderLeft:`3px solid ${isAct?C.a:cv.unread>0?C.a+"aa":priColor}`,animation:isFlashing?"newMsgFlash 1s ease 3":"none"}}>
             <div style={{display:"flex",gap:8}}>
               {bulkMode&&<input type="checkbox" checked={bulkSel.includes(cv.id)} onChange={()=>toggleBulk(cv.id)} style={{accentColor:C.a,marginTop:5,flexShrink:0}} onClick={e=>e.stopPropagation()}/>}
               {/* Avatar with channel badge */}
@@ -840,7 +861,10 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                 {/* Row 2: subject */}
                 <div style={{fontSize:11,fontWeight:500,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:2}}>{cv.subject}</div>
                 {/* Row 3: last message preview */}
-                {lastMsg&&<div style={{fontSize:10,color:C.t3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3,fontStyle:"italic"}}>{lastMsg.role==="agent"?"You: ":""}{lastMsg.text?.slice(0,52)}</div>}
+                {lastMsg&&<div style={{fontSize:10,color:cv.unread>0?C.t2:C.t3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3,fontStyle:"italic",fontWeight:cv.unread>0?600:400}}>
+                  {lastMsg.role==="agent"?"You: ":""}
+                  {lastMsg.text?.slice(0,52)||(Array.isArray(lastMsg.attachments)&&lastMsg.attachments.length>0?(lastMsg.attachments.some((a:any)=>String(a?.contentType||a?.name||"").match(/\.(jpg|jpeg|png|gif|webp|svg)$|^image\//i))?"📷 Image":"📎 Attachment"):"")}
+                </div>}
                 {/* Row 4: tags + sla + assigned agent */}
                 <div style={{display:"flex",gap:3,alignItems:"center",flexWrap:"wrap"}}>
                   {cv.priority!=="normal"&&<span style={{fontSize:8,fontWeight:700,fontFamily:FM,color:prC(cv.priority),background:prC(cv.priority)+"18",padding:"1px 5px",borderRadius:3,textTransform:"uppercase"}}>{cv.priority}</span>}

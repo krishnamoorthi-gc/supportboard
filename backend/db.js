@@ -423,6 +423,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
   subject VARCHAR(255),
   body TEXT,
   segment_id VARCHAR(255),
+  audience_mode VARCHAR(50) DEFAULT 'segments',
+  selected_contacts LONGTEXT,
   scheduled_at DATETIME,
   sent_at DATETIME,
   stats TEXT,
@@ -436,6 +438,8 @@ CREATE TABLE IF NOT EXISTS segments (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   conditions TEXT,
+  source VARCHAR(50) DEFAULT 'rules',
+  contacts_json LONGTEXT,
   contact_count INT DEFAULT 0,
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -944,9 +948,17 @@ async function ensureSchemaColumns() {
         await run('ALTER TABLE segments ADD COLUMN description TEXT');
         console.log('✅ Added description to segments');
       }
+      if (!segCols.has('source')) {
+        await run("ALTER TABLE segments ADD COLUMN source VARCHAR(50) DEFAULT 'rules'");
+        console.log('✅ Added source to segments');
+      }
+      if (!segCols.has('contacts_json')) {
+        await run('ALTER TABLE segments ADD COLUMN contacts_json LONGTEXT');
+        console.log('✅ Added contacts_json to segments');
+      }
     } catch (e) { console.error('segments description column:', e.message); }
 
-    // ── campaigns: goal + ab_test columns ─────────────────────────────────
+    // ── campaigns: goal + ab_test + audience columns ──────────────────────
     try {
       const campCols = new Set((await query('SHOW COLUMNS FROM campaigns')).map(c => c.Field));
       if (!campCols.has('goal')) {
@@ -956,6 +968,14 @@ async function ensureSchemaColumns() {
       if (!campCols.has('ab_test')) {
         await run('ALTER TABLE campaigns ADD COLUMN ab_test TINYINT DEFAULT 0');
         console.log('✅ Added ab_test to campaigns');
+      }
+      if (!campCols.has('audience_mode')) {
+        await run("ALTER TABLE campaigns ADD COLUMN audience_mode VARCHAR(50) DEFAULT 'segments'");
+        console.log('✅ Added audience_mode to campaigns');
+      }
+      if (!campCols.has('selected_contacts')) {
+        await run('ALTER TABLE campaigns ADD COLUMN selected_contacts LONGTEXT');
+        console.log('✅ Added selected_contacts to campaigns');
       }
     } catch (e) { console.error('campaigns columns:', e.message); }
 

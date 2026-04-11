@@ -30,8 +30,19 @@ const uploadsDir = path.join(__dirname, '..', 'uploads');
 
 /** Safely parse inbox.config JSON string → object */
 function parseConfig(raw) {
-  if (!raw) return {};
-  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return {}; }
+  let cfg = {};
+  if (raw) {
+    try { cfg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { cfg = {}; }
+  }
+  return {
+    ...cfg,
+    imapHost: cfg.imapHost || cfg.imap_host || '',
+    imapPort: cfg.imapPort || cfg.imap_port || '993',
+    smtpHost: cfg.smtpHost || cfg.smtp_host || '',
+    smtpPort: cfg.smtpPort || cfg.smtp_port || '465',
+    emailUser: cfg.emailUser || cfg.smtpUser || cfg.email || cfg.username || '',
+    emailPass: cfg.emailPass || cfg.smtpPass || cfg.password || cfg.appPassword || '',
+  };
 }
 
 /** Random pastel hex colour for auto-created contacts */
