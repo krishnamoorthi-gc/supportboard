@@ -738,7 +738,7 @@ CREATE TABLE IF NOT EXISTS sales_agents (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   role VARCHAR(255),
-  emoji VARCHAR(50) DEFAULT '🤖',
+  emoji VARCHAR(50) DEFAULT NULL,
   color VARCHAR(50) DEFAULT '#4c82fb',
   tone VARCHAR(50) DEFAULT 'consultative',
   language VARCHAR(20) DEFAULT 'en',
