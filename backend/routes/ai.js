@@ -279,4 +279,33 @@ router.post('/reports-insight', auth, async (req, res) => {
   }
 });
 
+// POST /api/ai/chat — generic Anthropic proxy (keeps API key server-side)
+router.post('/chat', auth, async (req, res) => {
+  try {
+    const { system, messages, max_tokens = 800, model } = req.body;
+    const apiKey = ANTHROPIC_KEY();
+    if (!apiKey || apiKey === 'your_anthropic_api_key_here') {
+      return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+    }
+    const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: model || MODEL,
+        max_tokens,
+        ...(system ? { system } : {}),
+        messages,
+      }),
+    });
+    if (!apiRes.ok) {
+      const err = await apiRes.json().catch(() => ({}));
+      return res.status(apiRes.status).json({ error: err.error?.message || `Anthropic error ${apiRes.status}` });
+    }
+    const data = await apiRes.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

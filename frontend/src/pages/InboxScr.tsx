@@ -426,17 +426,11 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       }
       if(!merged.length||merged[0].role!=="user") merged.unshift({role:"user",content:"Hello"});
       if(merged[merged.length-1].role==="assistant") merged.pop();
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+      const data=await api.post('/ai/chat',{
           max_tokens:350,
           system:`You are a professional, empathetic customer support agent at SupportDesk. Customer: ${ct?.name||"Customer"} (${ct?.company||""}, ${ct?.plan||""} plan). Subject: ${cv?.subject||"Support request"}. Channel: ${cv?.ch||"live chat"}. Reply directly and helpfully. Be concise (2-4 sentences), warm, solution-focused. Do not use markdown. Do not mention being an AI.`,
           messages:merged
-        })
-      });
-      const data=await res.json();
+        });
       const reply=data.content?.[0]?.text||"Thank you for your message. I am looking into this right away.";
       setMsgs(p=>({...p,[convId]:[...(p[convId]||[]),{id:uid(),role:"agent",aid:"a1",text:reply,t:now(),auto:true}]}));
       setConvs(p=>p.map(c=>c.id===convId?{...c,unread:0,time:"now"}:c));
@@ -664,13 +658,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
     setShowSnooze(false);showT(`Snoozed ${h}h`,"warn");
   };
   const callClaude=async(sysprompt,userprompt)=>{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
-        system:sysprompt,messages:[{role:"user",content:userprompt}]})
-    });
-    const data=await res.json();
+    const data=await api.post('/ai/chat',{max_tokens:1000,
+        system:sysprompt,messages:[{role:"user",content:userprompt}]});
     return data.content?.[0]?.text||"";
   };
 

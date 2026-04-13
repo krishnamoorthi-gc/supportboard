@@ -825,8 +825,8 @@ export default function MarketingScr({contacts,pushNotification}){
                 copywriter:"Write a "+aiCh+" marketing message for: "+aiInput+". Tone: "+aiTone+". "+(aiCh==="sms"?"Keep under 160 chars.":"Be concise, 2-4 sentences.")+" Include a CTA. No markdown.",
                 timing:"For this audience: "+aiInput+", suggest the optimal send times for Email, WhatsApp, and SMS. Give specific days and times with brief reasoning for each. No markdown.",
                 advisor:"Analyze these campaign metrics and give 4 specific optimization recommendations with industry benchmarks: "+aiInput+". Number them 1-4. Be specific and actionable. No markdown."};
-              try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,system:"You are a marketing analytics expert. Be specific, data-driven, and actionable. No markdown formatting.",messages:[{role:"user",content:prompts[aiTool]}]})});
-                const data=await res.json();setAiResult(data.content?.[0]?.text||"Unable to generate. Try again.");
+              try{const data=await api.post('/ai/chat',{max_tokens:500,system:"You are a marketing analytics expert. Be specific, data-driven, and actionable. No markdown formatting.",messages:[{role:"user",content:prompts[aiTool]}]});
+                setAiResult(data.content?.[0]?.text||"Unable to generate. Try again.");
               }catch(e){setAiResult("AI service unavailable. Please try again.");}
               setAiLoading(false);
             }}/>
@@ -1099,7 +1099,7 @@ export default function MarketingScr({contacts,pushNotification}){
               {tplCh==="sms"&&<span style={{fontSize:10,color:tplBody.length>160?C.r:C.t3,fontFamily:FM}}>{tplBody.length}/160</span>}
               {tplCh==="email"&&<><input id="tplImgUpload" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const reader=new FileReader();reader.onload=ev=>{const url=ev.target?.result;if(url)setTplBody(p=>p+`\n<img src="${url}" alt="${f.name}" style="max-width:100%;border-radius:8px;margin:8px 0" />\n`);showT("Image added to template","success");};reader.readAsDataURL(f);}}/>
               <button onClick={()=>document.getElementById("tplImgUpload")?.click()} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>🖼 Image</button></>}
-              <button onClick={async()=>{setTplAiLoad(true);try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,system:"You are a marketing copywriter. Write a short "+tplCh+" template for category: "+tplCat+". Use {{first_name}}, {{company}}, {{link}} variables. No markdown. "+(tplCh==="sms"?"Under 160 chars.":"2-4 sentences."),messages:[{role:"user",content:"Write a "+tplCat+" "+tplCh+" template"+(tplName?" called "+tplName:"")}]})});const d=await res.json();setTplBody(d.content?.[0]?.text||"");if(tplCh==="email"&&!tplSubj)setTplSubj(tplName||"Special for you");}catch(e){setTplBody("Hi {{first_name}}! We have something special for you. Check it out: {{link}}");}setTplAiLoad(false);}} disabled={tplAiLoad} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM}}>{tplAiLoad?"Generating…":"✦ AI Write"}</button>
+              <button onClick={async()=>{setTplAiLoad(true);try{const d=await api.post('/ai/chat',{max_tokens:300,system:"You are a marketing copywriter. Write a short "+tplCh+" template for category: "+tplCat+". Use {{first_name}}, {{company}}, {{link}} variables. No markdown. "+(tplCh==="sms"?"Under 160 chars.":"2-4 sentences."),messages:[{role:"user",content:"Write a "+tplCat+" "+tplCh+" template"+(tplName?" called "+tplName:"")}]});setTplBody(d.content?.[0]?.text||"");if(tplCh==="email"&&!tplSubj)setTplSubj(tplName||"Special for you");}catch(e){setTplBody("Hi {{first_name}}! We have something special for you. Check it out: {{link}}");}setTplAiLoad(false);}} disabled={tplAiLoad} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM}}>{tplAiLoad?"Generating…":"✦ AI Write"}</button>
             </div>
           </div>
         </Fld>
@@ -1286,11 +1286,9 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   const genAI=async()=>{
     setAiLoading(true);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,
+      const data=await api.post('/ai/chat',{max_tokens:300,
           system:"You are a marketing copywriter. Write a short, compelling marketing message for a "+ch+" campaign. Goal: "+goal+". Keep it concise (2-3 sentences for WhatsApp/SMS, 4-5 for email). Use {{first_name}} for personalization. Include a CTA. No markdown.",
-          messages:[{role:"user",content:"Write a "+goal+" "+ch+" marketing message"+(name?" for a campaign called "+name:"")+". Be creative and engaging."}]})});
-      const data=await res.json();
+          messages:[{role:"user",content:"Write a "+goal+" "+ch+" marketing message"+(name?" for a campaign called "+name:"")+". Be creative and engaging."}]});
       const txt=data.content?.[0]?.text||"";
       setBody(txt);if(ch==="email"&&!subject)setSubject(name||"Special offer for you");
     }catch(e){setBody("Hi {{first_name}}! We have something special just for you. Check it out now!");}
@@ -1589,11 +1587,9 @@ function ABTestModal({segments,userTemplates=[],onClose,onLaunch}){
     isA?setAiLoadA(true):setAiLoadB(true);
     const tone=isA?"formal, benefit-focused, professional":"casual, urgency-driven, conversational";
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:250,
+      const data=await api.post('/ai/chat',{max_tokens:250,
           system:"You are a marketing copywriter creating variant "+variant+" of an A/B test for "+ch+". Tone: "+tone+". Use {{first_name}} for personalization. Include a CTA. "+(ch==="sms"?"Keep under 160 chars. ":"")+"No markdown. Just the message text.",
-          messages:[{role:"user",content:"Write variant "+variant+" ("+(isA?"control — formal/benefit-focused":"challenger — casual/urgency-focused")+") for: "+(name||"marketing campaign")}]})});
-      const data=await res.json();
+          messages:[{role:"user",content:"Write variant "+variant+" ("+(isA?"control — formal/benefit-focused":"challenger — casual/urgency-focused")+") for: "+(name||"marketing campaign")}]});
       const txt=data.content?.[0]?.text||"Hi {{first_name}}! Check out our latest offer.";
       isA?setVarA(txt):setVarB(txt);
     }catch(e){isA?setVarA("Hi {{first_name}}! We have an exciting offer for you. Check it out: {{link}}"):setVarB("Hey {{first_name}}! Last chance — this deal expires soon. Grab it: {{link}}");}

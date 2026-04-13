@@ -66,11 +66,10 @@ export default function WidgetScr({inboxes,aiAutoReply,setAiAutoReply}){
     if(!wInp.trim())return;const txt=wInp;setWInp("");
     const history=[...wMsgs,{from:"user",text:txt}];setWMsgs(history);setWTyping(true);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,
+      const data=await api.post('/ai/chat',{max_tokens:300,
           system:`You are a friendly support bot for ${teamName}. Customer: ${wName||"Visitor"}. Be concise (1-3 sentences), empathetic. No markdown.`,
-          messages:history.filter(m=>m.from!=="sys").slice(-10).map(m=>({role:m.from==="user"?"user":"assistant",content:m.text}))})});
-      const data=await res.json();setWMsgs(p=>[...p,{from:"bot",text:data.content?.[0]?.text||"Connecting you with an agent!"}]);
+          messages:history.filter(m=>m.from!=="sys").slice(-10).map(m=>({role:m.from==="user"?"user":"assistant",content:m.text}))});
+      setWMsgs(p=>[...p,{from:"bot",text:data.content?.[0]?.text||"Connecting you with an agent!"}]);
     }catch(e){setWMsgs(p=>[...p,{from:"bot",text:"Thanks! A support agent will be with you shortly. Ticket #WEB-"+Math.floor(Math.random()*9000+1000)}]);}
     setWTyping(false);
   };
