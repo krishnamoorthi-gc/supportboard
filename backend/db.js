@@ -29,8 +29,14 @@ async function init() {
     waitForConnections: true,
     connectionLimit: 10,
     idleTimeout: 60000,
-    charset: 'utf8mb4',
-    init_command: "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
+    charset: 'UTF8MB4_UNICODE_CI',
+  });
+  // Ensure every connection in the pool uses utf8mb4 so emoji / special
+  // unicode chars in email bodies don't cause "Incorrect string value" errors
+  db.pool.on('connection', (conn) => {
+    conn.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci", (err) => {
+      if (err) console.error('SET NAMES utf8mb4 failed:', err.message);
+    });
   });
   console.log('Using MySQL database:', database);
 
