@@ -4,13 +4,13 @@ const auth = require('../middleware/auth');
 const { uid } = require('../utils/helpers');
 
 // Lazy-load ws to avoid circular dependency issues
-let _broadcast = null;
-const broadcast = (data) => {
-  if (!_broadcast) {
-    try { _broadcast = require('../ws').broadcastToAll; } catch { _broadcast = () => {}; }
-  }
-  try { _broadcast(data); } catch {}
+let _ws = null;
+const getWs = () => {
+  if (!_ws) try { _ws = require('../ws'); } catch {}
+  return _ws;
 };
+const broadcast = (data) => { try { getWs()?.broadcastToAll(data); } catch {} };
+const broadcastExcept = (data, excludeId) => { try { getWs()?.broadcastExcept(data, excludeId); } catch {} };
 
 // ── Channels ──────────────────────────────────────────────────────────────
 
@@ -104,6 +104,7 @@ router.get('/channels/:id/messages', auth, async (req, res) => {
     for (const m of msgs) {
       try { m.reactions = JSON.parse(m.reactions || '{}'); } catch { m.reactions = {}; }
       try { m.attachments = JSON.parse(m.attachments || '[]'); } catch { m.attachments = []; }
+      try { m.seen_by = JSON.parse(m.seen_by || '[]'); } catch { m.seen_by = []; }
       // Load thread replies
       const threads = await db.prepare(`
         SELECT m.*, a.name as sender_name FROM chat_messages m
@@ -162,9 +163,10 @@ router.post('/channels/:id/messages', auth, async (req, res) => {
     `).get(id);
     try { msg.reactions = JSON.parse(msg.reactions || '{}'); } catch { msg.reactions = {}; }
     try { msg.attachments = JSON.parse(msg.attachments || '[]'); } catch { msg.attachments = []; }
+    try { msg.seen_by = JSON.parse(msg.seen_by || '[]'); } catch { msg.seen_by = []; }
     msg.thread = [];
-    // Broadcast to all connected clients
-    broadcast({ type: 'tc_message', channelId: req.params.id, message: msg });
+    // Broadcast to all clients EXCEPT the sender (sender already has it via optimistic UI)
+    broadcastExcept({ type: 'tc_message', channelId: req.params.id, message: msg }, req.agent.id);
     res.status(201).json({ message: msg });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -186,7 +188,7 @@ router.post('/messages', auth, async (req, res) => {
     try { msg.reactions = JSON.parse(msg.reactions || '{}'); } catch { msg.reactions = {}; }
     try { msg.attachments = JSON.parse(msg.attachments || '[]'); } catch { msg.attachments = []; }
     msg.thread = [];
-    broadcast({ type: 'tc_message', channelId: chId, message: msg });
+    broadcastExcept({ type: 'tc_message', channelId: chId, message: msg }, req.agent.id);
     res.status(201).json({ message: msg });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -271,6 +273,53 @@ router.delete('/messages/:id', auth, async (req, res) => {
     if (msg) broadcast({ type: 'tc_msg_delete', messageId: req.params.id, channelId: msg.channel_id });
     await db.prepare('DELETE FROM chat_messages WHERE id=?').run(req.params.id);
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Read receipts ─────────────────────────────────────────────────────────
+
+// POST /api/chat/channels/:id/read  — mark all messages as seen by current agent
+router.post('/channels/:id/read', auth, async (req, res) => {
+  try {
+    const agentId = req.agent.id;
+    const channelId = req.params.id;
+
+    // Get all unread messages (where seen_by doesn't contain agentId)
+    const msgs = await db.prepare(
+      "SELECT id, seen_by FROM chat_messages WHERE channel_id=? AND (sender_id != ? OR sender_id IS NULL)"
+    ).all(channelId, agentId);
+
+    const updated = [];
+    for (const msg of msgs) {
+      let seenBy = [];
+      try { seenBy = JSON.parse(msg.seen_by || '[]'); } catch {}
+      if (!seenBy.includes(agentId)) {
+        seenBy.push(agentId);
+        await db.prepare('UPDATE chat_messages SET seen_by=? WHERE id=?').run(JSON.stringify(seenBy), msg.id);
+        updated.push({ id: msg.id, seen_by: seenBy });
+      }
+    }
+
+    if (updated.length > 0) {
+      broadcast({ type: 'tc_read', channelId, agentId, messageIds: updated.map(m => m.id), seenMap: updated.reduce((acc, m) => { acc[m.id] = m.seen_by; return acc; }, {}) });
+    }
+
+    res.json({ success: true, updated: updated.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/chat/channels/:id/read-status  — get seen_by for recent messages
+router.get('/channels/:id/read-status', auth, async (req, res) => {
+  try {
+    const msgs = await db.prepare(
+      'SELECT id, seen_by FROM chat_messages WHERE channel_id=? ORDER BY created_at DESC LIMIT 50'
+    ).all(req.params.id);
+
+    const status = {};
+    for (const m of msgs) {
+      try { status[m.id] = JSON.parse(m.seen_by || '[]'); } catch { status[m.id] = []; }
+    }
+    res.json({ status });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -435,16 +435,18 @@ async function pollInbox(inboxId) {
     await client.connect();
     lock = await client.getMailboxLock('INBOX');
 
-    // First try: fetch only UNSEEN messages (efficient – only new emails)
-    let unseenUids = await client.search({ seen: false }, { uid: true });
     const maxMessages = Math.max(1, parseInt(process.env.EMAIL_POLL_MAX_MESSAGES || '50', 10));
     const maxSourceBytes = Math.max(262144, parseInt(process.env.EMAIL_POLL_MAX_SOURCE_BYTES || String(25 * 1024 * 1024), 10));
+    const lookbackDays = Math.max(1, parseInt(process.env.EMAIL_POLL_LOOKBACK_DAYS || '7', 10));
+    const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
-    // Fallback: if no UNSEEN found, check last 7 days for any recent messages
+    // Fetch only UNSEEN messages within the lookback window — prevents bulk-importing
+    // all historical mail when an inbox is first connected
+    let unseenUids = await client.search({ seen: false, since }, { uid: true });
+
+    // Fallback: if no UNSEEN found in window, grab any recent messages
     // (handles cases where messages were already marked Seen externally)
     if (!unseenUids || unseenUids.length === 0) {
-      const lookbackDays = Math.max(1, parseInt(process.env.EMAIL_POLL_LOOKBACK_DAYS || '7', 10));
-      const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
       unseenUids = await client.search({ since }, { uid: true });
     }
 
@@ -693,6 +695,21 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
       created_at:      newMsg.created_at,
     },
   });
+
+  // ── AI auto-reply (fire-and-forget, non-blocking) ─────────────────────────
+  try {
+    const { triggerAutoReply } = require('./autoReplyService');
+    triggerAutoReply({
+      conversationId: conversation.id,
+      inboxId:        inbox.id,
+      agentId:        inbox.agent_id,
+      channel:        'email',
+      customerMessage: safeText || '',
+      contactEmail:   contact.email,
+      inReplyToMsgId: messageId,
+      subject:        conversation.subject,
+    }).catch(() => {});
+  } catch {}
 
   return true;
 }

@@ -29,7 +29,7 @@ import IntegrationsScr from "./pages/IntegrationsScr";
 import SettingsScr from "./pages/SettingsScr";
 import KnowledgeBaseScr from "./pages/KnowledgeBaseScr";
 import TeamChatScr from "./pages/TeamChatScr";
-import { MiniChatPanel, TC_CHANNELS, TC_DMS } from "./pages/TeamChatScr";
+import { MiniChatPanel } from "./pages/TeamChatScr";
 
 const INBOX_CACHE_KEY = "sd_cached_inboxes";
 
@@ -209,11 +209,12 @@ export default function App(){
     setDataLoading(true);
     try{
       console.log('🔄 Loading initial data from API...');
-      const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes]=await Promise.allSettled([
+      const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes,botCfgRes]=await Promise.allSettled([
         api.get("/settings/agents"),api.get("/contacts"),api.get("/conversations"),
         api.get("/settings/labels"),api.get("/settings/teams"),api.get("/settings/inboxes"),
         api.get("/settings/canned-responses"),api.get("/companies"),
         api.get("/settings/automations"),api.get("/settings/custom-fields"),
+        api.get("/aibot/config"),
       ]);
       const ok=(r)=>r.status==="fulfilled"&&r.value;
       console.log('API Results:', {
@@ -254,6 +255,7 @@ export default function App(){
       if(ok(coRes)&&coRes.value.companies)setComps(coRes.value.companies.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,tags,color:c.color||"#4c82fb"};}));
       if(ok(auRes)&&auRes.value.automations)setAutos(auRes.value.automations.map(a=>({...a,conditions:typeof a.conditions==="string"?JSON.parse(a.conditions||"[]"):a.conditions||[],actions:typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[]})));
       if(ok(cfRes)&&cfRes.value.fields)setCustomFields(cfRes.value.fields);
+      if(ok(botCfgRes)&&botCfgRes.value.config){const bc=botCfgRes.value.config;setAiAutoReply(!!bc.ai_auto_reply);if(bc.channels&&Object.keys(bc.channels).length)setAiChannels(bc.channels);}
       // Load messages for first few conversations
       const convIds=(ok(cvRes)&&cvRes.value.conversations?cvRes.value.conversations:[]).slice(0,5).map(c=>c.id);
       const msgMap={};
@@ -350,9 +352,10 @@ export default function App(){
       const nextConv=normalizeNotifConversation(notif.targetConversation);
       if(nextConv){
         setConvs(prev=>{
+          const now=new Date().toISOString();
           const exists=prev.find((c:any)=>c.id===nextConv.id);
-          if(exists)return prev.map((c:any)=>c.id===nextConv.id?{...c,...nextConv,unread:Math.max(c.unread||0,nextConv.unread||0)}:c);
-          return [nextConv,...prev];
+          if(exists)return prev.map((c:any)=>c.id===nextConv.id?{...c,...nextConv,unread:Math.max(c.unread||0,nextConv.unread||0),time:now,updated_at:now}:c);
+          return [{...nextConv,time:now,updated_at:now},...prev];
         });
       }
     }
@@ -454,7 +457,7 @@ export default function App(){
   const [showGlobalSearch,setShowGlobalSearch]=useState(false);
   // ── Team Chat Mini Panel ──
   const [showMiniChat,setShowMiniChat]=useState(false);
-  const tcUnread=TC_CHANNELS.reduce((s,c)=>s+c.unread,0)+TC_DMS.reduce((s,d)=>s+d.unread,0);
+  const tcUnread=0; // unread count is tracked inside TeamChatScr via real-time WS
   // ── Sound toggle ──
   const normalizeWsAttachments=(value:any)=>{
     if(Array.isArray(value))return value.filter(Boolean);

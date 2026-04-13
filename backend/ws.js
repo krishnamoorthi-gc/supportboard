@@ -3,6 +3,21 @@ const jwt = require('jsonwebtoken');
 
 const clients = new Map(); // agentId -> Set<ws>
 
+// Lazy-load db to update agent status
+let _db = null;
+const getDb = () => {
+  if (!_db) try { _db = require('./db'); } catch {}
+  return _db;
+};
+const updateAgentStatus = (agentId, status) => {
+  try {
+    const db = getDb();
+    if (db && db.run) {
+      db.run('UPDATE agents SET status=? WHERE id=?', [status, agentId]).catch(() => {});
+    }
+  } catch {}
+};
+
 function setupWebSocket(server) {
   const wss = new WebSocket.Server({ server, path: '/ws' });
 
@@ -31,16 +46,26 @@ function setupWebSocket(server) {
     ws.on('close', () => {
       if (agentId && clients.has(agentId)) {
         clients.get(agentId).delete(ws);
-        if (clients.get(agentId).size === 0) clients.delete(agentId);
+        if (clients.get(agentId).size === 0) {
+          clients.delete(agentId);
+          // Persist offline status to DB
+          updateAgentStatus(agentId, 'offline');
+          broadcast({ type: 'presence', agentId, status: 'offline' });
+        }
       }
-      broadcast({ type: 'presence', agentId, status: 'offline' });
     });
 
-    // Send welcome
-    send(ws, { type: 'connected', agentId, timestamp: new Date().toISOString() });
+    // Send welcome + current online agent list so new connections know who's live
+    send(ws, {
+      type: 'connected',
+      agentId,
+      timestamp: new Date().toISOString(),
+      onlineAgents: [...clients.keys()],
+    });
 
-    // Announce presence
+    // Announce presence + persist to DB
     if (agentId) {
+      updateAgentStatus(agentId, 'online');
       broadcast({ type: 'presence', agentId, status: 'online' }, agentId);
     }
   });
@@ -83,7 +108,10 @@ function handleMessage(ws, senderId, msg) {
       else broadcast({ type: 'tc_call_end', from: senderId, callId: msg.callId }, senderId);
       break;
     case 'tc_status':
-      broadcast({ type: 'presence', agentId: senderId, status: msg.status }, senderId);
+      if (senderId && msg.status) {
+        updateAgentStatus(senderId, msg.status);
+        broadcast({ type: 'presence', agentId: senderId, status: msg.status }, senderId);
+      }
       break;
     default:
       broadcast(msg, senderId);
@@ -115,4 +143,9 @@ function broadcastToAll(data) {
   broadcast(data);
 }
 
-module.exports = { setupWebSocket, broadcastToAll, sendToAgent };
+// Broadcast to all except a specific agent (use in routes to exclude the sender)
+function broadcastExcept(data, excludeAgentId) {
+  broadcast(data, excludeAgentId);
+}
+
+module.exports = { setupWebSocket, broadcastToAll, broadcastExcept, sendToAgent };
