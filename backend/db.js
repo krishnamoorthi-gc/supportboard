@@ -30,6 +30,7 @@ async function init() {
     connectionLimit: 10,
     idleTimeout: 60000,
     charset: 'utf8mb4',
+    init_command: "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
   });
   console.log('Using MySQL database:', database);
 

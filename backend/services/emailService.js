@@ -9,11 +9,14 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 
-// Strip 4-byte chars (emoji etc.) that break MySQL utf8 (non-utf8mb4) columns
+// Strip characters that break MySQL utf8/utf8mb4 columns
 function sanitizeForMysql(str) {
   if (!str) return str;
-  // Replace any character outside the Basic Multilingual Plane (> U+FFFF) with ?
-  return str.replace(/[\u{10000}-\u{10FFFF}]/gu, '?');
+  // Replace 4-byte chars (emoji, supplementary planes > U+FFFF) — breaks MySQL utf8
+  let s = str.replace(/[\u{10000}-\u{10FFFF}]/gu, '?');
+  // Replace null bytes which MySQL always rejects
+  s = s.replace(/\u0000/g, '');
+  return s;
 }
 
 // Lazy-import broadcastToAll so we don't create a circular dep at module load
