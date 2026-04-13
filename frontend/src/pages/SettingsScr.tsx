@@ -1919,7 +1919,8 @@ function AIBotSet({inboxes,canned,aiAutoReply,setAiAutoReply,aiChannels,setAiCha
       setHandoff(c.handoff_after||"3");setWorkingHours(!!c.working_hours);setAutoResolve(!!c.auto_resolve);
       setAutoResolveH(c.auto_resolve_hours||"24");
       if(c.sys_prompt)setSysPrompt(c.sys_prompt);
-      // Sync channels from backend config
+      // Sync ai_auto_reply + channels from backend config so they survive refresh
+      setAiAutoReply(!!c.ai_auto_reply);
       if(c.channels&&Object.keys(c.channels).length){setAiChannels(c.channels);}
       setFaqs(faqR.faqs||[]);
       setDocs(docR.docs||[]);

@@ -209,11 +209,12 @@ export default function App(){
     setDataLoading(true);
     try{
       console.log('🔄 Loading initial data from API...');
-      const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes]=await Promise.allSettled([
+      const [agRes,ctRes,cvRes,lbRes,tmRes,ibRes,cnRes,coRes,auRes,cfRes,botCfgRes]=await Promise.allSettled([
         api.get("/settings/agents"),api.get("/contacts"),api.get("/conversations"),
         api.get("/settings/labels"),api.get("/settings/teams"),api.get("/settings/inboxes"),
         api.get("/settings/canned-responses"),api.get("/companies"),
         api.get("/settings/automations"),api.get("/settings/custom-fields"),
+        api.get("/aibot/config"),
       ]);
       const ok=(r)=>r.status==="fulfilled"&&r.value;
       console.log('API Results:', {
@@ -254,6 +255,7 @@ export default function App(){
       if(ok(coRes)&&coRes.value.companies)setComps(coRes.value.companies.map(c=>{const tags=typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[];return{...c,tags,color:c.color||"#4c82fb"};}));
       if(ok(auRes)&&auRes.value.automations)setAutos(auRes.value.automations.map(a=>({...a,conditions:typeof a.conditions==="string"?JSON.parse(a.conditions||"[]"):a.conditions||[],actions:typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[]})));
       if(ok(cfRes)&&cfRes.value.fields)setCustomFields(cfRes.value.fields);
+      if(ok(botCfgRes)&&botCfgRes.value.config){const bc=botCfgRes.value.config;setAiAutoReply(!!bc.ai_auto_reply);if(bc.channels&&Object.keys(bc.channels).length)setAiChannels(bc.channels);}
       // Load messages for first few conversations
       const convIds=(ok(cvRes)&&cvRes.value.conversations?cvRes.value.conversations:[]).slice(0,5).map(c=>c.id);
       const msgMap={};
