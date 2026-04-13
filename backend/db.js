@@ -32,7 +32,7 @@ async function init() {
   });
   console.log('Using MySQL database:', database);
 
-  await createSchema();
+  try { await createSchema(); } catch (e) { console.error('createSchema error (non-fatal):', e.message); }
   await ensureSchemaColumns();
   await seed();
   await seedMarketing();
@@ -466,7 +466,7 @@ CREATE TABLE IF NOT EXISTS contact_groups (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   color VARCHAR(50) DEFAULT '#6366f1',
-  icon VARCHAR(20) DEFAULT '👥',
+  icon VARCHAR(20) DEFAULT 'group',
   contact_count INT DEFAULT 0,
   agent_id VARCHAR(255),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1144,7 +1144,7 @@ async function ensureSchemaColumns() {
           name VARCHAR(255) NOT NULL,
           description TEXT,
           color VARCHAR(50) DEFAULT '#6366f1',
-          icon VARCHAR(20) DEFAULT '👥',
+          icon VARCHAR(20) DEFAULT 'group',
           contact_count INT DEFAULT 0,
           agent_id VARCHAR(255),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
