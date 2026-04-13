@@ -279,6 +279,86 @@ router.post('/reports-insight', auth, async (req, res) => {
   }
 });
 
+// POST /api/ai/chat-summary — summarise a team chat channel
+router.post('/chat-summary', auth, async (req, res) => {
+  try {
+    const { channel_id, messages: clientMsgs } = req.body;
+    let msgs = clientMsgs;
+    if (!msgs && channel_id) {
+      msgs = await db.prepare(`
+        SELECT m.text, a.name as sender_name
+        FROM chat_messages m LEFT JOIN agents a ON m.sender_id = a.id
+        WHERE m.channel_id=? AND (m.thread_id IS NULL OR m.thread_id='')
+        ORDER BY m.created_at DESC LIMIT 30
+      `).all(channel_id);
+      msgs = msgs.reverse();
+    }
+    if (!msgs || msgs.length === 0) return res.json({ summary: 'No messages to summarise yet.' });
+    const ctx = msgs.map(m => `[${m.sender_name || 'Agent'}] ${m.text || ''}`).join('\n');
+    const summary = await callClaude(
+      'You are a team productivity assistant. Summarise this team chat conversation in 3–5 bullet points. Focus on decisions made, action items, and key updates. Keep each bullet under 15 words. No markdown headers.',
+      ctx,
+      400
+    );
+    res.json({ summary: summary.trim() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/ai/chat-standup — generate a standup report from channel messages
+router.post('/chat-standup', auth, async (req, res) => {
+  try {
+    const { channel_id, messages: clientMsgs } = req.body;
+    let msgs = clientMsgs;
+    if (!msgs && channel_id) {
+      msgs = await db.prepare(`
+        SELECT m.text, a.name as sender_name
+        FROM chat_messages m LEFT JOIN agents a ON m.sender_id = a.id
+        WHERE m.channel_id=? AND (m.thread_id IS NULL OR m.thread_id='')
+        ORDER BY m.created_at DESC LIMIT 40
+      `).all(channel_id);
+      msgs = msgs.reverse();
+    }
+    if (!msgs || msgs.length === 0) return res.json({ standup: 'No messages to generate a standup from.' });
+    const ctx = msgs.map(m => `[${m.sender_name || 'Agent'}] ${m.text || ''}`).join('\n');
+    const standup = await callClaude(
+      'You are a scrum master assistant. Generate a concise standup report from this team chat. Format: DONE (2–3 bullets), DOING (2–3 bullets), BLOCKED (1–2 bullets or "None"). Keep bullets short. No markdown headers.',
+      ctx,
+      350
+    );
+    res.json({ standup: standup.trim() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/ai/chat-reply-suggestions — suggest 3 short replies based on last messages
+router.post('/chat-reply-suggestions', auth, async (req, res) => {
+  try {
+    const { channel_id, messages: clientMsgs } = req.body;
+    let msgs = clientMsgs;
+    if (!msgs && channel_id) {
+      msgs = await db.prepare(`
+        SELECT m.text, a.name as sender_name
+        FROM chat_messages m LEFT JOIN agents a ON m.sender_id = a.id
+        WHERE m.channel_id=? AND (m.thread_id IS NULL OR m.thread_id='')
+        ORDER BY m.created_at DESC LIMIT 5
+      `).all(channel_id);
+      msgs = msgs.reverse();
+    }
+    if (!msgs || msgs.length === 0) return res.json({ suggestions: ['Got it!', 'Thanks!', 'On it.'] });
+    const ctx = msgs.map(m => `[${m.sender_name || 'Agent'}] ${m.text || ''}`).join('\n');
+    const raw = await callClaude(
+      'You are a team chat assistant. Based on the conversation, suggest exactly 3 short, natural reply options a team member might send. Return a JSON array of 3 strings only, no other text.',
+      ctx,
+      200
+    );
+    let suggestions = ['Got it!', 'Thanks for the update!', 'On it — will follow up.'];
+    try {
+      const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
+      if (Array.isArray(parsed) && parsed.length >= 3) suggestions = parsed.slice(0, 3);
+    } catch {}
+    res.json({ suggestions });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/ai/chat — generic Anthropic proxy (keeps API key server-side)
 router.post('/chat', auth, async (req, res) => {
   try {

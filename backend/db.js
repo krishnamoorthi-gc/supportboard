@@ -29,12 +29,11 @@ async function init() {
     waitForConnections: true,
     connectionLimit: 10,
     idleTimeout: 60000,
-    charset: 'UTF8MB4_UNICODE_CI',
+    charset: 'UTF8MB4_GENERAL_CI',
   });
-  // Ensure every connection in the pool uses utf8mb4 so emoji / special
-  // unicode chars in email bodies don't cause "Incorrect string value" errors
+  // Belt-and-suspenders: also SET NAMES on every new connection
   db.pool.on('connection', (conn) => {
-    conn.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci", (err) => {
+    conn.query("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci", (err) => {
       if (err) console.error('SET NAMES utf8mb4 failed:', err.message);
     });
   });
@@ -43,6 +42,7 @@ async function init() {
   try { await createSchema(); } catch (e) { console.error('createSchema error (non-fatal):', e.message); }
   await ensureSchemaColumns();
   await seed();
+  await seedChatChannels();
   await seedMarketing();
   await cleanupSeedData();
 }
@@ -1212,6 +1212,42 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('campaign_send_log table:', e.message); }
 
+    // ── chat_messages: add seen_by + fix text charset ──────────────────
+    try {
+      const chatMsgCols = await query('SHOW COLUMNS FROM chat_messages');
+      const chatMsgColNames = new Set(chatMsgCols.map(c => c.Field));
+
+      if (!chatMsgColNames.has('seen_by')) {
+        await run('ALTER TABLE chat_messages ADD COLUMN seen_by TEXT DEFAULT NULL');
+        console.log('✅ Added seen_by to chat_messages');
+      }
+      if (!chatMsgColNames.has('delivered')) {
+        await run('ALTER TABLE chat_messages ADD COLUMN delivered TINYINT DEFAULT 1');
+        console.log('✅ Added delivered to chat_messages');
+      }
+
+      // Fix chat_messages.text to utf8mb4_general_ci so emojis store without collation conflicts
+      const textCol = chatMsgCols.find(c => c.Field === 'text');
+      if (textCol && textCol.Collation && textCol.Collation === 'utf8mb4_unicode_ci') {
+        // Convert back to general_ci to match agents table and avoid collation conflicts
+        await run('ALTER TABLE chat_messages CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+        console.log('✅ Fixed chat_messages collation to utf8mb4_general_ci');
+      } else if (textCol && textCol.Collation && !textCol.Collation.startsWith('utf8mb4')) {
+        await run('ALTER TABLE chat_messages CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+        console.log('✅ Converted chat_messages to utf8mb4_general_ci');
+      }
+    } catch (e) { console.error('chat_messages schema update:', e.message); }
+
+    // ── chat_channels: add topic column ────────────────────────────────
+    try {
+      const chatChCols = await query('SHOW COLUMNS FROM chat_channels');
+      const chatChColNames = new Set(chatChCols.map(c => c.Field));
+      if (!chatChColNames.has('topic')) {
+        await run('ALTER TABLE chat_channels ADD COLUMN topic TEXT DEFAULT NULL');
+        console.log('✅ Added topic to chat_channels');
+      }
+    } catch (e) { console.error('chat_channels schema update:', e.message); }
+
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
@@ -1273,7 +1309,59 @@ async function seed() {
     await run('INSERT INTO inboxes (id,name,type,color,greeting,active,agent_id) VALUES (?,?,?,?,?,?,?)', i);
   }
 
+  // Default chat channels — visible to all agents from day one
+  const allMembers = JSON.stringify(['a1','a2','a3','a4']);
+  const channels = [
+    ['ch_general',   'general',             'General company updates and announcements', 'public', allMembers, 'a1'],
+    ['ch_support',   'support-escalations', 'Escalate tricky customer tickets here',    'public', allMembers, 'a1'],
+    ['ch_eng',       'engineering-help',    'Ask the dev team for technical help',       'public', allMembers, 'a1'],
+    ['ch_sales',     'sales-handoffs',      'Pass qualified leads to the sales team',    'public', allMembers, 'a1'],
+    ['ch_random',    'random',              'Non-work banter and watercooler chat',      'public', allMembers, 'a1'],
+    ['ch_feedback',  'product-feedback',    'Customer feedback and feature requests',    'public', allMembers, 'a1'],
+    ['ch_ai',        'ai-experiments',      'Testing and sharing AI features',           'public', allMembers, 'a1'],
+  ];
+  for (const [id, name, description, type, members, created_by] of channels) {
+    await run('INSERT INTO chat_channels (id,name,description,type,members,created_by) VALUES (?,?,?,?,?,?)',
+      [id, name, description, type, members, created_by]);
+  }
+
   console.log('✅ Database seeded successfully');
+}
+
+// ── Seed default chat channels for existing DBs with no channels ──
+async function seedChatChannels() {
+  try {
+    const row = await query('SELECT COUNT(*) as c FROM chat_channels WHERE type != ?', ['dm'], true);
+    if (row.c > 0) return; // channels already exist
+
+    // Get all agent IDs from DB (don't hardcode — works for any install)
+    const agentRows = await query('SELECT id FROM agents ORDER BY created_at ASC LIMIT 20', [], false);
+    const agentIds = agentRows.map(a => a.id);
+    if (agentIds.length === 0) return;
+
+    const creatorId = agentIds[0];
+    const allMembers = JSON.stringify(agentIds);
+
+    const channels = [
+      ['ch_general',  'general',             'General company updates and announcements', 'public'],
+      ['ch_support',  'support-escalations', 'Escalate tricky customer tickets here',    'public'],
+      ['ch_eng',      'engineering-help',    'Ask the dev team for technical help',       'public'],
+      ['ch_sales',    'sales-handoffs',      'Pass qualified leads to the sales team',    'public'],
+      ['ch_random',   'random',              'Non-work banter and watercooler chat',      'public'],
+      ['ch_feedback', 'product-feedback',   'Customer feedback and feature requests',    'public'],
+      ['ch_ai',       'ai-experiments',     'Testing and sharing AI features',           'public'],
+    ];
+
+    for (const [id, name, description, type] of channels) {
+      await run(
+        'INSERT IGNORE INTO chat_channels (id,name,description,type,members,created_by) VALUES (?,?,?,?,?,?)',
+        [id, name, description, type, allMembers, creatorId]
+      );
+    }
+    console.log('✅ Default chat channels created');
+  } catch (e) {
+    console.error('seedChatChannels (non-fatal):', e.message);
+  }
 }
 
 // ── Seed marketing data for existing DBs ──

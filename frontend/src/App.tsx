@@ -29,7 +29,7 @@ import IntegrationsScr from "./pages/IntegrationsScr";
 import SettingsScr from "./pages/SettingsScr";
 import KnowledgeBaseScr from "./pages/KnowledgeBaseScr";
 import TeamChatScr from "./pages/TeamChatScr";
-import { MiniChatPanel, TC_CHANNELS, TC_DMS } from "./pages/TeamChatScr";
+import { MiniChatPanel } from "./pages/TeamChatScr";
 
 const INBOX_CACHE_KEY = "sd_cached_inboxes";
 
@@ -457,7 +457,7 @@ export default function App(){
   const [showGlobalSearch,setShowGlobalSearch]=useState(false);
   // ── Team Chat Mini Panel ──
   const [showMiniChat,setShowMiniChat]=useState(false);
-  const tcUnread=TC_CHANNELS.reduce((s,c)=>s+c.unread,0)+TC_DMS.reduce((s,d)=>s+d.unread,0);
+  const tcUnread=0; // unread count is tracked inside TeamChatScr via real-time WS
   // ── Sound toggle ──
   const normalizeWsAttachments=(value:any)=>{
     if(Array.isArray(value))return value.filter(Boolean);

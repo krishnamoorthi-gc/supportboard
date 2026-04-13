@@ -4,84 +4,29 @@ import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSou
 // ─── TEAM CHAT ────────────────────────────────────────────────────────────
 // ─── TEAM CHAT (Slack/Cliq-class) ─────────────────────────────────────────
 const TC_SECTIONS=[{id:"starred",name:"Starred"},{id:"channels",name:"Channels"},{id:"dms",name:"Direct Messages"}];
-export const TC_CHANNELS=[
-  {id:"ch1",name:"general",desc:"Company-wide announcements",icon:"#",private:false,members:["a1","a2","a3","a4"],unread:2,starred:true,muted:false,topic:"Standup at 10:30 AM",bookmarks:[{id:"bm1",label:"SLA Dashboard",url:"#"},{id:"bm2",label:"Sprint Board",url:"#"},{id:"bm3",label:"On-Call",url:"#"}]},
-  {id:"ch2",name:"support-escalations",desc:"Escalate tricky tickets",icon:"#",private:false,members:["a1","a2","a3","a4"],unread:1,starred:true,muted:false,topic:"Include customer name + priority",bookmarks:[{id:"bm4",label:"Playbook",url:"#"}]},
-  {id:"ch3",name:"engineering-help",desc:"Ask devs for help",icon:"#",private:false,members:["a1","a2","a4"],unread:0,starred:false,muted:false,topic:"",bookmarks:[]},
-  {id:"ch4",name:"sales-handoffs",desc:"Pass leads to sales",icon:"#",private:false,members:["a1","a3"],unread:0,starred:false,muted:false,topic:"",bookmarks:[]},
-  {id:"ch5",name:"random",desc:"Non-work banter",icon:"#",private:false,members:["a1","a2","a3","a4"],unread:0,starred:false,muted:true,topic:"🎉 Friday vibes",bookmarks:[]},
-  {id:"ch6",name:"product-feedback",desc:"Customer feedback & requests",icon:"#",private:false,members:["a1","a2","a3"],unread:0,starred:false,muted:false,topic:"",bookmarks:[]},
-  {id:"ch7",name:"leadership",desc:"Manager discussions",icon:"🔒",private:true,members:["a1","a4"],unread:0,starred:false,muted:false,topic:"",bookmarks:[]},
-  {id:"ch8",name:"ai-experiments",desc:"Testing AI features",icon:"#",private:false,members:["a1","a2","a3"],unread:0,starred:false,muted:false,topic:"",bookmarks:[]}
-];
-export const TC_DMS=[{id:"dm1",agentId:"a2",unread:1,starred:true},{id:"dm2",agentId:"a3",unread:0,starred:false},{id:"dm3",agentId:"a4",unread:0,starred:false}];
-const TC_MSGS_INIT={
-  ch1:[
-    {id:"tm1",uid:"a1",text:"Good morning team! 🌞 Let's crush it today.",t:"09:02",date:"Today",reactions:[{emoji:"🔥",users:["a2","a3"]},{emoji:"👍",users:["a4"]}],thread:[],pinned:true,file:null},
-    {id:"tm2",uid:"a2",text:"Taking the **Arjun Mehta** ticket — payment stuck 3 days. Checking Stripe.",t:"09:05",date:"Today",reactions:[{emoji:"✅",users:["a1"]}],thread:[{id:"tr1",uid:"a1",text:"Thanks Dev! Need Stripe admin creds?",t:"09:06"},{id:"tr2",uid:"a2",text:"Got access 👍 Found it — `PAY-2026-4821` held by fraud filter. Releasing.",t:"09:12"}],pinned:false,file:null},
-    {id:"tm3",uid:"a3",text:"WhatsApp volume spiking — **56 conversations** already. @Priya can we enable AI auto-reply for WA?",t:"09:15",date:"Today",reactions:[],thread:[{id:"tr3",uid:"a1",text:"Done! AI Auto-Reply ON for WhatsApp. Handles greetings + FAQs, escalates complex ones.",t:"09:22"},{id:"tr4",uid:"a3",text:"Amazing — response time dropped from 4min to 12s! 🏎️",t:"09:25"}],pinned:false,file:null},
-    {id:"tm4",uid:"a4",text:"Deployed **CSV Export v2.4** to production.\n\n→ Customers can download: conversation reports, contact lists, invoices",t:"09:45",date:"Today",reactions:[{emoji:"🎉",users:["a1","a2","a3"]},{emoji:"🚀",users:["a1"]}],thread:[],pinned:false,file:null},
-    {id:"tm5",uid:"a2",text:"📋 **Ticket Escalation:**\n> Customer: Arjun Mehta\n> Issue: Payment stuck 3 days · Priority: 🔴 Urgent\n> Channel: Live Chat\n\nStripe confirmed fraud filter hold. Released + refund initiated.",t:"10:01",date:"Today",reactions:[{emoji:"👀",users:["a1","a4"]},{emoji:"✅",users:["a3"]}],thread:[{id:"tr5",uid:"a4",text:"Great work Dev! Updated runbook to include fraud filter as step 2.",t:"10:03"},{id:"tr6",uid:"a2",text:"Customer confirmed receipt. Resolved. ✅",t:"10:15"}],pinned:true,file:null},
-    {id:"tm6",uid:"a3",text:"Sharing the metrics file:",t:"10:30",date:"Today",reactions:[],thread:[],pinned:false,file:{name:"march_support_metrics.pdf",size:"2.4 MB",type:"pdf"}},
-  ],
-  ch2:[
-    {id:"tm7",uid:"a2",text:"🚨 **Escalation:** Sarah Chen API auth issue\n> 401 on valid tokens since 2 AM\n> Affects 3 enterprise customers\n\nLogs show token rotation at 02:00 invalidated sessions.",t:"08:30",date:"Today",reactions:[],thread:[{id:"tr7",uid:"a4",text:"Found it in deployment logs. Rolling back. ETA 15 min.",t:"08:45"},{id:"tr8",uid:"a4",text:"Rolled back. Tokens should work now.",t:"09:01"},{id:"tr9",uid:"a2",text:"Confirmed with Sarah — API working. Adding post-mortem ticket.",t:"09:10"}],pinned:true,file:null},
-  ],
-  dm1:[
-    {id:"dm1m1",uid:"a2",text:"Hey Priya, can you review the SLA report before standup?",t:"08:50",date:"Today",reactions:[],thread:[],pinned:false,file:null},
-    {id:"dm1m2",uid:"a1",text:"Sure! Ready by 10:30. Want the WA channel breakdown too?",t:"08:52",date:"Today",reactions:[{emoji:"👍",users:["a2"]}],thread:[],pinned:false,file:null},
-    {id:"dm1m3",uid:"a2",text:"Yes please. Also — do we have budget for the **Slack integration** upgrade? Free tier limits us to 100 msg/day.",t:"09:10",date:"Today",reactions:[],thread:[],pinned:false,file:null},
-    {id:"dm1m4",uid:"a1",text:"Let me check with finance. We should be able to swing ₹5K/mo for the Pro tier. I'll confirm today.",t:"09:15",date:"Today",reactions:[{emoji:"🙏",users:["a2"]}],thread:[],pinned:false,file:null},
-  ],
-  dm2:[
-    {id:"dm2m1",uid:"a3",text:"Priya — the WhatsApp volume is insane today. 56 conversations before 10 AM 😅",t:"09:20",date:"Today",reactions:[],thread:[],pinned:false,file:null},
-    {id:"dm2m2",uid:"a1",text:"I saw! Just enabled AI auto-reply for WA. Should help a lot. Let me know if quality dips.",t:"09:25",date:"Today",reactions:[],thread:[],pinned:false,file:null},
-    {id:"dm2m3",uid:"a3",text:"Already seeing improvement — response time dropped from 4min to under 30s. AI is handling greetings perfectly.",t:"09:40",date:"Today",reactions:[{emoji:"🔥",users:["a1"]}],thread:[],pinned:false,file:null},
-  ],
-  dm3:[
-    {id:"dm3m1",uid:"a4",text:"FYI — CSV export v2.4 deployment went smooth. No rollback needed 🚀",t:"09:50",date:"Today",reactions:[],thread:[],pinned:false,file:null},
-    {id:"dm3m2",uid:"a1",text:"Great work Aryan! Can you draft a changelog for the blog post?",t:"09:55",date:"Today",reactions:[{emoji:"✅",users:["a4"]}],thread:[],pinned:false,file:null},
-  ],
-  ch3:[
-    {id:"ch3m1",uid:"a2",text:"Anyone know why the webhook retry queue is backed up? Seeing 2K+ pending events.",t:"08:00",date:"Today",reactions:[],thread:[{id:"ch3t1",uid:"a4",text:"Redis queue hit memory limit. Bumped to 8GB. Should clear in ~10 min.",t:"08:12"},{id:"ch3t2",uid:"a2",text:"Clearing now — down to 400. Thanks Aryan!",t:"08:25"}],pinned:false,file:null},
-    {id:"ch3m2",uid:"a4",text:"🔧 **Post-mortem:** Token rotation deployment at 02:00 didn't invalidate cache properly. Fix: added cache-busting header. PR #2847 merged.",t:"09:30",date:"Today",reactions:[{emoji:"✅",users:["a1","a2"]}],thread:[],pinned:false,file:null},
-  ],
-  ch4:[
-    {id:"ch4m1",uid:"a1",text:"📥 **New Lead Handoff:**\n> Company: GlobalRetail (500+ stores)\n> Contact: David Chen, CTO\n> Interest: Multi-brand + multi-language\n> Estimated deal: ₹96K\n\nScheduled discovery call for March 29.",t:"09:30",date:"Today",reactions:[{emoji:"💰",users:["a3"]}],thread:[{id:"ch4t1",uid:"a3",text:"I'll prepare the multi-brand demo. Any specific languages they need?",t:"09:35"},{id:"ch4t2",uid:"a1",text:"English, Hindi, Mandarin, Spanish. 12 countries. Big one!",t:"09:38"}],pinned:false,file:null},
-  ],
-  ch5:[
-    {id:"ch5m1",uid:"a3",text:"Discovered a café near the office that has the BEST filter coffee. Anyone want to try at lunch? ☕",t:"09:00",date:"Today",reactions:[{emoji:"☕",users:["a1","a2"]},{emoji:"🎉",users:["a4"]}],thread:[{id:"ch5t1",uid:"a2",text:"Count me in!",t:"09:05"},{id:"ch5t2",uid:"a4",text:"Where is it?",t:"09:06"},{id:"ch5t3",uid:"a3",text:"Koramangala 4th Block, next to the bookshop. 12:30?",t:"09:08"}],pinned:false,file:null},
-    {id:"ch5m2",uid:"a2",text:"TIL: Ctrl+Shift+M toggles mute on current channel. How did I not know this? 🤦",t:"10:15",date:"Today",reactions:[{emoji:"🤔",users:["a1"]},{emoji:"💡",users:["a3"]}],thread:[],pinned:false,file:null},
-  ],
-  ch6:[
-    {id:"ch6m1",uid:"a3",text:"📊 **Weekly Feedback Summary:**\n\n• CSV export most-requested (shipped! 🎉)\n• Mobile app push notifications — 8 requests\n• Dark mode in widget — 5 requests\n• WhatsApp template messages — 4 requests",t:"08:00",date:"Today",reactions:[{emoji:"📊",users:["a1"]}],thread:[{id:"ch6t1",uid:"a1",text:"Mobile push is on the Q2 roadmap. Dark mode in widget is already in dev!",t:"08:15"}],pinned:false,file:null},
-  ],
-  ch7:[
-    {id:"ch7m1",uid:"a1",text:"Q1 numbers look strong: ₹18.4L revenue (+23%), 142 paying customers (+31%). Churn at 2.8% (down from 3.5%). Full deck ready for board review Friday.",t:"Yesterday",date:"Yesterday",reactions:[{emoji:"🚀",users:["a4"]}],thread:[{id:"ch7t1",uid:"a4",text:"Should we include the AI bot ROI metrics? Auto-resolve rate hit 38% this month.",t:"Yesterday"}],pinned:false,file:null},
-  ],
-  ch8:[
-    {id:"ch8m1",uid:"a2",text:"Testing the new AI Copilot with live tickets. Early results:\n• Response quality: 4.5/5 avg\n• Auto-resolve rate: 38%\n• False positives: ~3%\n• Avg latency: 1.2s",t:"Yesterday",date:"Yesterday",reactions:[{emoji:"🤖",users:["a1","a3"]},{emoji:"🔥",users:["a4"]}],thread:[{id:"ch8t1",uid:"a1",text:"38% auto-resolve is incredible! What's the false positive breakdown?",t:"Yesterday"},{id:"ch8t2",uid:"a2",text:"Mostly edge cases: multi-turn billing disputes and regulatory questions. Adding those to training set.",t:"Yesterday"}],pinned:false,file:null},
-    {id:"ch8m2",uid:"a4",text:"Shipped sentiment analysis v2. Now detects frustration, urgency, and satisfaction in real-time. Try it on #support-escalations.",t:"Today",date:"Today",reactions:[{emoji:"⚡",users:["a1","a2","a3"]}],thread:[],pinned:false,file:null},
-  ]
-};
+// Exported empty stubs — real data comes from API
+export const TC_CHANNELS:any[]=[];
+export const TC_DMS:any[]=[];
 const REACTIONS_SET=["👍","❤️","🔥","🎉","👀","🚀","✅","💯","🙏","😂","😢","🤔","💪","🤝","❓","⚡"];
 const SLASH_CMDS=[{cmd:"/remind",desc:"Set a reminder"},{cmd:"/poll",desc:"Create a poll"},{cmd:"/status",desc:"Update status"},{cmd:"/mute",desc:"Mute channel"},{cmd:"/topic",desc:"Set channel topic"},{cmd:"/invite",desc:"Invite to channel"},{cmd:"/shrug",desc:"¯\\_(ツ)_/¯"},{cmd:"/ai",desc:"Ask AI"},{cmd:"/ticket",desc:"Create ticket from chat"},{cmd:"/call",desc:"Start huddle"},{cmd:"/giphy",desc:"Send a GIF"},{cmd:"/leave",desc:"Leave channel"}];
 
 export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
-  const [channels,setChannels]=useState(TC_CHANNELS);
+  const [channels,setChannels]=useState<any[]>([]);
   // ═══ MULTI-PANE ═══
   const [panes,setPanes]=useState([]); // secondary pane channel/dm IDs (max 2)
   const [paneInputs,setPaneInputs]=useState({});
-  function parseApiMsg(m) {
-    let rxArr = [];
+  function parseApiMsg(m:any) {
+    let rxArr:any[] = [];
     try {
       const raw = typeof m.reactions === 'string' ? JSON.parse(m.reactions || '{}') : (m.reactions || {});
-      rxArr = Object.entries(raw).map(function(entry) { return { emoji: entry[0], users: entry[1] }; });
+      rxArr = Object.entries(raw).map(([emoji, users]) => ({ emoji, users }));
     } catch(e) {}
     const atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments || '[]') : (m.attachments || []);
     const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type } : null;
-    const t = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
-    return { id: m.id, uid: m.sender_id, text: m.text || '', t, date: 'Today', reactions: rxArr, thread: m.thread || [], pinned: false, file };
+    const msgTime = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
+    let seenBy:string[] = [];
+    try { seenBy = Array.isArray(m.seen_by) ? m.seen_by : JSON.parse(m.seen_by || '[]'); } catch {}
+    return { id: m.id, uid: m.sender_id, text: m.text || '', t: msgTime, date: 'Today', reactions: rxArr, thread: m.thread || [], pinned: false, file, seen_by: seenBy, sender_name: m.sender_name, sender_avatar: m.sender_avatar, sender_color: m.sender_color };
   }
   const openPane = (chId) => {
     if (chId === activeCh || panes.includes(chId)) return;
@@ -103,7 +48,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // Public channels auto-include all agents/members
   const getChMembers=ch=>{if(!ch)return[];if(!ch.private)return agents.map(a=>a.id);return ch.members||[];};
   const [tcMsgs,setTcMsgs]=useState<Record<string,any[]>>({});
-  const [activeCh,setActiveCh]=useState("ch1");
+  const [activeCh,setActiveCh]=useState("");
   const [tcInp,setTcInp]=useState("");
   const [showThread,setShowThread]=useState(null);const [threadInp,setThreadInp]=useState("");
   const [showReactions,setShowReactions]=useState(null);
@@ -111,16 +56,16 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const [showHuddle,setShowHuddle]=useState(false);
   const [tcSearch,setTcSearch]=useState("");
   const [collapsed,setCollapsed]=useState({});
-  const [pinnedMsgs,setPinnedMsgs]=useState({"ch1":["tm1","tm5"],"ch2":["tm7"]});
+  const [pinnedMsgs,setPinnedMsgs]=useState<Record<string,string[]>>({});
   const [bookmarks,setBookmarks]=useState([]);
   const [editingMsg,setEditingMsg]=useState(null);const [editText,setEditText]=useState("");
   const [showPinned,setShowPinned]=useState(false);
   const [showPoll,setShowPoll]=useState(false);const [pollQ,setPollQ]=useState("");const [pollOpts,setPollOpts]=useState(["","",""]);
-  const [polls,setPolls]=useState({"ch1":[{id:"poll1",q:"Weekly retro time?",opts:[{text:"2 PM Fri",votes:["a1","a2"]},{text:"4 PM Fri",votes:["a3"]},{text:"10 AM Mon",votes:["a4"]}],closed:false}]});
+  const [polls,setPolls]=useState<Record<string,any[]>>({});
   const [userStatus,setUserStatus]=useState({emoji:"🟢",text:"Available"});const [showStatusPicker,setShowStatusPicker]=useState(false);
   const [showMembers,setShowMembers]=useState(false);const [showChInfo,setShowChInfo]=useState(false);
   // ── Channel & Member management ──
-  const [tcDms,setTcDms]=useState(TC_DMS);
+  const [tcDms,setTcDms]=useState<any[]>([]);
   const [showInvite,setShowInvite]=useState(false);
   const [showEditCh,setShowEditCh]=useState(false);
   const [editChName,setEditChName]=useState("");const [editChDesc,setEditChDesc]=useState("");const [editChTopic,setEditChTopic]=useState("");const [editChPrivate,setEditChPrivate]=useState(false);
@@ -140,17 +85,22 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const handleWsMsg=useCallback((msg:any)=>{
     switch(msg.type){
       case 'tc_message':
-        if(msg.message&&msg.message.sender_id!==myIdRef.current){
+        if(msg.message){
           const m=msg.message;
-          const atts=typeof m.attachments==='string'?JSON.parse(m.attachments||'[]'):m.attachments||[];
-          const file=atts.length>0?{name:atts[0].name,size:atts[0].size,type:atts[0].type}:null;
-          setTcMsgs(p=>({...p,[msg.channelId]:[...(p[msg.channelId]||[]),{
-            id:m.id,uid:m.sender_id,text:m.text||'',
-            t:new Date(m.created_at||Date.now()).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'}),
-            date:'Today',reactions:[],thread:m.thread||[],pinned:false,file
-          }]}));
-          if(msg.channelId!==activeChRef.current)
+          // Skip messages sent by the current user (already added optimistically)
+          if(m.sender_id===myIdRef.current)break;
+          const parsed=parseApiMsg(m);
+          setTcMsgs(p=>{
+            const chMsgs=p[msg.channelId]||[];
+            // Deduplicate: skip if a message with this real ID already exists
+            if(chMsgs.some((e:any)=>e.id===parsed.id))return p;
+            return{...p,[msg.channelId]:[...chMsgs,parsed]};
+          });
+          if(msg.channelId===activeChRef.current){
+            sendReadReceipt(msg.channelId);
+          } else {
             setChannels(p=>p.map(c=>c.id===msg.channelId?{...c,unread:(c.unread||0)+1}:c));
+          }
           try{playNotifSound?.();}catch{}
         }
         break;
@@ -182,7 +132,9 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         if(msg.channel){
           const ch=msg.channel;
           let mems:string[]=[];try{mems=typeof ch.members==='string'?JSON.parse(ch.members):ch.members||[];}catch{}
-          setChannels(p=>{if(p.some((c:any)=>c.id===ch.id))return p;return[...p,{id:ch.id,name:ch.name,desc:ch.description||'',icon:ch.type==='private'?'🔒':'#',private:ch.type==='private',members:mems,unread:0,starred:false,muted:false,topic:'',bookmarks:[]}];});
+          setChannels(p=>{if(p.some((c:any)=>c.id===ch.id))return p;const next=[...p,{id:ch.id,name:ch.name,desc:ch.description||'',icon:ch.type==='private'?'🔒':'#',private:ch.type==='private',members:mems,unread:0,starred:false,muted:false,topic:ch.topic||'',bookmarks:[]}];return next;});
+          // Auto-select if we have no active channel
+          setActiveCh(p=>p?p:ch.id);
         }
         break;
       case 'tc_poll_new':
@@ -201,6 +153,12 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           setTcMsgs(p=>{const msgs=p[msg.channelId];if(!msgs)return p;return{...p,[msg.channelId]:msgs.map((m:any)=>m.id===msg.parentId?{...m,thread:[...m.thread,{id:t2.id,uid:t2.sender_id,text:t2.text,t:new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}]}:m)};});
         }
         break;
+      case 'connected':
+        // Server sends the list of currently online agents so we can initialise presence immediately
+        if(msg.onlineAgents&&setAgents){
+          setAgents((p:any[])=>p.map(a=>({...a,status:msg.onlineAgents.includes(a.id)?'online':a.status==='online'?'offline':a.status})));
+        }
+        break;
       case 'presence':
         if(setAgents)setAgents((p:any[])=>p.map(a=>a.id===msg.agentId?{...a,status:msg.status}:a));
         break;
@@ -216,6 +174,19 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       case 'tc_call_end':
         endCall(false);
         break;
+      case 'tc_read':
+        // Another agent has read messages — update seen_by on those messages
+        if(msg.seenMap){
+          setTcMsgs(p=>{
+            const chMsgs=p[msg.channelId];if(!chMsgs)return p;
+            return{...p,[msg.channelId]:chMsgs.map((m:any)=>{
+              if(!msg.seenMap[m.id])return m;
+              const seenBy:string[]=msg.seenMap[m.id]||[];
+              return{...m,seen_by:seenBy};
+            })};
+          });
+        }
+        break;
     }
   },[setAgents]);
 
@@ -224,17 +195,19 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     const token=api.getToken();
     if(!token)return;
     let ws:WebSocket;let reconnTimer:any;let pingTimer:any;
+    let killed=false; // prevents stale reconnect after cleanup (StrictMode / unmount)
     const connect=()=>{
+      if(killed)return;
       const base=(import.meta.env.VITE_BACKEND_URL??window.location.origin).replace(/^http/,'ws');
       ws=new WebSocket(`${base}/ws?token=${token}`);
       wsRef.current=ws;
       ws.onopen=()=>{pingTimer=setInterval(()=>{if(ws.readyState===1)ws.send(JSON.stringify({type:'ping'}));},25000);};
       ws.onmessage=(e)=>{try{handleWsMsg(JSON.parse(e.data));}catch{}};
-      ws.onclose=()=>{clearInterval(pingTimer);wsRef.current=null;reconnTimer=setTimeout(connect,3000);};
+      ws.onclose=()=>{clearInterval(pingTimer);if(!killed){wsRef.current=null;reconnTimer=setTimeout(connect,3000);}};
       ws.onerror=()=>{ws.close();};
     };
     connect();
-    return()=>{clearTimeout(reconnTimer);clearInterval(pingTimer);wsRef.current?.close();};
+    return()=>{killed=true;clearTimeout(reconnTimer);clearInterval(pingTimer);if(ws){ws.onclose=null;ws.close();}wsRef.current=null;};
   },[handleWsMsg]);
 
   const sendWs=(data:any)=>{if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify(data));};
@@ -291,6 +264,12 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     setIncomingCall(null);setShowHuddle(true);
   };
 
+  // Mark all messages in a channel as read
+  const sendReadReceipt=useCallback((chId:string)=>{
+    if(!chId||!api.isConnected())return;
+    api.post(`/chat/channels/${chId}/read`,{}).catch(()=>{});
+  },[]);
+
   // Send typing event via WebSocket
   const sendTypingEvent=()=>{
     sendWs({type:'tc_typing',channelId:activeCh,isTyping:true});
@@ -327,8 +306,8 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const fileRef=useRef(null);
   // ── Real-time refs ──
   const wsRef=useRef<WebSocket|null>(null);
-  const myIdRef=useRef<string>("a1"); // current logged-in agent ID (default a1 for demo)
-  const activeChRef=useRef<string>("ch1");
+  const myIdRef=useRef<string>(""); // current logged-in agent ID from JWT
+  const activeChRef=useRef<string>("");
   const typingTimeoutRef=useRef<any>(null);
   const peerRef=useRef<RTCPeerConnection|null>(null);
   const localStreamRef=useRef<MediaStream|null>(null);
@@ -365,7 +344,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const [mentionSearch,setMentionSearch]=useState(null);
   const [chNotifPrefs,setChNotifPrefs]=useState({});
   const [showChNotif,setShowChNotif]=useState(false);
-  const [lastRead]=useState({"ch1":"tm4","ch2":"tm7"});
+  const [lastRead]=useState<Record<string,string>>({});
   const [showFmtBar]=useState(true);
   const EMOJI_GRID=["😀","😂","🤣","😊","😍","🥰","😎","🤔","😢","😡","🥳","🤯","😴","🤮","🥺","😈","👍","👎","👏","🙌","🤝","💪","🔥","❤️","💯","✅","❌","⭐","🚀","🎉","🎯","💡","📌","📎","🔗","⚡","🏆","💎","🌟","⏰","📊","💬","🤖","🔔","🔕","📱","💻","🎧","☕"];
   const tcUnreadTotal=channels.reduce((s,c)=>s+c.unread,0)+tcDms.reduce((s,d)=>s+d.unread,0);
@@ -374,10 +353,15 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   useEffect(()=>{
     if(!api.isConnected())return;
     api.get("/chat/channels").then((r:any)=>{
-      if(r?.channels?.length)setChannels(r.channels.map((c:any)=>{
-        let mems:string[]=[];try{mems=typeof c.members==='string'?JSON.parse(c.members):c.members||[];}catch{}
-        return{...c,unread:0,starred:false,muted:false,desc:c.description||'',icon:c.type==='private'?'🔒':'#',private:c.type==='private',members:mems,topic:'',bookmarks:[]};
-      }));
+      if(r?.channels?.length){
+        const mapped=r.channels.map((c:any)=>{
+          let mems:string[]=[];try{mems=typeof c.members==='string'?JSON.parse(c.members):c.members||[];}catch{}
+          return{...c,unread:0,starred:false,muted:false,desc:c.description||'',icon:c.type==='private'?'🔒':'#',private:c.type==='private',members:mems,topic:c.topic||'',bookmarks:[]};
+        });
+        setChannels(mapped);
+        // Auto-select first channel if nothing is active
+        setActiveCh(p=>p?p:mapped[0]?.id||'');
+      }
     }).catch(()=>{});
     api.get("/chat/dms").then((r:any)=>{
       if(r?.dms?.length)setTcDms(r.dms.map((d:any)=>{
@@ -394,10 +378,14 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     if(!api.isConnected()||!activeCh)return;
     if(!tcMsgs[activeCh]?.length){
       setTcMsgsLoading(true);
-      api.get(`/chat/channels/${activeCh}/messages`).then(r => {
+      api.get(`/chat/channels/${activeCh}/messages`).then((r:any) => {
         if (r?.messages?.length) setTcMsgs(p => ({ ...p, [activeCh]: r.messages.map(parseApiMsg) }));
       }).catch(() => {}).finally(() => setTcMsgsLoading(false));
     }
+    // Mark all messages in this channel as read
+    sendReadReceipt(activeCh);
+    // Clear unread badge for this channel
+    setChannels(p=>p.map(c=>c.id===activeCh?{...c,unread:0}:c));
     // Load polls for channel
     api.get(`/chat/channels/${activeCh}/polls`).then((r:any)=>{
       if(r?.polls?.length)setPolls(p=>({...p,[activeCh]:r.polls.map((pl:any)=>({
@@ -406,7 +394,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         closed:!!pl.closed
       }))}));
     }).catch(()=>{});
-  },[activeCh]);
+  },[activeCh, sendReadReceipt]);
   // Keyboard shortcuts
   useEffect(()=>{const h=e=>{if(e.ctrlKey&&e.key==="/"){e.preventDefault();setTcInp("/");setShowSlash(true);}if(e.ctrlKey&&e.shiftKey&&e.key==="M"){e.preventDefault();setChannels(p=>p.map(c=>c.id===activeCh?{...c,muted:!c.muted}:c));showT(aCh?.muted?"Unmuted":"Muted","info");}if(e.key==="Escape"){setShowThread(null);setShowMembers(false);setShowChInfo(false);setShowAiPanel(false);setShowFilesPanel(false);setShowEmojiPicker(false);setMentionSearch(null);setProfilePop(null);}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[activeCh]);
 
@@ -434,7 +422,24 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     if(t.startsWith("/topic ")){setChannels(p=>p.map(c=>c.id===activeCh?{...c,topic:t.slice(7)}:c));showT("Topic updated","success");return;}
     if(t.startsWith("/status ")){setUserStatus({emoji:t.slice(8,10),text:t.slice(10).trim()||"Custom"});showT("Status set","success");return;}
     if(t.startsWith("/call")){setShowHuddle(true);return;}
-    if(t.startsWith("/ai ")){addMsg(t.slice(4));addMsg("🤖 *Processing your question…* (Claude API response would appear here)",true);return;}
+    if(t.startsWith("/ai ")){
+      const question=t.slice(4).trim();
+      addMsg(question);
+      addMsg("🤖 Thinking…",true);
+      api.post('/ai/chat',{max_tokens:500,system:"You are a helpful team assistant in a support desk platform. Answer concisely and helpfully.",messages:[{role:"user",content:question}]})
+        .then((d:any)=>{
+          const reply=d.content?.[0]?.text||"Sorry, I couldn't process that.";
+          setTcMsgs((p:any)=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any,i:number)=>
+            i===(p[activeCh]||[]).length-1&&m.isBot?{...m,text:"🤖 "+reply}:m
+          )}));
+        })
+        .catch(()=>{
+          setTcMsgs((p:any)=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any,i:number)=>
+            i===(p[activeCh]||[]).length-1&&m.isBot?{...m,text:"🤖 AI is not configured. Set ANTHROPIC_API_KEY in the backend .env file."}:m
+          )}));
+        });
+      return;
+    }
     if(t.startsWith("/remind ")){const parts=t.slice(8);setReminderMsg({id:"r"+uid(),text:parts});showT("Reminder set: "+parts,"success");return;}
     if(t.startsWith("/poll ")){setPollQ(t.slice(6));setShowPoll(true);return;}
     if(t.startsWith("/invite")){setShowInvite(true);return;}
@@ -445,9 +450,16 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   };
   const addMsg=(text:string,isBot?:boolean)=>{
     const myId=myIdRef.current;
-    const newMsg={id:"tm"+uid(),uid:isBot?"bot":myId,text,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null,isBot};
+    const newMsg={id:"tm"+uid(),uid:isBot?"bot":myId,text,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:null,isBot,seen_by:[]};
     setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),newMsg]}));
-    if(!isBot&&api.isConnected())api.post(`/chat/channels/${activeCh}/messages`,{text}).catch(()=>{});
+    if(!isBot&&api.isConnected()){
+      api.post(`/chat/channels/${activeCh}/messages`,{text}).then((r:any)=>{
+        // Replace temp id with real DB id
+        if(r?.message?.id){
+          setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===newMsg.id?{...m,id:r.message.id}:m)}));
+        }
+      }).catch(()=>{});
+    }
   };
   const sendTh=()=>{
     if(!threadInp.trim()||!showThread)return;const text=threadInp.trim();
@@ -578,9 +590,50 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     setShowPoll(false);setPollQ("");setPollOpts(["","",""]);showT("Poll created!","success");
   };
   // AI
-  const aiSum=async()=>{setAiSumLoad(true);setAiSummary(null);try{const ctx=curMsgs.slice(-15).map(m=>`[${ag[m.uid]?.name||"Bot"}] ${m.text}`).join("\n");const d=await api.post('/ai/chat',{max_tokens:400,system:"Summarize team chat in 3-4 bullet points. Decisions, actions, updates. No markdown.",messages:[{role:"user",content:ctx}]});setAiSummary(d.content?.[0]?.text||"");}catch(e){setAiSummary("• Resolved Arjun Mehta payment (Stripe fraud filter)\n• AI Auto-Reply enabled for WhatsApp — 12s response time\n• CSV Export v2.4 deployed\n• API auth 401 — token rotation rolled back");}setAiSumLoad(false);};
-  const aiReply=async()=>{setAiSugLoad(true);setAiSugs([]);try{const ctx=curMsgs.slice(-3).map(m=>`[${ag[m.uid]?.name}] ${m.text}`).join("\n");const d=await api.post('/ai/chat',{max_tokens:250,system:"Suggest 3 short team chat replies. Return JSON array of 3 strings only.",messages:[{role:"user",content:ctx}]});const p=JSON.parse((d.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim());setAiSugs(Array.isArray(p)?p:["Got it, on it.","Thanks!","Good call."]);}catch(e){setAiSugs(["Got it, I'll handle this.","Thanks for the update!","Makes sense — let's do it."]);}setAiSugLoad(false);};
-  const aiStd=async()=>{setAiStdLoad(true);setAiStandup(null);try{const ctx=curMsgs.slice(-20).map(m=>`[${ag[m.uid]?.name}] ${m.text}`).join("\n");const d=await api.post('/ai/chat',{max_tokens:350,system:"Generate standup: DONE, DOING, BLOCKED. 2-3 bullets each. No markdown.",messages:[{role:"user",content:ctx}]});setAiStandup(d.content?.[0]?.text||"");}catch(e){setAiStandup("DONE\n• Resolved Arjun Mehta payment\n• Deployed CSV Export v2.4\n• Enabled AI Auto-Reply for WA\n\nDOING\n• Monitoring WA CSAT\n• API auth post-mortem\n\nBLOCKED\n• Slack integration budget needed");}setAiStdLoad(false);};
+  const aiSum=async()=>{
+    setAiSumLoad(true);setAiSummary(null);
+    try{
+      const d=await api.post('/ai/chat-summary',{channel_id:activeCh});
+      setAiSummary(d.summary||"No summary available.");
+    }catch(e){
+      // Fallback: build context from loaded messages and use generic endpoint
+      try{
+        const ctx=curMsgs.slice(-15).map((m:any)=>`[${ag[m.uid]?.name||"Agent"}] ${m.text}`).join("\n");
+        const d2=await api.post('/ai/chat',{max_tokens:400,system:"Summarize team chat in 3-4 bullet points. Decisions, actions, updates. No markdown.",messages:[{role:"user",content:ctx}]});
+        setAiSummary(d2.content?.[0]?.text||"Could not generate summary.");
+      }catch{setAiSummary("Could not generate summary — check AI configuration.");}
+    }
+    setAiSumLoad(false);
+  };
+  const aiReply=async()=>{
+    setAiSugLoad(true);setAiSugs([]);
+    try{
+      const d=await api.post('/ai/chat-reply-suggestions',{channel_id:activeCh});
+      setAiSugs(d.suggestions||["Got it.","Thanks!","On it."]);
+    }catch(e){
+      try{
+        const ctx=curMsgs.slice(-3).map((m:any)=>`[${ag[m.uid]?.name}] ${m.text}`).join("\n");
+        const d2=await api.post('/ai/chat',{max_tokens:200,system:"Suggest 3 short team chat replies. Return JSON array of 3 strings only.",messages:[{role:"user",content:ctx}]});
+        const p=JSON.parse((d2.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim());
+        setAiSugs(Array.isArray(p)?p:["Got it, on it.","Thanks!","Good call."]);
+      }catch{setAiSugs(["Got it, I'll handle this.","Thanks for the update!","Makes sense — let's do it."]);}
+    }
+    setAiSugLoad(false);
+  };
+  const aiStd=async()=>{
+    setAiStdLoad(true);setAiStandup(null);
+    try{
+      const d=await api.post('/ai/chat-standup',{channel_id:activeCh});
+      setAiStandup(d.standup||"No standup generated.");
+    }catch(e){
+      try{
+        const ctx=curMsgs.slice(-20).map((m:any)=>`[${ag[m.uid]?.name}] ${m.text}`).join("\n");
+        const d2=await api.post('/ai/chat',{max_tokens:350,system:"Generate standup: DONE, DOING, BLOCKED. 2-3 bullets each. No markdown.",messages:[{role:"user",content:ctx}]});
+        setAiStandup(d2.content?.[0]?.text||"");
+      }catch{setAiStandup("Could not generate standup — check AI configuration.");}
+    }
+    setAiStdLoad(false);
+  };
 
   const togSec=id=>setCollapsed(p=>({...p,[id]:!p[id]}));
   const starredChs=channels.filter(c=>c.starred);const starredDms=tcDms.filter(d=>d.starred);
@@ -680,8 +733,8 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           <span style={{fontSize:12}}>{userStatus.emoji}</span><span style={{fontSize:12,color:C.t2,flex:1,textAlign:"left"}}>{userStatus.text}</span><span style={{fontSize:7,color:C.t3}}>{"\u25BC"}</span>
         </button>
         {showStatusPicker&&<div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:7,padding:4,marginBottom:6,animation:"fadeUp .1s ease"}}>
-          {[{e:"🟢",t:"Available"},{e:"🔴",t:"Busy"},{e:"🌙",t:"Away"},{e:"🔕",t:"Do Not Disturb"},{e:"🍕",t:"Lunch"},{e:"🏠",t:"Remote"},{e:"🎧",t:"In Huddle"},{e:"🎯",t:"Focusing"},{e:"✈️",t:"Vacation"}].map(s=>(
-            <button key={s.t} onClick={()=>{setUserStatus(s);setShowStatusPicker(false);}} className="hov" style={{width:"100%",display:"flex",alignItems:"center",gap:5,padding:"4px 8px",borderRadius:4,background:"transparent",border:"none",cursor:"pointer",fontSize:12,color:C.t2,textAlign:"left"}}>{s.e} {s.t}</button>
+          {[{e:"🟢",t:"Available",ws:"online"},{e:"🔴",t:"Busy",ws:"busy"},{e:"🌙",t:"Away",ws:"away"},{e:"🔕",t:"Do Not Disturb",ws:"dnd"},{e:"🍕",t:"Lunch",ws:"lunch"},{e:"🏠",t:"Remote",ws:"remote"},{e:"🎧",t:"In Huddle",ws:"huddle"},{e:"🎯",t:"Focusing",ws:"focus"},{e:"✈️",t:"Vacation",ws:"offline"}].map(s=>(
+            <button key={s.t} onClick={()=>{setUserStatus(s);setShowStatusPicker(false);sendWs({type:'tc_status',status:s.ws});}} className="hov" style={{width:"100%",display:"flex",alignItems:"center",gap:5,padding:"4px 8px",borderRadius:4,background:"transparent",border:"none",cursor:"pointer",fontSize:12,color:C.t2,textAlign:"left"}}>{s.e} {s.t}</button>
           ))}
         </div>}
         <div style={{display:"flex",alignItems:"center",gap:4,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:6,padding:"5px 8px"}}>
@@ -755,8 +808,29 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           {/* New messages divider */}
           {i>0&&fMsgs[i-1]?.id===lastRead[activeCh]&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 22px"}}><div style={{flex:1,height:2,background:C.r}}/><span style={{fontSize:11,color:C.r,fontFamily:FM,fontWeight:700,background:C.rd,padding:"2px 10px",borderRadius:12}}>New messages</span><div style={{flex:1,height:2,background:C.r}}/></div>}
           {renderMsg(m,false)}
-          {/* Read receipts on last own message */}
-          {i===fMsgs.length-1&&m.uid===myIdRef.current&&<div style={{padding:"2px 22px 6px",display:"flex",gap:2,alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>Seen by</span>{agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online").slice(0,3).map((a:any)=><span key={a.id} style={{marginLeft:-2}} title={a.name}><Av i={a.av} c={a.color} s={16}/></span>)}<span style={{fontSize:9,color:C.g,marginLeft:2}}>✓✓</span></div>}
+          {/* Sent / Seen status on own messages */}
+          {m.uid===myIdRef.current&&(()=>{
+            const seenBy:string[]=(m.seen_by||[]).filter((id:string)=>id!==myIdRef.current);
+            const seenAgents=seenBy.map((id:string)=>agents.find((a:any)=>a.id===id)).filter(Boolean);
+            const isSeen=seenBy.length>0;
+            return(
+              <div style={{padding:"1px 22px 4px",display:"flex",gap:3,alignItems:"center",justifyContent:"flex-end"}}>
+                {isSeen?(
+                  <>
+                    {seenAgents.slice(0,3).map((a:any)=>(
+                      <span key={a.id} style={{marginLeft:-3}} title={`Seen by ${a.name}`}>
+                        <Av i={a.av||a.avatar||"?"} c={a.color} s={13} dot={false}/>
+                      </span>
+                    ))}
+                    {seenAgents.length>3&&<span style={{fontSize:8,color:C.t3,fontFamily:FM}}>+{seenAgents.length-3}</span>}
+                    <span style={{fontSize:11,color:C.a,fontWeight:700,letterSpacing:"-1px"}} title="Seen">✓✓</span>
+                  </>
+                ):(
+                  <span style={{fontSize:11,color:C.t3,letterSpacing:"-1px"}} title="Sent">✓</span>
+                )}
+              </div>
+            );
+          })()}
         </div>)}
         {/* Typing indicator */}
         {(typingUsers[activeCh]||[]).length>0&&<div style={{padding:"6px 22px",display:"flex",alignItems:"center",gap:6}}>
@@ -768,7 +842,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         {(polls[activeCh]||[]).map(pl=>{const tv=pl.opts.reduce((s,o)=>s+o.votes.length,0);return(
           <div key={pl.id} style={{margin:"8px 22px",padding:"14px 16px",background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12}}>
             <div style={{fontSize:14,fontWeight:700,fontFamily:FD,marginBottom:10}}>📊 {pl.q}</div>
-            {pl.opts.map((o,oi)=>{const pct=tv?Math.round(o.votes.length/tv*100):0;const v=o.votes.includes("a1");return(
+            {pl.opts.map((o,oi)=>{const pct=tv?Math.round(o.votes.length/tv*100):0;const v=o.votes.includes(myIdRef.current);return(
               <button key={oi} onClick={()=>votePoll(pl.id,oi)} style={{width:"100%",padding:"8px 12px",borderRadius:8,marginBottom:4,cursor:"pointer",background:v?C.ad:C.s2,border:`1.5px solid ${v?C.a+"55":C.b1}`,textAlign:"left",display:"flex",alignItems:"center",gap:6,position:"relative",overflow:"hidden"}}>
                 <div style={{position:"absolute",left:0,top:0,bottom:0,width:pct+"%",background:v?C.a+"18":C.b1+"33",transition:"width .3s"}}/>
                 <span style={{fontSize:13,color:v?C.a:C.t1,fontWeight:v?700:500,position:"relative",flex:1}}>{o.text}</span>
@@ -840,7 +914,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         </div>}
         {/* Textarea */}
         <div style={{display:"flex",gap:5,alignItems:"flex-end"}}>
-          <textarea value={tcInp} onChange={handleInp} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}if(e.key==="ArrowUp"&&!tcInp){const myMsgs=curMsgs.filter(m=>m.uid==="a1");if(myMsgs.length){const last=myMsgs[myMsgs.length-1];setEditingMsg(last.id);setEditText(last.text);}}}} placeholder={"Message "+chLabel+"… (/ for commands, @ for mentions)"} rows={2} style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"9px 12px",fontSize:14,color:C.t1,fontFamily:FB,resize:"none",outline:"none",lineHeight:1.55}}/>
+          <textarea value={tcInp} onChange={handleInp} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}if(e.key==="ArrowUp"&&!tcInp){const myMsgs=curMsgs.filter(m=>m.uid===myIdRef.current);if(myMsgs.length){const last=myMsgs[myMsgs.length-1];setEditingMsg(last.id);setEditText(last.text);}}}} placeholder={"Message "+chLabel+"… (/ for commands, @ for mentions)"} rows={2} style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"9px 12px",fontSize:14,color:C.t1,fontFamily:FB,resize:"none",outline:"none",lineHeight:1.55}}/>
           <button onClick={send} style={{width:36,height:36,borderRadius:8,background:tcInp.trim()?C.a:C.s3,color:tcInp.trim()?"#fff":C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,transition:"all .15s"}}>{"\u2191"}</button>
         </div>
       </div>
@@ -956,7 +1030,23 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         </div>}
         <div style={{borderTop:`1px solid ${C.b1}`,paddingTop:10}}>
           <div style={{fontSize:10,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:8}}>QUICK ACTIONS</div>
-          {[{l:"Translate last message",fn:()=>showT("(Hindi translation)","info")},{l:"Detect sentiment",fn:()=>showT("Positive 😊 82%","success")},{l:"Extract action items",fn:()=>showT("1) Check Stripe 2) Monitor CSAT 3) Budget review","info")},{l:"Draft announcement",fn:()=>{setTcInp("📢 **Announcement:**\n\n");setShowAiPanel(false);}}].map(a=>(
+          {[
+            {l:"Detect sentiment",fn:async()=>{
+              const ctx=curMsgs.slice(-5).map((m:any)=>m.text).join(" ");
+              if(!ctx)return showT("No messages to analyse","info");
+              try{const d=await api.post('/ai/sentiment',{text:ctx});showT(`Sentiment: ${d.sentiment} (${d.score}%)`,d.sentiment==="positive"?"success":d.sentiment==="negative"?"error":"info");}
+              catch{showT("AI sentiment unavailable","error");}
+            }},
+            {l:"Extract action items",fn:async()=>{
+              const ctx=curMsgs.slice(-15).map((m:any)=>`[${ag[m.uid]?.name||"?"}] ${m.text}`).join("\n");
+              if(!ctx)return showT("No messages to analyse","info");
+              try{const d=await api.post('/ai/chat',{max_tokens:200,system:"Extract action items from this team chat as a numbered list. Be concise.",messages:[{role:"user",content:ctx}]});
+                setAiSummary(d.content?.[0]?.text||"No action items found.");showT("Action items extracted","success");}
+              catch{showT("AI unavailable","error");}
+            }},
+            {l:"Draft announcement",fn:()=>{setTcInp("📢 **Announcement:**\n\n");setShowAiPanel(false);}},
+            {l:"Ask AI anything (/ai)",fn:()=>{setTcInp("/ai ");setShowAiPanel(false);}}
+          ].map(a=>(
             <button key={a.l} onClick={a.fn} className="hov" style={{width:"100%",padding:"7px 10px",borderRadius:6,background:C.s2,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:12,color:C.t1,textAlign:"left",marginBottom:4,display:"flex",gap:5,alignItems:"center"}}><span style={{color:C.p,fontSize:10}}>✦</span>{a.l}</button>
           ))}
         </div>
@@ -1126,11 +1216,58 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
 }
 
 export function MiniChatPanel({agents,onClose,onExpand}){
-  const [activeCh,setActiveCh]=useState("ch1");
-  const [msgs]=useState(TC_MSGS_INIT);
+  const [channels,setChannels]=useState<any[]>([]);
+  const [activeCh,setActiveCh]=useState("");
+  const [msgs,setMsgs]=useState<Record<string,any[]>>({});
   const [inp,setInp]=useState("");
-  const ag=agents.reduce((m,a)=>{m[a.id]=a;return m;},{});
-  const cur=(msgs[activeCh]||[]).slice(-5);
+  const myIdRef=useRef<string>("");
+  const ag=agents.reduce((m:any,a:any)=>{m[a.id]=a;return m;},{});
+
+  // Decode JWT for user id
+  useEffect(()=>{
+    const token=api.getToken?.();
+    if(token){try{const p=JSON.parse(atob(token.split('.')[1]));if(p.id)myIdRef.current=p.id;}catch{}}
+  },[]);
+
+  // Load channels from API
+  useEffect(()=>{
+    if(!api.isConnected())return;
+    api.get("/chat/channels").then((r:any)=>{
+      if(r?.channels?.length){
+        const mapped=r.channels.map((c:any)=>({...c,name:c.name}));
+        setChannels(mapped);
+        setActiveCh(mapped[0]?.id||'');
+      }
+    }).catch(()=>{});
+  },[]);
+
+  // Load messages when active channel changes
+  useEffect(()=>{
+    if(!activeCh||!api.isConnected())return;
+    if(msgs[activeCh])return;
+    api.get(`/chat/channels/${activeCh}/messages`).then((r:any)=>{
+      if(r?.messages){
+        setMsgs(p=>({...p,[activeCh]:r.messages.map((m:any)=>{
+          let rxArr:any[]=[];
+          try{const raw=typeof m.reactions==='string'?JSON.parse(m.reactions||'{}'):(m.reactions||{});rxArr=Object.entries(raw).map(([e,u])=>({emoji:e,users:u}));}catch{}
+          const atts=typeof m.attachments==='string'?JSON.parse(m.attachments||'[]'):(m.attachments||[]);
+          const file=atts.length>0?{name:atts[0].name}:null;
+          return{id:m.id,uid:m.sender_id,text:m.text||'',t:new Date(m.created_at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'}),reactions:rxArr,file};
+        })}));
+      }
+    }).catch(()=>{});
+  },[activeCh]);
+
+  const cur=(msgs[activeCh]||[]).slice(-8);
+
+  const sendMsg=()=>{
+    const t=inp.trim();if(!t||!activeCh)return;
+    const myId=myIdRef.current;
+    setMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:'mm'+Date.now(),uid:myId,text:t,t:new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'}),reactions:[],file:null}]}));
+    setInp('');
+    if(api.isConnected())api.post(`/chat/channels/${activeCh}/messages`,{text:t}).catch(()=>{});
+  };
+
   return <div style={{position:"fixed",bottom:78,right:20,width:350,height:450,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:13,overflow:"hidden",boxShadow:"0 16px 50px rgba(0,0,0,.5)",zIndex:79,display:"flex",flexDirection:"column",animation:"fadeUp .2s ease"}}>
     <div style={{padding:"6px 9px",background:C.s1,borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:5}}>
       <NavIcon id="teamchat" s={13} col={C.a}/><span style={{fontSize:12,fontWeight:700,fontFamily:FD,flex:1}}>Team Chat</span>
@@ -1138,21 +1275,24 @@ export function MiniChatPanel({agents,onClose,onExpand}){
       <button onClick={onClose} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:12}}>×</button>
     </div>
     <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`,overflowX:"auto",flexShrink:0}}>
-      {TC_CHANNELS.slice(0,4).map(ch=><button key={ch.id} onClick={()=>setActiveCh(ch.id)} style={{padding:"3px 7px",fontSize:9,fontWeight:600,fontFamily:FM,color:activeCh===ch.id?C.a:C.t3,borderBottom:`2px solid ${activeCh===ch.id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>#{ch.name.slice(0,10)}</button>)}
+      {channels.slice(0,5).map((ch:any)=><button key={ch.id} onClick={()=>setActiveCh(ch.id)} style={{padding:"3px 7px",fontSize:9,fontWeight:600,fontFamily:FM,color:activeCh===ch.id?C.a:C.t3,borderBottom:`2px solid ${activeCh===ch.id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>#{ch.name.slice(0,10)}</button>)}
     </div>
     <div style={{flex:1,overflowY:"auto",padding:"3px 5px"}}>
-      {cur.map(m=>{const a2=m.isBot?{name:"AI",av:"✦",color:C.p}:ag[m.uid]||{name:"?",av:"?",color:C.t3};return(
+      {cur.length===0&&<div style={{padding:"20px",textAlign:"center",color:C.t3,fontSize:10}}>No messages yet</div>}
+      {cur.map((m:any)=>{const a2=ag[m.uid]||{name:"?",av:"?",color:C.t3};return(
         <div key={m.id} style={{display:"flex",gap:3,marginBottom:4}}>
-          <Av i={a2.av} c={a2.color} s={16}/>
-          <div style={{flex:1}}><div style={{fontSize:9}}><strong style={{color:C.t1}}>{a2.name}</strong> <span style={{color:C.t3,fontFamily:FM}}>{m.t}</span></div><div style={{fontSize:10,color:C.t2,lineHeight:1.3}}>{m.text.slice(0,80)}{m.text.length>80?"…":""}</div>
-          {m.file&&<div style={{fontSize:8,color:C.a,marginTop:1}}>📎 {m.file.name}</div>}
-          {m.reactions?.length>0&&<div style={{display:"flex",gap:1,marginTop:1}}>{m.reactions.map(r=><span key={r.emoji} style={{fontSize:8,background:C.s3,borderRadius:5,padding:"0 2px"}}>{r.emoji}{r.users.length}</span>)}</div>}
+          <Av i={a2.av||a2.avatar||"?"} c={a2.color} s={16} dot={a2.status==="online"}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9}}><strong style={{color:m.uid===myIdRef.current?C.a:C.t1}}>{a2.name||"?"}</strong> <span style={{color:C.t3,fontFamily:FM}}>{m.t}</span></div>
+            <div style={{fontSize:10,color:C.t2,lineHeight:1.3}}>{m.text.slice(0,80)}{m.text.length>80?"…":""}</div>
+            {m.file&&<div style={{fontSize:8,color:C.a,marginTop:1}}>📎 {m.file.name}</div>}
+            {m.reactions?.length>0&&<div style={{display:"flex",gap:1,marginTop:1}}>{m.reactions.map((r:any)=><span key={r.emoji} style={{fontSize:8,background:C.s3,borderRadius:5,padding:"0 2px"}}>{r.emoji}{r.users.length}</span>)}</div>}
           </div>
         </div>
       );})}
     </div>
     <div style={{padding:"4px 5px",borderTop:`1px solid ${C.b1}`,display:"flex",gap:3}}>
-      <input value={inp} onChange={e=>setInp(e.target.value)} placeholder="Message…" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 6px",fontSize:10,color:C.t1,fontFamily:FB,outline:"none"}}/>
+      <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();sendMsg();}}} placeholder="Message…" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 6px",fontSize:10,color:C.t1,fontFamily:FB,outline:"none"}}/>
       <button onClick={onExpand} style={{padding:"3px 6px",borderRadius:4,fontSize:8.5,fontWeight:700,background:C.a,color:"#fff",border:"none",cursor:"pointer"}}>Open</button>
     </div>
   </div>;
