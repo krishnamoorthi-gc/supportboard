@@ -696,6 +696,21 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
     },
   });
 
+  // ── AI auto-reply (fire-and-forget, non-blocking) ─────────────────────────
+  try {
+    const { triggerAutoReply } = require('./autoReplyService');
+    triggerAutoReply({
+      conversationId: conversation.id,
+      inboxId:        inbox.id,
+      agentId:        inbox.agent_id,
+      channel:        'email',
+      customerMessage: safeText || '',
+      contactEmail:   contact.email,
+      inReplyToMsgId: messageId,
+      subject:        conversation.subject,
+    }).catch(() => {});
+  } catch {}
+
   return true;
 }
 

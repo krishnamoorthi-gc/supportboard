@@ -195,6 +195,22 @@ app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req,
           }
           if (toAdd.length > 0) {
             await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, chat.conversation_id);
+            // AI auto-reply for each new customer message (fire-and-forget)
+            try {
+              const conv = await db.prepare('SELECT inbox_id, agent_id FROM conversations WHERE id=?').get(chat.conversation_id);
+              if (conv) {
+                const { triggerAutoReply } = require('./services/autoReplyService');
+                for (const m of toAdd) {
+                  triggerAutoReply({
+                    conversationId: chat.conversation_id,
+                    inboxId:        conv.inbox_id,
+                    agentId:        conv.agent_id,
+                    channel:        'live',
+                    customerMessage: m.t || '',
+                  }).catch(() => {});
+                }
+              }
+            } catch {}
           }
         }
       } catch {}
