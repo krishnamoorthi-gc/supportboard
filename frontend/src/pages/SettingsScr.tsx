@@ -474,6 +474,7 @@ function WebFormBuilder({inboxes}){
 }
 
 function InboxSet({inboxes,setInboxes}){
+  const backendUrl=(import.meta.env.VITE_BACKEND_URL??"http://localhost:4002").replace(/\/$/,"");
   const [showForm,setShowForm]=useState(false);
   const [edit,setEdit]=useState(null);
   const [cfgTab,setCfgTab]=useState("general");
@@ -578,6 +579,68 @@ function InboxSet({inboxes,setInboxes}){
   };
   const dayNames=["S","M","T","W","T","F","S"];
   const defaultFormFields=[{id:"ff1",type:"text",label:"Full Name",placeholder:"Your name",required:true,options:[]},{id:"ff2",type:"email",label:"Email Address",placeholder:"you@company.com",required:true,options:[]},{id:"ff3",type:"select",label:"Department",placeholder:"Select department",required:true,options:["Sales","Support","Billing","Technical","Other"]},{id:"ff4",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}];
+  const facebookWebhookUrl=`${backendUrl}/api/facebook/webhook`;
+  const connectionConfiguredMsg=
+    form.type==="whatsapp"
+      ?"Meta webhook verification and a live WhatsApp message are still needed before inbox replies can sync in real time"
+      :form.type==="facebook"
+      ?"Add this callback URL and verify token in Meta, then subscribe your page to Messenger events."
+      :"Configuration looks complete. Finish the provider-side webhook or subscription step to start receiving live messages.";
+  const copyToClipboard=async(value,label)=>{
+    if(!value){showT(label+" not available yet","error");return;}
+    try{
+      await navigator.clipboard.writeText(value);
+      showT(label+" copied","success");
+    }catch{
+      showT("Could not copy "+label.toLowerCase(),"error");
+    }
+  };
+  const resetConnectionFields=()=>{
+    (chFields[form.type]||[]).forEach(f=>cfgFld(f.k,""));
+    if(form.type==="facebook"){
+      cfgFld("pageName","");
+      cfgFld("pagePicture","");
+      cfgFld("pageCategory","");
+      cfgFld("connectedAt","");
+      cfgFld("_pendingPages",null);
+      cfgFld("fbConnecting",false);
+    }
+    cfgFld("connStatus","");
+    showT("Credentials cleared","info");
+  };
+  const disconnectFacebook=async()=>{
+    if(!edit?.id)return;
+    try{
+      await api.post("/facebook/disconnect",{inboxId:edit.id});
+      cfgFld("connStatus","");
+      cfgFld("pageId","");
+      cfgFld("accessToken","");
+      cfgFld("pageName","");
+      cfgFld("pagePicture","");
+      cfgFld("pageCategory","");
+      cfgFld("connectedAt","");
+      cfgFld("_pendingPages",null);
+      showT("Facebook page disconnected","info");
+    }catch{
+      showT("Disconnect failed","error");
+    }
+  };
+  const startFacebookConnect=async()=>{
+    if(!cfg.appId||!cfg.appSecret){showT("Please enter App ID and App Secret first, then Save Changes before connecting","error");return;}
+    if(!edit?.id){showT("Please Save Changes first to create the inbox, then connect","error");return;}
+    try{
+      await api.patch("/settings/inboxes/"+edit.id,{config:{...cfg}});
+    }catch{}
+    try{
+      cfgFld("fbConnecting",true);
+      const r=await api.get("/facebook/auth?inboxId="+edit.id);
+      if(r?.redirectUrl){window.location.href=r.redirectUrl;}
+      else{showT(r?.error||"Failed to start OAuth","error");cfgFld("fbConnecting",false);}
+    }catch(e){
+      showT("Connection failed: "+(e?.message||e),"error");
+      cfgFld("fbConnecting",false);
+    }
+  };
   const [newOptText,setNewOptText]=useState("");
   const openEdit=ib=>{
     setForm({name:ib.name,type:ib.type,greeting:ib.greeting||"",color:ib.color,active:ib.active});
@@ -786,91 +849,87 @@ function InboxSet({inboxes,setInboxes}){
 
         {/* ── Facebook OAuth Connect Button ── */}
         {form.type==="facebook"&&<>
-          {/* Step 1: App ID & Secret (always shown) */}
-          <Fld label="App ID"><Inp val={cfg.appId||""} set={v=>cfgFld("appId",v)} ph="933722449370118"/></Fld>
-          <Fld label="App Secret"><Inp val={cfg.appSecret||""} set={v=>cfgFld("appSecret",v)} ph="abc123def456..."/></Fld>
-          <Fld label="Webhook Verify Token"><Inp val={cfg.verifyToken||""} set={v=>cfgFld("verifyToken",v)} ph="my_secret_verify_token"/></Fld>
+          <div style={{marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:42,height:42,borderRadius:12,background:"#1877F222",display:"flex",alignItems:"center",justifyContent:"center",color:"#1877F2"}}>
+                <ChIcon t="facebook" s={22}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:800,color:C.t1}}>Facebook Integration</div>
+                <div style={{fontSize:10.5,color:C.t3,marginTop:2}}>Connect your Facebook page and copy the webhook details into Meta.</div>
+              </div>
+              <Tag text={cfg.connStatus==="connected"?"Connected":cfg.connStatus==="configured"?"Configured":"Not Connected"} color={cfg.connStatus==="connected"?C.g:cfg.connStatus==="configured"?C.y:"#1877F2"}/>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+              <Btn ch={cfg.fbConnecting?"Connecting...":"Connect with Facebook"} v="primary" sm onClick={startFacebookConnect} disabled={!!cfg.fbConnecting}/>
+              {cfg.connStatus==="connected"&&<Btn ch="Disconnect" v="ghost" sm onClick={disconnectFacebook}/>}
+            </div>
+            <div style={{fontSize:10,color:C.t3,marginTop:8}}>OAuth is optional here. You can also fill the fields below manually if you already have the page credentials.</div>
+          </div>
 
-          {/* Connected state */}
-          {cfg.connStatus==="connected"&&cfg.pageName?
-            <div style={{padding:"14px 16px",background:"#e7f5e9",borderRadius:10,border:"1px solid #25d36644",marginTop:8,marginBottom:10}}>
+          {cfg.connStatus==="connected"&&cfg.pageName&&
+            <div style={{padding:"14px 16px",background:"#e7f5e9",borderRadius:12,border:"1px solid #25d36644",marginBottom:12}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
-                {cfg.pagePicture&&<img src={cfg.pagePicture} alt="" style={{width:36,height:36,borderRadius:"50%",border:"2px solid #25d366"}}/>}
+                {cfg.pagePicture&&<img src={cfg.pagePicture} alt="" style={{width:38,height:38,borderRadius:"50%",border:"2px solid #25d366"}}/>}
                 <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#1a7f37"}}>✓ Connected to: {cfg.pageName}</div>
-                  <div style={{fontSize:10,color:"#57606a"}}>Page ID: {cfg.pageId}{cfg.connectedAt?" · Connected: "+cfg.connectedAt:""}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1a7f37"}}>Connected to {cfg.pageName}</div>
+                  <div style={{fontSize:10,color:"#57606a"}}>{cfg.pageCategory||"Facebook Page"}{cfg.pageId?" · Page ID: "+cfg.pageId:""}{cfg.connectedAt?" · Connected: "+cfg.connectedAt:""}</div>
                 </div>
-                <button onClick={async()=>{
-                  if(!edit?.id)return;
-                  try{
-                    await api.post("/facebook/disconnect",{inboxId:edit.id});
-                    cfgFld("connStatus","");cfgFld("pageId","");cfgFld("accessToken","");cfgFld("pageName","");cfgFld("pagePicture","");
-                    showT("Facebook page disconnected","info");
-                  }catch(e){showT("Disconnect failed","error");}
-                }} style={{padding:"6px 14px",fontSize:11,fontWeight:700,color:"#cf222e",background:"#FFEBE9",border:"1px solid #cf222e33",borderRadius:8,cursor:"pointer"}}>Disconnect</button>
               </div>
             </div>
-          :
-          /* Not connected → show Connect button */
-          <div style={{marginTop:8,marginBottom:10}}>
-            <button onClick={async()=>{
-              if(!cfg.appId||!cfg.appSecret){showT("Please enter App ID and App Secret first, then Save Changes before connecting","error");return;}
-              if(!edit?.id){showT("Please Save Changes first to create the inbox, then connect","error");return;}
-              // Save first so backend has appId/appSecret
-              try{
-                await api.patch("/settings/inboxes/"+edit.id,{config:{...cfg}});
-              }catch{}
-              try{
-                cfgFld("fbConnecting",true);
-                const r=await api.get("/facebook/auth?inboxId="+edit.id);
-                if(r?.redirectUrl){window.location.href=r.redirectUrl;}
-                else{showT(r?.error||"Failed to start OAuth","error");cfgFld("fbConnecting",false);}
-              }catch(e){showT("Connection failed: "+(e?.message||e),"error");cfgFld("fbConnecting",false);}
-            }} style={{
-              display:"flex",alignItems:"center",justifyContent:"center",gap:10,width:"100%",
-              padding:"12px 20px",fontSize:14,fontWeight:700,color:"#fff",
-              background:"#1877F2",border:"none",borderRadius:10,cursor:"pointer",
-              opacity:cfg.fbConnecting?0.6:1,transition:"opacity 0.2s"
-            }} disabled={!!cfg.fbConnecting}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-              {cfg.fbConnecting?"Connecting…":"Connect with Facebook"}
-            </button>
-            <div style={{fontSize:10,color:C.t3,marginTop:6,textAlign:"center"}}>This will redirect you to Facebook to authorize page access. Make sure App ID & Secret are saved first.</div>
-          </div>
           }
 
-          {/* Page picker (multiple pages) */}
-          {cfg._pendingPages&&cfg._pendingPages.length>1&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,padding:14,marginBottom:10}}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Select a Facebook Page:</div>
+          {cfg._pendingPages&&cfg._pendingPages.length>1&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:14,marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Select a Facebook Page</div>
+            <div style={{fontSize:10.5,color:C.t3,marginBottom:10}}>Facebook returned multiple pages. Pick the one that should deliver Messenger conversations into this inbox.</div>
             {cfg._pendingPages.map(p=>(
               <div key={p.id} onClick={async()=>{
                 try{
                   await api.post("/facebook/select-page",{inboxId:edit?.id,pageId:p.id});
-                  cfgFld("pageId",p.id);cfgFld("pageName",p.name);cfgFld("pagePicture",p.picture);cfgFld("accessToken",p.accessToken);
+                  cfgFld("pageId",p.id);cfgFld("pageName",p.name);cfgFld("pagePicture",p.picture);cfgFld("pageCategory",p.category||"");cfgFld("accessToken",p.accessToken);
                   cfgFld("connStatus","connected");cfgFld("_pendingPages",null);
                   showT("Connected to "+p.name+"!","success");
-                }catch(e){showT("Failed to select page","error");}
-              }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.bg,borderRadius:8,border:`1px solid ${C.b1}`,marginBottom:6,cursor:"pointer",transition:"border-color 0.2s"}}
-              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor="#1877F2"}}
-              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.b1}}>
+                }catch{showT("Failed to select page","error");}
+              }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.bg,borderRadius:10,border:`1px solid ${C.b1}`,marginBottom:6,cursor:"pointer",transition:"border-color 0.2s"}}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor="#1877F2";}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.b1;}}>
                 {p.picture&&<img src={p.picture} alt="" style={{width:32,height:32,borderRadius:"50%"}}/>}
                 <div style={{flex:1}}>
                   <div style={{fontSize:12,fontWeight:700}}>{p.name}</div>
                   <div style={{fontSize:10,color:C.t3}}>{p.category||"Page"} · ID: {p.id}</div>
                 </div>
-                <div style={{fontSize:11,fontWeight:700,color:"#1877F2"}}>Select →</div>
+                <div style={{fontSize:11,fontWeight:700,color:"#1877F2"}}>Select</div>
               </div>
             ))}
           </div>}
 
-          {/* Manual fields (collapsed - for advanced users) */}
-          <details style={{marginBottom:6}}>
-            <summary style={{fontSize:11,color:C.t3,cursor:"pointer",padding:"6px 0",userSelect:"none"}}>▸ Manual configuration (advanced)</summary>
-            <div style={{paddingTop:6}}>
-              <Fld label="Page ID"><Inp val={cfg.pageId||""} set={v=>cfgFld("pageId",v)} ph="123456789"/></Fld>
-              <Fld label="Page Access Token"><Inp val={cfg.accessToken||""} set={v=>cfgFld("accessToken",v)} ph="EAAxxxxxxx"/></Fld>
+          {[{k:"pageId",l:"PAGE ID",ph:"123456789",type:"text"},{k:"accessToken",l:"PAGE ACCESS TOKEN",ph:"EAAxxxxxxx",type:"password"},{k:"appId",l:"APP ID",ph:"933722449370118",type:"text"},{k:"appSecret",l:"APP SECRET",ph:"abc123def456...",type:"password"},{k:"verifyToken",l:"WEBHOOK VERIFY TOKEN",ph:"supportdesk_facebook_verify",type:"text"}].map(f=>(
+            <div key={f.k} style={{marginBottom:10}}>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>{f.l}</div>
+              <Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph} type={f.type}/>
             </div>
-          </details>
+          ))}
+
+          <div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>Messenger Webhook</div>
+            <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Meta App Dashboard add the Webhooks product, then use this callback URL and the same verify token shown below. Subscribe your page to the <code style={{fontFamily:FM,color:C.a}}>messages</code> field.</div>
+            <div style={{display:"grid",gap:10}}>
+              <div>
+                <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>CALLBACK URL</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                  <div style={{flex:1,fontSize:11,fontFamily:FM,color:C.g,wordBreak:"break-all"}}>{facebookWebhookUrl}</div>
+                  <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(facebookWebhookUrl,"Callback URL")}/>
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>VERIFY TOKEN</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                  <div style={{flex:1,fontSize:11,fontFamily:FM,color:cfg.verifyToken?C.a:C.t3,wordBreak:"break-all"}}>{cfg.verifyToken||"Enter a webhook verify token above"}</div>
+                  <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(cfg.verifyToken||"","Verify Token")}/>
+                </div>
+              </div>
+            </div>
+          </div>
         </>}
 
         {/* Non-Facebook channels: render fields normally */}
@@ -882,7 +941,7 @@ function InboxSet({inboxes,setInboxes}){
         {(chFields[form.type]||[]).length>0&&<div style={{display:"flex",gap:8,marginTop:10,marginBottom:14}}>
           <Btn ch={cfg.connTesting?"Testing…":"Test Connection"} v="primary" onClick={()=>testConnection(edit?.id)}/>
           <Btn ch="View Documentation" v="ghost" onClick={()=>cfgFld("showDocs",!cfg.showDocs)}/>
-          <Btn ch="Reset" v="ghost" onClick={()=>{(chFields[form.type]||[]).forEach(f=>cfgFld(f.k,""));cfgFld("connStatus","");showT("Credentials cleared","info");}}/>
+          <Btn ch="Reset" v="ghost" onClick={resetConnectionFields}/>
         </div>}
 
         {/* Connection status */}
@@ -895,7 +954,7 @@ function InboxSet({inboxes,setInboxes}){
         </div>}
         {cfg.connStatus==="configured"&&!cfg.connTesting&&<div style={{padding:"12px",background:C.yd,borderRadius:10,border:`1px solid ${C.y}33`,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:24,height:24,borderRadius:"50%",background:C.y,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:800}}>!</div>
-          <div><div style={{fontSize:12,fontWeight:700,color:C.y}}>Configuration Looks Complete</div><div style={{fontSize:10,color:C.t3}}>Meta webhook verification and a live WhatsApp message are still needed before inbox replies can sync in real time</div></div>
+          <div><div style={{fontSize:12,fontWeight:700,color:C.y}}>Configuration Looks Complete</div><div style={{fontSize:10,color:C.t3}}>{connectionConfiguredMsg}</div></div>
         </div>}
         {(cfg.connStatus==="failed"||cfg.connStatus==="error")&&!cfg.connTesting&&<div style={{padding:"12px",background:C.rd,borderRadius:10,border:`1px solid ${C.r}33`,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:24,height:24,borderRadius:"50%",background:C.r,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:800}}>✕</div>
