@@ -658,8 +658,9 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
   );
   const newMsg = { id: msgId, conversation_id: conversation.id, role: 'customer', text: safeText, html: safeHtml, attachments: inboundAttachments, email_message_id: messageId, is_read: 0, created_at: createdAt };
 
-  // Bump conversation.updated_at
-  await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(createdAt, conversation.id);
+  // Bump conversation.updated_at to NOW so it bubbles to top of inbox list
+  const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(nowStr, conversation.id);
 
   // ── Mark as Seen on IMAP ─────────────────────────────────────────────────
   await client.messageFlagsAdd({ uid: rawMsg.uid }, ['\\Seen'], { uid: true });
