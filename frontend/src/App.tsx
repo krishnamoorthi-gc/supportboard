@@ -350,9 +350,10 @@ export default function App(){
       const nextConv=normalizeNotifConversation(notif.targetConversation);
       if(nextConv){
         setConvs(prev=>{
+          const now=new Date().toISOString();
           const exists=prev.find((c:any)=>c.id===nextConv.id);
-          if(exists)return prev.map((c:any)=>c.id===nextConv.id?{...c,...nextConv,unread:Math.max(c.unread||0,nextConv.unread||0)}:c);
-          return [nextConv,...prev];
+          if(exists)return prev.map((c:any)=>c.id===nextConv.id?{...c,...nextConv,unread:Math.max(c.unread||0,nextConv.unread||0),time:now,updated_at:now}:c);
+          return [{...nextConv,time:now,updated_at:now},...prev];
         });
       }
     }
