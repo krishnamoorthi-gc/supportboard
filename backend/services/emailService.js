@@ -9,6 +9,13 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 
+// Strip 4-byte chars (emoji etc.) that break MySQL utf8 (non-utf8mb4) columns
+function sanitizeForMysql(str) {
+  if (!str) return str;
+  // Replace any character outside the Basic Multilingual Plane (> U+FFFF) with ?
+  return str.replace(/[\u{10000}-\u{10FFFF}]/gu, '?');
+}
+
 // Lazy-import broadcastToAll so we don't create a circular dep at module load
 let _broadcast;
 function broadcast(data) {
@@ -630,20 +637,23 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
   // ── Persist message (raw SQL — avoids Prisma stale-connection issues) ────
   const msgId = uuidv4();
   const createdAt = messageDate.toISOString().slice(0, 19).replace('T', ' ');
+  // Sanitize: strip 4-byte chars (emoji) that break utf8 MySQL, truncate html to 16MB safe limit
+  const safeText = sanitizeForMysql(bodyText) || null;
+  const safeHtml = sanitizeForMysql(rawHtml)?.slice(0, 16 * 1024 * 1024) || null;
   await db.prepare(
     'INSERT INTO messages (id,conversation_id,role,text,html,attachments,email_message_id,is_read,created_at) VALUES (?,?,?,?,?,?,?,?,?)'
   ).run(
     msgId,
     conversation.id,
     'customer',
-    bodyText || null,
-    rawHtml || null,
+    safeText,
+    safeHtml,
     inboundAttachments.length ? JSON.stringify(inboundAttachments) : null,
     messageId,
     0,
     createdAt
   );
-  const newMsg = { id: msgId, conversation_id: conversation.id, role: 'customer', text: bodyText || null, html: rawHtml || null, attachments: inboundAttachments, email_message_id: messageId, is_read: 0, created_at: createdAt };
+  const newMsg = { id: msgId, conversation_id: conversation.id, role: 'customer', text: safeText, html: safeHtml, attachments: inboundAttachments, email_message_id: messageId, is_read: 0, created_at: createdAt };
 
   // Bump conversation.updated_at
   await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(createdAt, conversation.id);

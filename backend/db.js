@@ -964,8 +964,15 @@ async function ensureSchemaColumns() {
       }
       // ── html column for original email HTML body ─────────────────────
       if (!msgCols.has('html')) {
-        await run('ALTER TABLE messages ADD COLUMN html TEXT NULL');
+        await run('ALTER TABLE messages ADD COLUMN html MEDIUMTEXT NULL');
         console.log('✅ Added html to messages');
+      } else {
+        // Upgrade TEXT → MEDIUMTEXT if the column type is too small
+        const htmlCol = (await query("SHOW COLUMNS FROM messages LIKE 'html'"))[0];
+        if (htmlCol && htmlCol.Type === 'text') {
+          await run('ALTER TABLE messages MODIFY COLUMN html MEDIUMTEXT NULL');
+          console.log('✅ Upgraded html column to MEDIUMTEXT');
+        }
       }
     } catch (e) { console.error('email/wa_message_id/html column:', e.message); }
 
