@@ -2699,7 +2699,7 @@ function CustomFieldsSet({fields,setFields}){
 
 // ── Email Signatures ──
 function EmailSigsSet(){
-  const [sigs,setSigs]=useState(EMAIL_SIGS_INIT);
+  const [sigs,setSigs]=useState([]);
   const [showForm,setShowForm]=useState(false);
   const [editSig,setEditSig]=useState(null);
   const [sName,setSName]=useState("");
@@ -2717,6 +2717,8 @@ function EmailSigsSet(){
     {name:"Formal",body:"Yours sincerely,\n\n**{{name}}**\n{{title}}\n{{company}}\nEmail: {{email}}\nPhone: {{phone}}\nWeb: {{website}}"},
     {name:"Support",body:"Happy to help! 😊\n\n**{{name}}** — {{title}}\n{{company}} Support Team\n{{email}}"},
   ];
+  const mapSig=(s:any)=>({id:s.id,name:s.name,body:s.body,agentId:s.agent_id,isDefault:!!s.is_default,logo:!!s.logo,active:s.active===undefined?true:!!s.active,socials:s.socials||{}});
+  useEffect(()=>{api.get('/settings/signatures').then((r:any)=>{setSigs((r.signatures||[]).map(mapSig));}).catch(()=>{});},[]);
   const fillVars=t=>(t||"").replace(/\{\{name\}\}/g,"Priya Sharma").replace(/\{\{title\}\}/g,"Head of Support").replace(/\{\{email\}\}/g,"priya@supportdesk.app").replace(/\{\{phone\}\}/g,"+91 98765 43210").replace(/\{\{company\}\}/g,"SupportDesk").replace(/\{\{website\}\}/g,"supportdesk.app");
   const renderSig=body=>{if(!body)return null;return body.split("\n").map((line,i)=>{
     if(line.startsWith("—"))return <hr key={i} style={{border:"none",borderTop:`1px solid ${C.b2}`,margin:"8px 0"}}/>;
@@ -2728,14 +2730,37 @@ function EmailSigsSet(){
   const save=()=>{
     if(!sName.trim())return showT("Name required","error");
     if(!sBody.trim())return showT("Signature body required","error");
-    const payload={name:sName,body:sBody,agentId:sAgent,isDefault:sDefault,logo:sLogo,socials:{...sSocials},active:true};
+    const localPayload={name:sName,body:sBody,agentId:sAgent,isDefault:sDefault,logo:sLogo,socials:{...sSocials},active:true};
+    const apiPayload={name:sName,body:sBody,agent_id:sAgent,is_default:sDefault?1:0,logo:sLogo?1:0,socials:{...sSocials}};
     if(sDefault)setSigs(p=>p.map(s=>({...s,isDefault:false})));
-    if(editSig)setSigs(p=>p.map(s=>s.id===editSig.id?{...s,...payload}:s));
-    else setSigs(p=>[{id:"es"+uid(),...payload},...p]);
+    if(editSig){
+      setSigs(p=>p.map(s=>s.id===editSig.id?{...s,...localPayload}:s));
+      if(api.isConnected())api.patch(`/settings/signatures/${editSig.id}`,apiPayload).catch(()=>{});
+    } else {
+      const tempId="es"+uid();
+      setSigs(p=>[{id:tempId,...localPayload},...p]);
+      if(api.isConnected())api.post('/settings/signatures',apiPayload).then((r:any)=>{
+        if(r?.signature)setSigs(p=>p.map(s=>s.id===tempId?mapSig(r.signature):s));
+      }).catch(()=>{});
+    }
     showT(editSig?"Signature updated":"Signature created!","success");setShowForm(false);setEditSig(null);
   };
-  const dupSig=s=>{setSigs(p=>[{...s,id:"es"+uid(),name:s.name+" (Copy)",isDefault:false},...p]);showT("Duplicated","success");};
-  const setAsDefault=id=>{setSigs(p=>p.map(s=>({...s,isDefault:s.id===id})));showT("Set as default","success");};
+  const dupSig=s=>{
+    const tempId="es"+uid();
+    setSigs(p=>[{...s,id:tempId,name:s.name+" (Copy)",isDefault:false},...p]);
+    showT("Duplicated","success");
+    if(api.isConnected())api.post('/settings/signatures',{name:s.name+" (Copy)",body:s.body,agent_id:s.agentId,is_default:0,logo:s.logo?1:0,socials:s.socials||{}}).then((r:any)=>{
+      if(r?.signature)setSigs(p=>p.map(x=>x.id===tempId?mapSig(r.signature):x));
+    }).catch(()=>{});
+  };
+  const setAsDefault=id=>{
+    setSigs(p=>p.map(s=>({...s,isDefault:s.id===id})));
+    showT("Set as default","success");
+    if(api.isConnected()){
+      api.patch(`/settings/signatures/${id}`,{is_default:1}).catch(()=>{});
+      sigs.filter((s:any)=>s.id!==id&&s.isDefault).forEach((s:any)=>api.patch(`/settings/signatures/${s.id}`,{is_default:0}).catch(()=>{}));
+    }
+  };
 
   return <div style={{padding:"24px 28px"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -2766,7 +2791,7 @@ function EmailSigsSet(){
                 {s.agentId==="all"?"All agents":"Agent: "+s.agentId}
               </div>
             </div>
-            <Toggle val={s.active} set={v=>{setSigs(p=>p.map(x=>x.id===s.id?{...x,active:v}:x));showT(v?"Activated":"Deactivated","info");}}/>
+            <Toggle val={s.active} set={v=>{setSigs(p=>p.map(x=>x.id===s.id?{...x,active:v}:x));showT(v?"Activated":"Deactivated","info");if(api.isConnected())api.patch(`/settings/signatures/${s.id}`,{active:v?1:0}).catch(()=>{});}}/>
           </div>
           {/* Preview */}
           <div style={{padding:"14px 18px",background:C.bg,borderBottom:`1px solid ${C.b1}`,minHeight:80}}>
@@ -2784,7 +2809,7 @@ function EmailSigsSet(){
             {!s.isDefault&&<Btn ch="Set Default" v="ghost" sm onClick={()=>setAsDefault(s.id)}/>}
             <Btn ch="Edit" v="ghost" sm onClick={()=>openEdit(s)}/>
             <Btn ch="⧉" v="ghost" sm onClick={()=>dupSig(s)}/>
-            <Btn ch="✕" v="danger" sm onClick={()=>{setSigs(p=>p.filter(x=>x.id!==s.id));showT("Deleted","success");}}/>
+            <Btn ch="✕" v="danger" sm onClick={()=>{setSigs(p=>p.filter(x=>x.id!==s.id));showT("Deleted","success");if(api.isConnected())api.del(`/settings/signatures/${s.id}`).catch(()=>{});}}/>
           </div>
         </div>
       ))}

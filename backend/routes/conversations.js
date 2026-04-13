@@ -292,6 +292,24 @@ router.post('/:id/messages', auth, async (req, res) => {
       replyHeader = lastEmailMsg?.email_message_id || null;
     }
 
+    // Append agent's default signature (if any)
+    let emailBody = text || '';
+    const sig = await db.prepare(
+      'SELECT * FROM signatures WHERE agent_id=? AND is_default=1 AND active=1 LIMIT 1'
+    ).get(req.agent.id);
+    if (sig && sig.body) {
+      let sigText = sig.body
+        .replace(/\{\{name\}\}/g, req.agent.name || '')
+        .replace(/\{\{title\}\}/g, req.agent.role || '')
+        .replace(/\{\{email\}\}/g, req.agent.email || '')
+        .replace(/\{\{phone\}\}/g, req.agent.phone || '')
+        .replace(/\{\{company\}\}/g, '')
+        .replace(/\{\{website\}\}/g, '');
+      // Strip markdown for plain text
+      sigText = sigText.replace(/\*\*(.*?)\*\*/g, '$1').replace(/_(.*?)_/g, '$1');
+      emailBody = emailBody + '\n\n--\n' + sigText;
+    }
+
     try {
       smtpResult = await sendEmail({
         inboxId: conv.inbox_id_val,
@@ -299,7 +317,7 @@ router.post('/:id/messages', auth, async (req, res) => {
         cc: cc || null,
         bcc: bcc || null,
         subject: emailSubject || conv.subject || '(No Subject)',
-        text: text || '',
+        text: emailBody,
         inReplyTo: replyHeader,
         attachments: normalizedAttachments,
       });
