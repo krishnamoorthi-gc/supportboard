@@ -1167,6 +1167,30 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('contact_group_members table:', e.message); }
 
+    // ── Ensure campaign_send_log table exists ─────────────────────────────
+    try {
+      const [cslTables] = await db.query("SHOW TABLES LIKE 'campaign_send_log'");
+      if (cslTables.length === 0) {
+        await run(`CREATE TABLE IF NOT EXISTS campaign_send_log (
+          id VARCHAR(255) PRIMARY KEY,
+          campaign_id VARCHAR(255) NOT NULL,
+          contact_id VARCHAR(255),
+          contact_name VARCHAR(255),
+          contact_email VARCHAR(255),
+          contact_phone VARCHAR(255),
+          channel VARCHAR(50),
+          status VARCHAR(50) DEFAULT 'pending',
+          error_message TEXT,
+          sent_at DATETIME,
+          delivered_at DATETIME,
+          read_at DATETIME,
+          clicked_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        console.log('✅ Created campaign_send_log table');
+      }
+    } catch (e) { console.error('campaign_send_log table:', e.message); }
+
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
