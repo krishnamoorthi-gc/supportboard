@@ -480,7 +480,7 @@ function InboxSet({inboxes,setInboxes}){
   const [form,setForm]=useState({name:"",type:"live",greeting:"",color:C.g,active:true});
   const [cfg,setCfg]=useState({
     // Connection
-    apiKey:"",webhookUrl:"",verifyToken:"",phoneNumberId:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",
+    apiKey:"",webhookUrl:"",verifyToken:"",phoneNumberId:"",phoneNumber:"",pageId:"",botToken:"",accessToken:"",appId:"",appSecret:"",
     // General
     autoAssign:true,assignMethod:"round_robin",maxPerAgent:8,
     // Business Hours
@@ -496,7 +496,7 @@ function InboxSet({inboxes,setInboxes}){
     // Advanced
     autoClose:false,autoCloseDays:7,allowAttach:true,maxAttachMB:10,rateLimit:false,rateLimitPerMin:30,
     // Connection status
-    connStatus:"",connTesting:false,showDocs:false,
+    connStatus:"",connTesting:false,showDocs:false,fbConnecting:false,pageName:"",pagePicture:"",pageCategory:"",connectedAt:"",_pendingPages:null,
     // Pre-chat form
     formEnabled:true,formTitle:"Before we start…",formDesc:"Please fill in your details so we can assist you better.",
     formFields:[
@@ -507,6 +507,50 @@ function InboxSet({inboxes,setInboxes}){
       {id:"ff5",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}
     ]
   });
+  // ── Handle Facebook OAuth redirect callback ──
+  useEffect(()=>{
+    const hash=window.location.hash||"";
+    const qIdx=hash.indexOf("?");
+    if(qIdx<0)return;
+    const params=new URLSearchParams(hash.slice(qIdx));
+    if(params.get("fb_success")){
+      const pageName=params.get("fb_page")||"Page";
+      showT("✓ Connected to Facebook: "+pageName,"success");
+      // Reload inboxes to get updated config
+      api.get("/settings/inboxes").then(r=>{if(r?.inboxes)setInboxes(r.inboxes.map(i=>{let c={};try{c=typeof i.config==="string"?JSON.parse(i.config):i.config||{};}catch{}return{...i,cfg:c};}));});
+      // Clean URL
+      window.location.hash="#/settings";
+    }
+    if(params.get("fb_error")){
+      showT("Facebook error: "+decodeURIComponent(params.get("fb_error")||"Unknown"),"error");
+      window.location.hash="#/settings";
+    }
+    if(params.get("fb_pick_page")){
+      const fbInboxId=params.get("fb_inbox");
+      // Open that inbox for page selection
+      if(fbInboxId){
+        const ib=inboxes.find(i=>i.id===fbInboxId);
+        if(ib){
+          // Reload inbox to get pending pages
+          api.get("/settings/inboxes").then(r=>{
+            if(r?.inboxes){
+              const updated=r.inboxes.map(i=>{let c={};try{c=typeof i.config==="string"?JSON.parse(i.config):i.config||{};}catch{}return{...i,cfg:c};});
+              setInboxes(updated);
+              const freshIb=updated.find(i=>i.id===fbInboxId);
+              if(freshIb){
+                setForm({name:freshIb.name,type:freshIb.type,greeting:freshIb.greeting||"",color:freshIb.color,active:freshIb.active});
+                setCfg(p=>({...p,...freshIb.cfg}));
+                setEdit(freshIb);setCfgTab("connection");setShowForm(true);
+                showT("Multiple pages found — please select one","info");
+              }
+            }
+          });
+        }
+      }
+      window.location.hash="#/settings";
+    }
+  },[]);
+
   const fld=(k,v)=>setForm(p=>({...p,[k]:v}));
   const cfgFld=(k,v)=>setCfg(p=>({...p,[k]:v}));
   const chFields={
@@ -518,7 +562,7 @@ function InboxSet({inboxes,setInboxes}){
       {k:"webhookUrl",l:"Webhook Callback URL (set in Meta)",ph:"https://api.yoursite.com/api/whatsapp/webhook"},
     ],
     telegram:[{k:"botToken",l:"Bot Token",ph:"123456:ABCdef..."},{k:"webhookUrl",l:"Webhook URL",ph:"https://api.yoursite.com/tg/webhook"}],
-    facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"}],
+    facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"appId",l:"App ID",ph:"933722449370118"},{k:"appSecret",l:"App Secret",ph:"abc123def456..."},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"}],
     instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Access Token",ph:"IGQxxxxxxx"}],
     email:[{k:"imapHost",l:"IMAP Host",ph:"imap.gmail.com"},{k:"imapPort",l:"IMAP Port",ph:"993"},{k:"smtpHost",l:"SMTP Host",ph:"smtp.gmail.com"},{k:"smtpPort",l:"SMTP Port",ph:"587"},{k:"emailUser",l:"Email Address",ph:"support@yourcompany.com"},{k:"emailPass",l:"Password / App Password",ph:"••••••••"}],
     sms:[{k:"phoneNumber",l:"Phone Number",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Auth Token",ph:"xxxxxxxxxx"}],
@@ -739,7 +783,98 @@ function InboxSet({inboxes,setInboxes}){
 
         {/* Credential fields */}
         {(chFields[form.type]||[]).length===0&&<div style={{padding:"20px",textAlign:"center",color:C.t3,fontSize:12,background:C.gd,borderRadius:10,border:`1px solid ${C.g}33`}}>No external credentials required for Live Chat. Just enable the inbox and add the widget snippet to your website.</div>}
-        {(chFields[form.type]||[]).map(f=>(
+
+        {/* ── Facebook OAuth Connect Button ── */}
+        {form.type==="facebook"&&<>
+          {/* Step 1: App ID & Secret (always shown) */}
+          <Fld label="App ID"><Inp val={cfg.appId||""} set={v=>cfgFld("appId",v)} ph="933722449370118"/></Fld>
+          <Fld label="App Secret"><Inp val={cfg.appSecret||""} set={v=>cfgFld("appSecret",v)} ph="abc123def456..."/></Fld>
+          <Fld label="Webhook Verify Token"><Inp val={cfg.verifyToken||""} set={v=>cfgFld("verifyToken",v)} ph="my_secret_verify_token"/></Fld>
+
+          {/* Connected state */}
+          {cfg.connStatus==="connected"&&cfg.pageName?
+            <div style={{padding:"14px 16px",background:"#e7f5e9",borderRadius:10,border:"1px solid #25d36644",marginTop:8,marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {cfg.pagePicture&&<img src={cfg.pagePicture} alt="" style={{width:36,height:36,borderRadius:"50%",border:"2px solid #25d366"}}/>}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1a7f37"}}>✓ Connected to: {cfg.pageName}</div>
+                  <div style={{fontSize:10,color:"#57606a"}}>Page ID: {cfg.pageId}{cfg.connectedAt?" · Connected: "+cfg.connectedAt:""}</div>
+                </div>
+                <button onClick={async()=>{
+                  if(!edit?.id)return;
+                  try{
+                    await api.post("/facebook/disconnect",{inboxId:edit.id});
+                    cfgFld("connStatus","");cfgFld("pageId","");cfgFld("accessToken","");cfgFld("pageName","");cfgFld("pagePicture","");
+                    showT("Facebook page disconnected","info");
+                  }catch(e){showT("Disconnect failed","error");}
+                }} style={{padding:"6px 14px",fontSize:11,fontWeight:700,color:"#cf222e",background:"#FFEBE9",border:"1px solid #cf222e33",borderRadius:8,cursor:"pointer"}}>Disconnect</button>
+              </div>
+            </div>
+          :
+          /* Not connected → show Connect button */
+          <div style={{marginTop:8,marginBottom:10}}>
+            <button onClick={async()=>{
+              if(!cfg.appId||!cfg.appSecret){showT("Please enter App ID and App Secret first, then Save Changes before connecting","error");return;}
+              if(!edit?.id){showT("Please Save Changes first to create the inbox, then connect","error");return;}
+              // Save first so backend has appId/appSecret
+              try{
+                await api.patch("/settings/inboxes/"+edit.id,{config:{...cfg}});
+              }catch{}
+              try{
+                cfgFld("fbConnecting",true);
+                const r=await api.get("/facebook/auth?inboxId="+edit.id);
+                if(r?.redirectUrl){window.location.href=r.redirectUrl;}
+                else{showT(r?.error||"Failed to start OAuth","error");cfgFld("fbConnecting",false);}
+              }catch(e){showT("Connection failed: "+(e?.message||e),"error");cfgFld("fbConnecting",false);}
+            }} style={{
+              display:"flex",alignItems:"center",justifyContent:"center",gap:10,width:"100%",
+              padding:"12px 20px",fontSize:14,fontWeight:700,color:"#fff",
+              background:"#1877F2",border:"none",borderRadius:10,cursor:"pointer",
+              opacity:cfg.fbConnecting?0.6:1,transition:"opacity 0.2s"
+            }} disabled={!!cfg.fbConnecting}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+              {cfg.fbConnecting?"Connecting…":"Connect with Facebook"}
+            </button>
+            <div style={{fontSize:10,color:C.t3,marginTop:6,textAlign:"center"}}>This will redirect you to Facebook to authorize page access. Make sure App ID & Secret are saved first.</div>
+          </div>
+          }
+
+          {/* Page picker (multiple pages) */}
+          {cfg._pendingPages&&cfg._pendingPages.length>1&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,padding:14,marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Select a Facebook Page:</div>
+            {cfg._pendingPages.map(p=>(
+              <div key={p.id} onClick={async()=>{
+                try{
+                  await api.post("/facebook/select-page",{inboxId:edit?.id,pageId:p.id});
+                  cfgFld("pageId",p.id);cfgFld("pageName",p.name);cfgFld("pagePicture",p.picture);cfgFld("accessToken",p.accessToken);
+                  cfgFld("connStatus","connected");cfgFld("_pendingPages",null);
+                  showT("Connected to "+p.name+"!","success");
+                }catch(e){showT("Failed to select page","error");}
+              }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.bg,borderRadius:8,border:`1px solid ${C.b1}`,marginBottom:6,cursor:"pointer",transition:"border-color 0.2s"}}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor="#1877F2"}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.b1}}>
+                {p.picture&&<img src={p.picture} alt="" style={{width:32,height:32,borderRadius:"50%"}}/>}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:700}}>{p.name}</div>
+                  <div style={{fontSize:10,color:C.t3}}>{p.category||"Page"} · ID: {p.id}</div>
+                </div>
+                <div style={{fontSize:11,fontWeight:700,color:"#1877F2"}}>Select →</div>
+              </div>
+            ))}
+          </div>}
+
+          {/* Manual fields (collapsed - for advanced users) */}
+          <details style={{marginBottom:6}}>
+            <summary style={{fontSize:11,color:C.t3,cursor:"pointer",padding:"6px 0",userSelect:"none"}}>▸ Manual configuration (advanced)</summary>
+            <div style={{paddingTop:6}}>
+              <Fld label="Page ID"><Inp val={cfg.pageId||""} set={v=>cfgFld("pageId",v)} ph="123456789"/></Fld>
+              <Fld label="Page Access Token"><Inp val={cfg.accessToken||""} set={v=>cfgFld("accessToken",v)} ph="EAAxxxxxxx"/></Fld>
+            </div>
+          </details>
+        </>}
+
+        {/* Non-Facebook channels: render fields normally */}
+        {form.type!=="facebook"&&(chFields[form.type]||[]).map(f=>(
           <Fld key={f.k} label={f.l}><Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph}/></Fld>
         ))}
 
@@ -818,7 +953,7 @@ function InboxSet({inboxes,setInboxes}){
               <div style={{fontSize:13,fontWeight:700,color:C.t1,marginBottom:8}}>{({facebook:"Facebook Messenger",instagram:"Instagram DM",sms:"SMS (Twilio)",viber:"Viber Business",line:"LINE Official",tiktok:"TikTok Business",x:"X (Twitter) DM",apple:"Apple Business Chat",voice:"Voice / Phone",video:"Video Calls",api:"Custom API Channel"})[form.type]||form.type} Setup</div>
               {form.type==="facebook"&&<>
                 <div style={{padding:"8px 12px",background:C.ad,borderRadius:8,border:`1px solid ${C.a}33`,marginBottom:12,fontSize:11}}>Requires a <strong>Facebook Page</strong> with Messaging enabled and a <strong>Facebook App</strong> with Messenger permissions.</div>
-                {[{n:"1",t:"Create Facebook App",d:"Go to developers.facebook.com → My Apps → Create App → Select 'Business' type → Add Messenger product"},{n:"2",t:"Connect Page",d:"In App Dashboard → Messenger Settings → Add your Facebook Page → Generate Page Access Token"},{n:"3",t:"Page ID",d:"Find your Page ID: Facebook Page → About → Page ID (numeric). Paste above."},{n:"4",t:"Access Token",d:"Copy the Page Access Token from Messenger Settings. This is a long-lived token starting with 'EAA...'"},{n:"5",t:"Webhook",d:"In Messenger Settings → Webhooks → Callback URL: https://api.supportdesk.app/webhooks/fb/{account_id} → Verify Token: supportdesk_verify → Subscribe to: messages, messaging_postbacks"},{n:"6",t:"Test",d:"Send a message to your Facebook Page. It should appear in SupportDesk inbox within seconds."}].map(s=>(
+                {[{n:"1",t:"Create Facebook App",d:"Go to developers.facebook.com → My Apps → Create App → Select 'Business' type → Add Messenger product"},{n:"2",t:"App ID & Secret",d:"App Settings → Basic → Copy App ID and App Secret. Paste both above."},{n:"3",t:"Connect Page",d:"Messenger Settings → Add your Facebook Page → Generate Page Access Token"},{n:"4",t:"Page ID",d:"Find your Page ID: Facebook Page → About → Page ID (numeric). Paste above."},{n:"5",t:"Permanent Access Token",d:"Business Settings → System Users → Create Admin → Add App with full control → Generate Token with pages_messaging permission. Copy the permanent token."},{n:"6",t:"Webhook & Verify Token",d:"Messenger Settings → Webhooks → Set Callback URL to your server/api/facebook/webhook → Choose a Verify Token (any secret string) and paste above → Subscribe to: messages, messaging_postbacks, message_deliveries, message_reads"},{n:"7",t:"Test",d:"Send a message to your Facebook Page. It should appear in SupportDesk inbox within seconds."}].map(s=>(
                   <div key={s.n} style={{display:"flex",gap:10,marginBottom:10}}><div style={{width:22,height:22,borderRadius:"50%",background:C.a+"22",border:`1px solid ${C.a}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:C.a,fontFamily:FM,flexShrink:0}}>{s.n}</div><div><div style={{fontSize:12,fontWeight:700,color:C.t1}}>{s.t}</div><div style={{fontSize:11,color:C.t3}}>{s.d}</div></div></div>
                 ))}
                 <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>{["Receive messages","Send replies","Quick replies","Buttons","Images & files","Persistent menu","Ice breakers"].map(f=><Tag key={f} text={f} color={C.a}/>)}</div>

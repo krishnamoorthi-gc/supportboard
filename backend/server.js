@@ -1110,6 +1110,8 @@ app.use('/api/sales-agent', require('./routes/sales-agent'));
 app.use('/api/forms', require('./routes/forms'));
 app.use('/api/aibot', require('./routes/aibot'));
 app.use('/api/email', require('./routes/email'));
+// Facebook Messenger (OAuth + webhooks)
+app.use('/api/facebook', require('./routes/facebook'));
 // WhatsApp Cloud API webhook (GET = Meta verification challenge, no auth required)
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 
