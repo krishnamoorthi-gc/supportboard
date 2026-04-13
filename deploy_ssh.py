@@ -5,15 +5,13 @@ user = 'supportdesk'
 password = 'HwNxyujEziMu9puHP3G2'
 
 cmd = (
-    "cd ~/supportboard && git pull origin main 2>&1 && "
-    "pm2 restart onlypoa-live 2>&1 && sleep 5 && "
-    "mysql -u sdapp -p'SupportDesk2026!' supportboard -e \""
-    "UPDATE conversations c "
-    "JOIN (SELECT conversation_id, MAX(created_at) as max_ts FROM messages GROUP BY conversation_id) m "
-    "ON c.id=m.conversation_id "
-    "SET c.updated_at=m.max_ts "
-    "WHERE c.inbox_id='ib2' AND m.max_ts > c.updated_at; "
-    "SELECT id, subject, updated_at FROM conversations WHERE inbox_id='ib2' ORDER BY updated_at DESC LIMIT 5;\""
+    "cd ~/supportboard && "
+    "git fetch origin && git checkout main && git pull origin main 2>&1 && "
+    "echo '--- backend npm install ---' && cd ~/supportboard/backend && npm install --production 2>&1 && "
+    "echo '--- frontend npm install ---' && cd ~/supportboard/frontend && npm install 2>&1 && "
+    "echo '--- frontend build ---' && npm run build 2>&1 && "
+    "echo '--- pm2 restart ---' && pm2 restart onlypoa-live 2>&1 && "
+    "echo '--- done ---'"
 )
 
 client = paramiko.SSHClient()
