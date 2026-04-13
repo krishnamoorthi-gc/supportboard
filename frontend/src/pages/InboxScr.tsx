@@ -146,6 +146,24 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const [editMsgText,setEditMsgText]=useState("");
   const [showConvConfig,setShowConvConfig]=useState(false);
   const [rpCollapsed,setRpCollapsed]=useState(false);
+  const [popupMsg,setPopupMsg]=useState<any>(null);
+  // ── Email signature ──
+  const [defaultSig,setDefaultSig]=useState<any>(null);
+  useEffect(()=>{
+    api.get('/settings/signatures').then((r:any)=>{
+      const all=r.signatures||[];
+      const curAgent=agents.find((a:any)=>a.id===aid);
+      const found=all.find((s:any)=>s.is_default&&s.active&&(s.agent_id===aid||s.agent_id===curAgent?.id));
+      setDefaultSig(found||null);
+    }).catch(()=>{});
+  },[aid]);
+  const resolveVars=(body:string,ag:any)=>(body||'')
+    .replace(/\{\{name\}\}/g,ag?.name||'')
+    .replace(/\{\{title\}\}/g,ag?.role||'')
+    .replace(/\{\{email\}\}/g,ag?.email||'')
+    .replace(/\{\{phone\}\}/g,ag?.phone||'')
+    .replace(/\{\{company\}\}/g,'')
+    .replace(/\{\{website\}\}/g,'');
   // ── Bulk actions ──
   const [bulkMode,setBulkMode]=useState(false);
   const [bulkSel,setBulkSel]=useState([]);
@@ -1027,7 +1045,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           return <>{dateSep}<div key={m.id||i} style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",animation:"fadeUp .2s ease",flexDirection:"column",alignItems:isAg?"flex-end":"flex-start"}}>
             <div style={{display:"flex",justifyContent:isAg?"flex-end":"flex-start",width:"100%",position:"relative"}} className="msg-row">
               {!isAg&&contact&&<div style={{marginRight:8,flexShrink:0}}><Av i={contact.av} c={conv?.color||C.a} s={26}/></div>}
-              <div style={{maxWidth:m.html&&!isAg&&isEmailCh?"92%":"72%",background:isNt?C.yd:isAg?(isAuto?`linear-gradient(135deg,${C.p},#6b3fc0)`:`linear-gradient(135deg,${C.a},#2a5de8)`):m.html&&isEmailCh?"#fff":C.s3,border:isNt?`1px solid ${C.y}44`:isAg?"none":`1px solid ${C.b1}`,borderRadius:isAg?"14px 14px 4px 14px":"4px 14px 14px 14px",padding:m.html&&!isAg&&isEmailCh?"0":"10px 13px",position:"relative",outline:highlight?`2px solid ${C.y}`:"none",overflow:"hidden"}}>
+              <div onDoubleClick={()=>setPopupMsg({...m,ag,isAg,isNt,conv})} style={{maxWidth:m.html&&!isAg&&isEmailCh?"92%":"72%",background:isNt?C.yd:isAg?(isAuto?`linear-gradient(135deg,${C.p},#6b3fc0)`:`linear-gradient(135deg,${C.a},#2a5de8)`):m.html&&isEmailCh?"#fff":C.s3,border:isNt?`1px solid ${C.y}44`:isAg?"none":`1px solid ${C.b1}`,borderRadius:isAg?"14px 14px 4px 14px":"4px 14px 14px 14px",padding:m.html&&!isAg&&isEmailCh?"0":"10px 13px",position:"relative",outline:highlight?`2px solid ${C.y}`:"none",overflow:"hidden",cursor:"default"}}>
                 {isNt&&<div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.y,letterSpacing:"0.4px",marginBottom:4,padding:m.html?"10px 13px 0":0}}>📝 INTERNAL NOTE</div>}
                 {isAg&&ag&&<div style={{fontSize:10,color:isNt?"#8b7a2e":"rgba(255,255,255,.6)",marginBottom:4,fontFamily:FM,display:"flex",alignItems:"center",gap:5,padding:m.html?"10px 13px 0":0}}>{ag.name}{isAuto&&<span style={{background:"rgba(255,255,255,.18)",borderRadius:4,padding:"1px 5px",fontSize:9,letterSpacing:"0.3px"}}>✦ AI</span>}</div>}
                 {m.replyTo&&<div style={{fontSize:10,color:isNt?C.t2:isAg?"rgba(255,255,255,.5)":C.t3,padding:"4px 8px",borderLeft:`2px solid ${isAg?"rgba(255,255,255,.3)":C.b1}`,marginBottom:6,fontStyle:"italic",margin:m.html?"10px 13px 6px":0}}>↩ {m.replyText||"…"}</div>}
@@ -1058,6 +1076,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
               <div className="msg-actions" style={{position:"absolute",top:-14,[isAg?"right":"left"]:8,display:"none",gap:2,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,padding:"2px",boxShadow:"0 4px 16px rgba(0,0,0,.4)",zIndex:10}}>
                   <button onClick={()=>setReplyTo(m)} title="Reply" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">↩</button>
                   <button onClick={()=>copyMsg(m.text)} title="Copy" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">⎘</button>
+                  <button onClick={()=>setPopupMsg({...m,ag,isAg,isNt,conv})} title="Expand" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.a}} className="hov">⛶</button>
                   {isAg&&<button onClick={()=>startEditMsg(m.id,m.text)} title="Edit" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">✎</button>}
                   {isAg&&<button onClick={()=>deleteMsg(m.id)} title="Delete" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.r}} className="hov">✕</button>}
                   <button onClick={()=>fwdMsg(m.text)} title="Forward" style={{width:22,height:22,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:"transparent",border:"none",cursor:"pointer",color:C.t3}} className="hov">↗</button>
@@ -1113,87 +1132,87 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       </div>}
 
       {/* compose */}
-      <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} style={{borderTop:`1px solid ${C.b1}`,background:dragOver?C.ad:isNote?C.yd:C.s1,padding:"10px 14px",transition:"background .2s",position:"relative"}}>
+      <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} style={{borderTop:`1px solid ${C.b1}`,background:dragOver?C.ad:isNote?C.yd:C.s1,padding:"8px 10px",transition:"background .2s",position:"relative"}}>
         {dragOver&&<div style={{position:"absolute",inset:0,background:C.a+"22",border:`2px dashed ${C.a}`,borderRadius:0,zIndex:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:C.a,fontWeight:700,fontFamily:FM}}>Drop files here</div>}
-        {/* WhatsApp header (only for whatsapp channel) */}
-        {isWhatsAppCh&&!isNote&&<div style={{marginBottom:8,display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#25d36611",border:"1px solid #25d36633",borderRadius:7,flexWrap:"wrap"}}>
-          <span style={{fontSize:14}}>💬</span>
+        {/* WhatsApp header */}
+        {isWhatsAppCh&&!isNote&&<div style={{marginBottom:6,display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"#25d36611",border:"1px solid #25d36633",borderRadius:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:12}}>💬</span>
           <span style={{fontSize:10,color:"#128C7E",fontFamily:FM,fontWeight:600}}>WhatsApp</span>
-          <span style={{fontSize:10,color:C.t2,fontFamily:FB,flex:1}}>
-            To: {contact?.name||contactName}{contactPhone?" · +"+contactPhone:""}
-          </span>
+          <span style={{fontSize:10,color:C.t2,fontFamily:FB,flex:1}}>To: {contact?.name||contactName}{contactPhone?" · +"+contactPhone:""}</span>
           {!contactPhone&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ No phone on contact</span>}
           {contactPhone&&!whatsappSendReady&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ Send setup missing: {whatsappMissingSendBits.join(", ")}</span>}
-          {whatsappSendReady&&!whatsappInboundReady&&<span style={{fontSize:9,color:C.y,fontFamily:FM}}>⚠ Reply sync setup missing: {whatsappMissingInboundBits.join(", ")}</span>}
+          {whatsappSendReady&&!whatsappInboundReady&&<span style={{fontSize:9,color:C.y,fontFamily:FM}}>⚠ Reply sync missing: {whatsappMissingInboundBits.join(", ")}</span>}
         </div>}
-        {/* Email fields (only for email channel) */}
-        {isEmailCh&&!isNote&&<div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4}}>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <span style={{fontSize:10,color:C.t3,fontFamily:FM,width:30}}>To:</span>
-            <input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="customer@email.com" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
-            <button onClick={()=>setShowCcBcc(p=>!p)} style={{fontSize:9,color:C.a,background:"none",border:"none",cursor:"pointer",fontFamily:FM}}>{showCcBcc?"Hide":"CC/BCC"}</button>
+        {/* Email fields — compact single-area */}
+        {isEmailCh&&!isNote&&<div style={{marginBottom:6,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:0,borderBottom:`1px solid ${C.b1}`}}>
+            <span style={{fontSize:10,color:C.t3,fontFamily:FM,padding:"4px 8px",borderRight:`1px solid ${C.b1}`,minWidth:32,textAlign:"center"}}>To</span>
+            <input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="customer@email.com" style={{flex:1,background:"transparent",border:"none",padding:"4px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            <button onClick={()=>setShowCcBcc(p=>!p)} style={{fontSize:9,color:showCcBcc?C.a:C.t3,background:"none",border:"none",borderLeft:`1px solid ${C.b1}`,padding:"4px 8px",cursor:"pointer",fontFamily:FM,whiteSpace:"nowrap"}}>{showCcBcc?"▲ CC":"CC/BCC"}</button>
           </div>
           {showCcBcc&&<>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM,width:30}}>CC:</span><input value={emailCc} onChange={e=>setEmailCc(e.target.value)} placeholder="cc@email.com" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/></div>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM,width:30}}>BCC:</span><input value={emailBcc} onChange={e=>setEmailBcc(e.target.value)} placeholder="bcc@email.com" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/></div>
+            <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.b1}`}}><span style={{fontSize:10,color:C.t3,fontFamily:FM,padding:"4px 8px",borderRight:`1px solid ${C.b1}`,minWidth:32,textAlign:"center"}}>CC</span><input value={emailCc} onChange={e=>setEmailCc(e.target.value)} placeholder="cc@email.com" style={{flex:1,background:"transparent",border:"none",padding:"4px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/></div>
+            <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.b1}`}}><span style={{fontSize:10,color:C.t3,fontFamily:FM,padding:"4px 8px",borderRight:`1px solid ${C.b1}`,minWidth:32,textAlign:"center"}}>BCC</span><input value={emailBcc} onChange={e=>setEmailBcc(e.target.value)} placeholder="bcc@email.com" style={{flex:1,background:"transparent",border:"none",padding:"4px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/></div>
           </>}
-          <div style={{display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM,width:30}}>Subj:</span><input value={emailSubject} onChange={e=>setEmailSubject(e.target.value)} placeholder={conv?.subject||"Re: "} style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:5,padding:"3px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/></div>
+          <div style={{display:"flex",alignItems:"center"}}><span style={{fontSize:10,color:C.t3,fontFamily:FM,padding:"4px 8px",borderRight:`1px solid ${C.b1}`,minWidth:32,textAlign:"center"}}>Subj</span><input value={emailSubject} onChange={e=>setEmailSubject(e.target.value)} placeholder={conv?.subject||"Re: "} style={{flex:1,background:"transparent",border:"none",padding:"4px 8px",fontSize:11,color:C.t1,fontFamily:FB,outline:"none"}}/></div>
         </div>}
         {/* Reply-to preview */}
-        {replyTo&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,marginBottom:8}}>
+        {replyTo&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:6,marginBottom:6}}>
           <span style={{fontSize:10,color:C.a}}>↩</span>
           <div style={{flex:1,fontSize:11,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Replying to: {replyTo.text?.slice(0,60)}…</div>
           <button onClick={()=>setReplyTo(null)} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:12}}>×</button>
         </div>}
         {/* Edit indicator */}
-        {editMsgId&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:C.ad,border:`1px solid ${C.a}44`,borderRadius:8,marginBottom:8}}>
+        {editMsgId&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:C.ad,border:`1px solid ${C.a}44`,borderRadius:6,marginBottom:6}}>
           <span style={{fontSize:10,color:C.a}}>✎</span>
           <span style={{flex:1,fontSize:11,color:C.a}}>Editing message…</span>
           <button onClick={()=>{setEditMsgId(null);setInp("");}} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:12}}>Cancel</button>
         </div>}
-        {/* Hidden real file input */}
+        {/* Hidden file input */}
         <input ref={fileInputRef} type="file" multiple style={{display:"none"}}
           onChange={e=>{if(e.target.files?.length)uploadFiles(Array.from(e.target.files) as File[]);e.target.value="";}}/>
-        {/* File attachments preview */}
-        {attachments.length>0&&<div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+        {/* Attachments */}
+        {attachments.length>0&&<div style={{display:"flex",gap:5,marginBottom:6,flexWrap:"wrap"}}>
           {attachments.map((a:any)=>(
-            <div key={a.id} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",background:a.status==="error"?C.rd:a.uploading?C.ad:C.s2,border:`1px solid ${a.status==="error"?C.r+"55":a.uploading?C.a+"55":C.b1}`,borderRadius:7,fontSize:10,transition:"all .2s"}}>
-              {a.uploading?<span style={{fontSize:10,animation:"spin 1s linear infinite"}}>⟳</span>:<span style={{fontSize:10}}>{a.status==="error"?"⚠":"📎"}</span>}
-              <span style={{color:C.t2,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
+            <div key={a.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",background:a.status==="error"?C.rd:a.uploading?C.ad:C.s2,border:`1px solid ${a.status==="error"?C.r+"55":a.uploading?C.a+"55":C.b1}`,borderRadius:6,fontSize:10,transition:"all .2s"}}>
+              {a.uploading?<span style={{animation:"spin 1s linear infinite"}}>⟳</span>:<span>{a.status==="error"?"⚠":"📎"}</span>}
+              <span style={{color:C.t2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
               <span style={{color:a.status==="error"?C.r:C.t3,fontFamily:FM}}>{a.status==="error"?"failed":a.sizeLabel||formatAttachmentSize(a.size)}</span>
               {!a.uploading&&<button onClick={()=>removeAttach(a.id)} style={{color:C.r,background:"none",border:"none",cursor:"pointer",fontSize:10}}>✕</button>}
             </div>
           ))}
         </div>}
-        {/* Toolbar */}
-        <div style={{display:"flex",gap:5,marginBottom:8,alignItems:"center"}}>
-          <button onClick={()=>{setIsNote(p=>!p);showT(isNote?"Switched to reply":"Switched to internal note",isNote?"info":"warn");}} title={isNote?"Internal Note":"Reply"} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:isNote?C.y+"22":"transparent",color:isNote?C.y:C.t3,border:`1px solid ${isNote?C.y+"55":C.b1}`,transition:"all .15s"}}>{isNote?"📝 Note":"💬 Reply"}</button>
-          {[{i:"B",tip:"Bold",fn:()=>{setInp(p=>p+"**bold**");}},{i:"I",tip:"Italic",fn:()=>{setInp(p=>p+"_italic_");}},{i:"~",tip:"Strikethrough",fn:()=>{setInp(p=>p+"~~text~~");}}].map(f=>(
-            <button key={f.tip} onClick={f.fn} title={f.tip} className="nav" style={{width:26,height:26,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",color:C.t3,background:"transparent",border:"none",cursor:"pointer",fontSize:12,fontStyle:f.i==="I"?"italic":"normal",fontWeight:f.i==="B"?700:400}}>{f.i}</button>
-          ))}
-          <button onClick={()=>setShowEmoji(p=>!p)} title="Emoji" style={{width:26,height:26,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,background:showEmoji?C.ad:"transparent",color:C.t3,border:"none",cursor:"pointer"}}>😊</button>
-          <button onClick={handleFilePick} title="Attach file" style={{width:26,height:26,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:attachments.length?C.a:C.t3,background:"transparent",border:"none",cursor:"pointer"}}>📎{attachments.length>0&&<span style={{fontSize:8,color:C.a,marginLeft:1}}>({attachments.length})</span>}</button>
-          <div style={{flex:1}}/>
-          <button onClick={()=>{setShowCanned(p=>!p);setCQ("");}} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,color:C.t2,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer"}}>⚡ /canned</button>
-          <button onClick={genAI} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer"}}>✦ AI Draft</button>
-        </div>
-        {showEmoji&&<div style={{display:"flex",flexWrap:"wrap",gap:2,padding:"8px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,marginBottom:8,animation:"fadeUp .15s ease"}}>
+        {/* Textarea — full width, taller */}
+        <textarea value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&!isEmailCh&&(e.preventDefault(),sendMsg())}
+          placeholder={isNote?"Internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message…":"Type reply… (Enter to send)"}
+          rows={isEmailCh?3:2}
+          style={{width:"100%",boxSizing:"border-box",background:isNote?"#fffbe6":C.bg,border:`1px solid ${isNote?C.y+"66":C.b2}`,borderRadius:8,padding:"8px 10px",fontSize:13,color:isNote?"#5a4e1a":C.t1,resize:"vertical",lineHeight:1.5,fontFamily:FB,transition:"background .15s",outline:"none"}}/>
+        {/* Signature preview */}
+        {isEmailCh&&!isNote&&defaultSig&&<div style={{padding:"3px 10px",fontSize:10,color:C.t3,fontFamily:FM,whiteSpace:"pre-line",lineHeight:1.4,opacity:.8}}>{resolveVars(defaultSig.body?.replace(/\*\*(.*?)\*\*/g,'$1').replace(/_(.*?)_/g,'$1'),agents.find((a:any)=>a.id===aid))}</div>}
+        {/* Emoji picker */}
+        {showEmoji&&<div style={{display:"flex",flexWrap:"wrap",gap:2,padding:"6px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,marginTop:5,animation:"fadeUp .15s ease"}}>
           {EMOJI_SET.map(e=>(
-            <button key={e} onClick={()=>{setInp(p=>p+e);setShowEmoji(false);}} style={{width:28,height:28,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,background:"transparent",border:"none",cursor:"pointer"}} className="hov">{e}</button>
+            <button key={e} onClick={()=>{setInp(p=>p+e);setShowEmoji(false);}} style={{width:26,height:26,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:"transparent",border:"none",cursor:"pointer"}} className="hov">{e}</button>
           ))}
         </div>}
-        <div style={{display:"flex",gap:9,alignItems:"flex-end"}}>
-          <textarea value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendMsg())}
-            placeholder={isNote?"Write an internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message… (Enter to send)":"Type reply… (Enter to send, Shift+Enter for new line)"} rows={isEmailCh?3:2}
-            style={{flex:1,background:isNote?"#fffbe6":C.bg,border:`1px solid ${isNote?C.y+"66":C.b2}`,borderRadius:10,padding:"8px 12px",fontSize:13,color:isNote?"#5a4e1a":C.t1,resize:"none",lineHeight:1.45,fontFamily:FB,transition:"all .15s"}}/>
-          <button onClick={sendMsg} style={{width:42,height:42,borderRadius:10,fontSize:18,background:isNote?C.y:isWhatsAppCh?"#25d366":C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .15s"}} title={isWhatsAppCh?"Send via WhatsApp":"Send"}>{editMsgId?"✓":isWhatsAppCh?"📤":"↑"}</button>
+        {/* Bottom action bar — toolbar + send in one row */}
+        <div style={{display:"flex",gap:3,marginTop:6,alignItems:"center"}}>
+          <button onClick={()=>{setIsNote(p=>!p);showT(isNote?"Switched to reply":"Switched to internal note",isNote?"info":"warn");}} style={{padding:"4px 9px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:isNote?C.y+"22":"transparent",color:isNote?C.y:C.t3,border:`1px solid ${isNote?C.y+"55":C.b1}`,transition:"all .15s",whiteSpace:"nowrap"}}>{isNote?"📝 Note":"💬 Reply"}</button>
+          <div style={{width:1,height:16,background:C.b1,margin:"0 2px"}}/>
+          {[{i:"B",tip:"Bold",fn:()=>setInp(p=>p+"**bold**"),fw:700,fs:"normal"},{i:"I",tip:"Italic",fn:()=>setInp(p=>p+"_italic_"),fw:400,fs:"italic"},{i:"~",tip:"Strike",fn:()=>setInp(p=>p+"~~text~~"),fw:400,fs:"normal"}].map(f=>(
+            <button key={f.tip} onClick={f.fn} title={f.tip} className="nav" style={{width:24,height:24,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",color:C.t3,background:"transparent",border:"none",cursor:"pointer",fontSize:11,fontStyle:f.fs,fontWeight:f.fw}}>{f.i}</button>
+          ))}
+          <button onClick={()=>setShowEmoji(p=>!p)} title="Emoji" style={{width:24,height:24,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,background:showEmoji?C.ad:"transparent",color:C.t3,border:"none",cursor:"pointer"}}>😊</button>
+          <button onClick={handleFilePick} title="Attach" style={{width:24,height:24,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:attachments.length?C.a:C.t3,background:"transparent",border:"none",cursor:"pointer"}}>📎{attachments.length>0&&<span style={{fontSize:8,color:C.a,marginLeft:1}}>({attachments.length})</span>}</button>
+          <div style={{flex:1}}/>
+          <button onClick={()=>{setShowCanned(p=>!p);setCQ("");}} style={{padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.t2,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer"}}>⚡ Canned</button>
+          <button onClick={genAI} style={{padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer"}}>✦ AI</button>
+          <button onClick={sendMsg} style={{padding:"5px 16px",borderRadius:7,fontSize:12,fontWeight:700,background:isNote?C.y:isWhatsAppCh?"#25d366":C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",fontFamily:FM,transition:"background .15s"}} title={isWhatsAppCh?"Send via WhatsApp":"Send"}>{editMsgId?"Save":isWhatsAppCh?"Send 📤":"Send ↑"}</button>
         </div>
-        {/* Email signature preview */}
-        {isEmailCh&&!isNote&&<div style={{marginTop:6,padding:"6px 10px",borderTop:`1px solid ${C.b1}22`,fontSize:10,color:C.t3,fontFamily:FM,whiteSpace:"pre-line",lineHeight:1.4}}>— Priya Sharma · Head of Support · SupportDesk</div>}
-        {/* WhatsApp footer hint */}
-        {isWhatsAppCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,fontSize:9,color:whatsappSendReady&&whatsappInboundReady?"#25d366":whatsappSendReady?C.y:C.r,fontFamily:FM,flexWrap:"wrap"}}>
+        {/* WhatsApp status */}
+        {isWhatsAppCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:5,fontSize:9,color:whatsappSendReady&&whatsappInboundReady?"#25d366":whatsappSendReady?C.y:C.r,fontFamily:FM}}>
           <span>{whatsappSendReady&&whatsappInboundReady?"🔒":"⚠"}</span>
-          <span>{whatsappSendReady&&whatsappInboundReady?"WhatsApp send + reply sync ready":"WhatsApp setup incomplete — sends need Meta API credentials and replies need webhook verification"}</span>
+          <span>{whatsappSendReady&&whatsappInboundReady?"WhatsApp ready":"Setup incomplete — check Meta API credentials and webhook"}</span>
         </div>}
       </div>
     </div>
@@ -1597,6 +1616,49 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           showT(e?.message||"Failed to create conversation","error");
         }
       }}/>}
+
+    {/* ══ MESSAGE POPUP ══ */}
+    {popupMsg&&<div onClick={e=>{if(e.target===e.currentTarget)setPopupMsg(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.78)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:24,animation:"fadeIn .15s ease"}}>
+      <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:16,width:"min(860px,92vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 30px 80px rgba(0,0,0,.6)",animation:"fadeUp .2s ease",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"flex-start",gap:12,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+              {popupMsg.isNt&&<span style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.y,background:C.y+"22",padding:"2px 7px",borderRadius:4,letterSpacing:"0.4px"}}>📝 INTERNAL NOTE</span>}
+              {popupMsg.isAg
+                ?<><span style={{fontSize:12,fontWeight:700,color:C.t1}}>{popupMsg.ag?.name||"Agent"}</span><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>→ agent reply</span></>
+                :<><span style={{fontSize:12,fontWeight:700,color:C.t1}}>{popupMsg.conv?.contact_name||"Customer"}</span><span style={{fontSize:10,color:C.t3,fontFamily:FM}}>→ inbound</span></>}
+              {popupMsg.html&&<span style={{fontSize:9,color:C.a,background:C.ad,padding:"2px 6px",borderRadius:4,fontFamily:FM,fontWeight:600}}>📧 HTML Email</span>}
+            </div>
+            <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{popupMsg.created_at||popupMsg.t||""}{popupMsg.conv?.subject?` · ${popupMsg.conv.subject}`:""}</div>
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={()=>copyMsg(popupMsg.text)} title="Copy text" style={{padding:"5px 10px",borderRadius:7,fontSize:11,color:C.t2,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",fontFamily:FM}}>⎘ Copy</button>
+            <button onClick={()=>{setReplyTo(popupMsg);setPopupMsg(null);}} title="Reply to this message" style={{padding:"5px 10px",borderRadius:7,fontSize:11,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer",fontFamily:FM}}>↩ Reply</button>
+            <button onClick={()=>setPopupMsg(null)} style={{width:30,height:30,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.t3,background:"transparent",border:`1px solid ${C.b1}`,cursor:"pointer"}}>×</button>
+          </div>
+        </div>
+        {/* Body */}
+        <div style={{flex:1,overflowY:"auto",padding:0}}>
+          {popupMsg.html
+            ?<iframe srcDoc={popupMsg.html} sandbox="" style={{width:"100%",minHeight:400,border:"none",display:"block"}}
+                onLoad={(e:any)=>{try{const h=e.target.contentDocument?.documentElement?.scrollHeight||400;e.target.style.height=Math.min(Math.max(h,200),700)+"px";}catch{}}}/>
+            :<pre style={{margin:0,padding:"18px 22px",fontSize:13.5,color:C.t1,fontFamily:FB,lineHeight:1.65,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{popupMsg.text}</pre>}
+          {normalizeAttachmentList(popupMsg.attachments||[]).length>0&&<div style={{padding:"10px 18px",borderTop:`1px solid ${C.b1}`,display:"flex",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,color:C.t3,fontFamily:FM,width:"100%",marginBottom:4}}>Attachments</span>
+            {normalizeAttachmentList(popupMsg.attachments||[]).map((att:any,i:number)=>{
+              const href=attachmentHref(att)||"#";
+              const isImg=/\.(png|jpe?g|gif|webp|svg)$/i.test(att.name||att.url||"");
+              return isImg
+                ?<a key={i} href={href} target="_blank" rel="noreferrer"><img src={href} alt={att.name} style={{maxWidth:200,maxHeight:160,borderRadius:8,border:`1px solid ${C.b1}`,objectFit:"cover"}}/></a>
+                :<a key={i} href={href} target="_blank" rel="noreferrer" download={att.name} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,background:C.bg,border:`1px solid ${C.b1}`,textDecoration:"none",fontSize:11,color:C.t2}}>
+                  <span>📎</span><span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name}</span>
+                </a>;
+            })}
+          </div>}
+        </div>
+      </div>
+    </div>}
   </div>;
 }
 
