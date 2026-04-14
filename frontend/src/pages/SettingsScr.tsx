@@ -7,7 +7,7 @@ import WidgetScr from "./WidgetScr";
 import BillingScr from "./BillingScr";
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────
-export default function SettingsScr({inboxes,setInboxes,agents,setAgents,labels,setLabels,teams,setTeams,canned,setCanned,autos,setAutos,contacts,convs,stab,setStab,fontKey,applyFont,fontScale,applySize,themeKey,applyTheme,autoTheme,setAutoTheme,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,setCustomFields}){
+export default function SettingsScr({me,setMe,inboxes,setInboxes,agents,setAgents,labels,setLabels,teams,setTeams,canned,setCanned,autos,setAutos,contacts,convs,stab,setStab,fontKey,applyFont,fontScale,applySize,themeKey,applyTheme,autoTheme,setAutoTheme,aiAutoReply,setAiAutoReply,aiChannels,setAiChannels,customFields,setCustomFields}){
   const tabs=[{id:"inboxes",label:"Inboxes",iconId:"inbox"},{id:"agents",label:"Agents & Teams",iconId:"contacts"},{id:"labels",label:"Labels",iconId:"labels"},{id:"canned",label:"Canned Responses",iconId:"canned"},{id:"automations",label:"Automations",iconId:"automations"},{id:"workflows",label:"Workflows",iconId:"automations"},{id:"aibot",label:"AI Bot",iconId:"aibot"},{id:"botbuilder",label:"Bot Builder",iconId:"aibot"},{id:"salesagent",label:"AI Sales Agent",iconId:"marketing"},{id:"formbuilder",label:"Form Builder",iconId:"widget"},{id:"widget",label:"Widget Builder",iconId:"widget"},{id:"customfields",label:"Custom Fields",iconId:"widget"},{id:"signatures",label:"Email Signatures",iconId:"send"},{id:"notifications",label:"Notifications",iconId:"bell"},{id:"brands",label:"Multi-Brand",iconId:"marketing"},{id:"auditlog",label:"Audit Log",iconId:"reports"},{id:"theme",label:"Theme",iconId:"theme"},{id:"fonts",label:"Fonts",iconId:"fonts"},{id:"billing",label:"Billing",iconId:"billing"},{id:"account",label:"Account",iconId:"settings"}];
   return <div style={{flex:1,display:"flex",minWidth:0}}>
     <div style={{width:200,background:C.s1,borderRight:`1px solid ${C.b1}`,padding:"20px 0",flexShrink:0,overflowY:"auto"}}>
@@ -25,7 +25,8 @@ export default function SettingsScr({inboxes,setInboxes,agents,setAgents,labels,
       {stab==="canned"&&<CannedSet canned={canned} setCanned={setCanned}/>}
       {stab==="automations"&&<AutoSet autos={autos} setAutos={setAutos}/>}
       {stab==="workflows"&&<WorkflowScr/>}
-      {stab==="account"&&<AccountSet/>}
+      {stab==="account"&&<AccountSet me={me} setMe={setMe}/>}
+      {stab==="profile"&&<AccountSet me={me} setMe={setMe} initTab="profile"/>}
       {stab==="aibot"&&<AIBotSet inboxes={inboxes} canned={canned} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels}/>}
       {stab==="botbuilder"&&<BotBuilderScr/>}
       {stab==="salesagent"&&<AISalesAgentScr/>}
@@ -3180,8 +3181,8 @@ function AuditLogSet(){
   </div>;
 }
 
-function AccountSet(){
-  const [atab,setAtab]=useState("general");
+function AccountSet({me,setMe,initTab}:any){
+  const [atab,setAtab]=useState(initTab||"general");
   // General
   const [acName,setAcName]=useState("SupportDesk Pvt Ltd");
   const [acDomain,setAcDomain]=useState("supportdesk.app");
@@ -3194,13 +3195,24 @@ function AccountSet(){
   const [acSize,setAcSize]=useState("11-50");
   const [acCountry,setAcCountry]=useState("India");
   const [acAddress,setAcAddress]=useState("123 Tech Park, HSR Layout, Bengaluru 560102");
-  // Profile
-  const [pName,setPName]=useState("Priya Sharma");
-  const [pEmail,setPEmail]=useState("priya@supportdesk.app");
-  const [pPhone,setPPhone]=useState("+91 98765 43210");
-  const [pTitle,setPTitle]=useState("Head of Support");
-  const [pBio,setPBio]=useState("Leading customer success at SupportDesk. 7+ years in SaaS support operations.");
-  const [pAvatar,setPAvatar]=useState("PS");
+  // Profile — initialise from logged-in user
+  const [pName,setPName]=useState(me?.name||"");
+  const [pEmail,setPEmail]=useState(me?.email||"");
+  const [pPhone,setPPhone]=useState(me?.phone||"");
+  const [pTitle,setPTitle]=useState(me?.title||"");
+  const [pBio,setPBio]=useState(me?.bio||"");
+  const [pAvatar,setPAvatar]=useState(me?.avatar||me?.name?.split(" ").map((w:string)=>w[0]).join("").slice(0,2).toUpperCase()||"?");
+  const [pSaving,setPSaving]=useState(false);
+  const saveProfile=async()=>{
+    if(!me?.id)return showT("Not logged in","error");
+    setPSaving(true);
+    try{
+      const res=await api.patch(`/settings/agents/${me.id}`,{name:pName,phone:pPhone,bio:pBio,avatar:pAvatar});
+      if(res?.agent){setMe((prev:any)=>({...prev,...res.agent}));showT("Profile updated!","success");}
+      else showT("Profile saved!","success");
+    }catch(e:any){showT("Save failed: "+(e.message||"error"),"error");}
+    setPSaving(false);
+  };
   // Security
   const [twoFa,setTwoFa]=useState(true);
   const [sessionTimeout,setSessionTimeout]=useState("60");
@@ -3260,19 +3272,19 @@ function AccountSet(){
           </div>
           <div style={{flex:1}}>
             <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Full Name"><Inp val={pName} set={setPName}/></Fld></div><div style={{flex:1}}><Fld label="Job Title"><Inp val={pTitle} set={setPTitle}/></Fld></div></div>
-            <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Email"><Inp val={pEmail} set={setPEmail} type="email"/></Fld></div><div style={{flex:1}}><Fld label="Phone"><Inp val={pPhone} set={setPPhone}/></Fld></div></div>
+            <div style={{display:"flex",gap:12}}><div style={{flex:1}}><Fld label="Email"><div style={{padding:"10px 12px",background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,fontSize:13,color:C.t3,fontFamily:FB}}>{pEmail||"—"}</div></Fld></div><div style={{flex:1}}><Fld label="Phone"><Inp val={pPhone} set={setPPhone}/></Fld></div></div>
           </div>
         </div>
         <Fld label="Bio"><textarea value={pBio} onChange={e=>setPBio(e.target.value)} rows={3} placeholder="A brief description about yourself…" style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/></Fld>
         <div style={{display:"flex",gap:12,padding:"12px 0",borderTop:`1px solid ${C.b1}`,marginTop:8}}>
-          {[{l:"Role",v:"Owner",c:C.p},{l:"Status",v:"Online",c:C.g},{l:"Joined",v:"Jan 2025",c:C.t3},{l:"Conversations",v:"1,247",c:C.a},{l:"CSAT",v:"4.8★",c:C.g}].map(s=>(
+          {[{l:"Role",v:(me?.role||"agent").charAt(0).toUpperCase()+(me?.role||"agent").slice(1),c:C.p},{l:"Status",v:me?.status||"Online",c:C.g},{l:"Joined",v:"Jan 2025",c:C.t3},{l:"Conversations",v:"1,247",c:C.a},{l:"CSAT",v:"4.8★",c:C.g}].map(s=>(
             <div key={s.l} style={{flex:1,textAlign:"center",padding:"8px",background:C.s2,borderRadius:8}}>
               <div style={{fontSize:16,fontWeight:800,fontFamily:FD,color:s.c}}>{s.v}</div>
               <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:2}}>{s.l}</div>
             </div>
           ))}
         </div>
-        <Btn ch="Save Profile" v="primary" onClick={saved}/>
+        <Btn ch={pSaving?"Saving…":"Save Profile"} v="primary" onClick={saveProfile}/>
       </div>
     </div>}
 

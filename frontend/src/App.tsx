@@ -63,9 +63,10 @@ function normalizeInbox(raw, index = 0){
 export default function App(){
   // ── Auth ──
   const [isLoggedIn,setIsLoggedIn]=useState(false);
+  const [me,setMe]=useState<any>(null);
   const [isRestoring,setIsRestoring]=useState(()=>!!localStorage.getItem("sd_token"));
-  const [loginEmail,setLoginEmail]=useState("priya@supportdesk.app");
-  const [loginPass,setLoginPass]=useState("demo123");
+  const [loginEmail,setLoginEmail]=useState("");
+  const [loginPass,setLoginPass]=useState("");
   const [loginLoading,setLoginLoading]=useState(false);
   const [login2FA,setLogin2FA]=useState(false);
   const [tfaCode,setTfaCode]=useState("");
@@ -115,6 +116,7 @@ export default function App(){
     try{
       const res=await api.post("/auth/login",{name:regName,email:regEmail,password:regPass});
       api.setToken(res.token);
+      setMe(res.agent);
       setIsLoggedIn(true);
       setApiOk(true);
       showT("Account created! Welcome to SupportDesk!", "success");
@@ -138,6 +140,7 @@ export default function App(){
         setLogin2FA(true);
       } else {
         api.setToken(res.token);
+        setMe(res.agent);
         setIsLoggedIn(true);
         showT("Welcome back!", "success");
         loadInitialData(true);
@@ -161,6 +164,7 @@ export default function App(){
       if(apiOk){
         const res=await api.post("/auth/2fa",{agent_id:loginAgentId,code:tfaCode||"123456"});
         api.setToken(res.token);
+        setMe(res.agent);
       }
       setLogin2FA(false);setIsLoggedIn(true);
       showT(apiOk?"Welcome back! (API connected)":"Welcome back! (offline mode)","success");
@@ -183,6 +187,7 @@ export default function App(){
     api.get("/auth/me").then(res=>{
       console.log('✅ Auth check passed:', res);
       if(res?.agent){
+        setMe(res.agent);
         setIsLoggedIn(true);
         setApiOk(true);
         console.log('📦 Calling loadInitialData with force=true');
@@ -857,15 +862,15 @@ export default function App(){
       </button>
       {showN&&<div style={{position:"absolute",left:82,bottom:40,zIndex:100}}><NotifPanel notifs={notifs} setNotifs={setNotifs} onClose={()=>setShowN(false)} onOpenNotification={openNotification}/></div>}
       <div data-profile-menu style={{padding:"7px 0",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,position:"relative"}} onClick={()=>setShowProfileMenu(!showProfileMenu)}>
-        <Av i="PS" c={C.a} s={30} dot={true}/>
-        <span style={{fontSize:8.5,color:C.t2,fontWeight:600,fontFamily:FD}}>Priya</span>
+        <Av i={me?.avatar||me?.name?.split(" ").map((w:string)=>w[0]).join("").slice(0,2).toUpperCase()||"?"} c={me?.color||C.a} s={30} dot={true}/>
+        <span style={{fontSize:8.5,color:C.t2,fontWeight:600,fontFamily:FD}}>{me?.name?.split(" ")[0]||"Me"}</span>
         {showProfileMenu && <div data-profile-menu style={{position:"fixed",left:86,bottom:8,width:200,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,.4)",zIndex:9999,overflow:"hidden",animation:"slideIn .15s ease"}} onClick={e=>e.stopPropagation()}>
           <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s1}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.t1}}>Priya Sharma</div>
-            <div style={{fontSize:10,color:C.t3}}>priya@supportdesk.app</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.t1}}>{me?.name||"Unknown"}</div>
+            <div style={{fontSize:10,color:C.t3}}>{me?.email||""}</div>
           </div>
           <div style={{padding:4}}>
-            <button className="hov" onClick={()=>{navigate("settings");setStab("profile");setShowProfileMenu(false);}} style={{width:"100%",padding:"8px 10px",borderRadius:8,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",color:C.t2,fontSize:12,cursor:"pointer",textAlign:"left",transition:"all .1s"}}>
+            <button className="hov" onClick={()=>{navigate("settings");setStab("account");setShowProfileMenu(false);}} style={{width:"100%",padding:"8px 10px",borderRadius:8,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",color:C.t2,fontSize:12,cursor:"pointer",textAlign:"left",transition:"all .1s"}}>
               <NavIcon id="settings" s={14} col={C.t3}/> My Profile
             </button>
             <button className="hov" onClick={handleLogout} style={{width:"100%",padding:"8px 10px",borderRadius:8,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",color:C.r,fontSize:12,cursor:"pointer",textAlign:"left",transition:"all .1s"}}>
@@ -960,7 +965,7 @@ export default function App(){
       {/* API Error Banner */}
       {apiOk&&!api.isConnected()&&<ErrorBanner msg="Lost connection to API server. Data may be stale." onRetry={()=>loadInitialData()} compact/>}
       <div key={themeKey} role="main" aria-label={ROUTES[scr]?.label||"Dashboard"} style={{flex:1,display:"flex",minWidth:0,overflow:"hidden",zoom:FS!==1?FS:undefined}}>
-        {scr==="home"&&<HomeScr convs={convs} contacts={contacts} agents={agents} labels={labels} inboxes={inboxes} setScr={navigate} setAid={setAid} msgs={msgs} dashWidgets={dashWidgets} hiddenWidgets={hiddenWidgets} onDashConfig={()=>setShowDashConfig(true)}/>}
+        {scr==="home"&&<HomeScr me={me} convs={convs} contacts={contacts} agents={agents} labels={labels} inboxes={inboxes} setScr={navigate} setAid={setAid} msgs={msgs} dashWidgets={dashWidgets} hiddenWidgets={hiddenWidgets} onDashConfig={()=>setShowDashConfig(true)}/>}
         <LazyMount active={scr==="inbox"}><InboxScr {...sp} aid={aid} setAid={setAid} soundOn={soundOn} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} csatPending={csatPending} setCsatPending={setCsatPending} snoozeConv={snoozeConv} convViewers={convViewers} savedViews={savedViews} setSavedViews={setSavedViews} isActive={scr==="inbox"}/></LazyMount>
         <LazyMount active={scr==="teamchat"}><TeamChatScr agents={agents} setAgents={setAgents} fontKey={fontKey} themeKey={themeKey}/></LazyMount>
         <LazyMount active={scr==="crm"}><CrmScr contacts={contacts} setContacts={setContacts} convs={convs} comps={comps} setComps={setComps} customFields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} inboxes={inboxes}/></LazyMount>
@@ -971,7 +976,7 @@ export default function App(){
         <LazyMount active={scr==="integrations"}><IntegrationsScr/></LazyMount>
         <LazyMount active={scr==="knowledgebase"}><KnowledgeBaseScr/></LazyMount>
         <LazyMount active={scr==="reports"}><ReportsScr convs={convs} agents={agents} labels={labels} contacts={contacts} inboxes={inboxes}/></LazyMount>
-        <LazyMount active={scr==="settings"}><SettingsScr {...sp} stab={stab} setStab={setStab} fontKey={fontKey} applyFont={applyFont} fontScale={fontScale} applySize={applySize} themeKey={themeKey} applyTheme={applyTheme} autoTheme={autoTheme} setAutoTheme={setAutoTheme} inboxes={inboxes} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} customFields={customFields} setCustomFields={setCustomFields}/></LazyMount>
+        <LazyMount active={scr==="settings"}><SettingsScr {...sp} me={me} setMe={setMe} stab={stab} setStab={setStab} fontKey={fontKey} applyFont={applyFont} fontScale={fontScale} applySize={applySize} themeKey={themeKey} applyTheme={applyTheme} autoTheme={autoTheme} setAutoTheme={setAutoTheme} inboxes={inboxes} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} customFields={customFields} setCustomFields={setCustomFields}/></LazyMount>
       </div>
     </div>
 

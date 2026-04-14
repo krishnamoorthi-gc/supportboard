@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
-export default function HomeScr({convs,contacts,agents,labels,inboxes,setScr,setAid,msgs,dashWidgets,hiddenWidgets,onDashConfig}){
+export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,setAid,msgs,dashWidgets,hiddenWidgets,onDashConfig}){
   const hour=new Date().getHours();
   const greeting=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
   const [apiKpis,setApiKpis]=useState(null);
@@ -59,7 +59,7 @@ export default function HomeScr({convs,contacts,agents,labels,inboxes,setScr,set
             {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
           </div>
           <h1 style={{fontSize:26,fontWeight:800,fontFamily:FD,marginBottom:6,lineHeight:1.2}}>
-            {greeting}, <span style={{background:"linear-gradient(90deg,"+C.a+","+C.p+")",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Priya</span> 👋
+            {greeting}, <span style={{background:"linear-gradient(90deg,"+C.a+","+C.p+")",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{me?.name?.split(" ")[0]||"there"}</span> 👋
           </h1>
           <p style={{fontSize:13.5,color:C.t2,maxWidth:480}}>
             {unreadTotal>0?`You have ${unreadTotal} unread message${unreadTotal>1?"s":""} and ${unassigned.length} unassigned conversation${unassigned.length!==1?"s":""}. Let's get to work.`:"All caught up! No urgent items right now. Great job."}
