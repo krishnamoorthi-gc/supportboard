@@ -1189,6 +1189,35 @@ app.patch('/api/integrations/:id', require('./middleware/auth'), (req, res) => {
   res.json({ success: true, message: 'Integration config saved' });
 });
 
+// ── Facebook Data Deletion Callback ──
+// Facebook POSTs signed_request here; must return { url, confirmation_code }
+app.post(['/data-deletion', '/data-deletion.html'], (req, res) => {
+  try {
+    const signedRequest = req.body?.signed_request;
+    if (!signedRequest) return res.status(400).json({ error: 'signed_request missing' });
+
+    // Decode base64url payload to extract user_id
+    const [, rawPayload] = signedRequest.split('.');
+    let userId = 'unknown';
+    try {
+      const padded = rawPayload.replace(/-/g, '+').replace(/_/g, '/');
+      const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+      userId = decoded.user_id || 'unknown';
+    } catch { /* ignore decode errors */ }
+
+    const code = `del_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    console.log(`[data-deletion] FB deletion request user_id=${userId} code=${code}`);
+
+    res.json({
+      url: `https://www.onlypoa.com/data-deletion.html?id=${code}`,
+      confirmation_code: code,
+    });
+  } catch (e) {
+    console.error('[data-deletion] Error:', e.message);
+    res.status(400).json({ error: 'Invalid request' });
+  }
+});
+
 // ── Serve frontend (production) ──
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {
