@@ -6,6 +6,7 @@ const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -116,10 +117,17 @@ async function saveInboundAttachments(items = []) {
     if (item.contentDisposition === 'inline' && !item.filename && content.length < 4096) continue;
 
     const originalName = String(item.filename || item.name || `attachment-${attachments.length + 1}`).trim() || `attachment-${attachments.length + 1}`;
-    const storedName = `${Date.now()}-${uuidv4()}-${sanitizeFilename(originalName)}`;
+
+    // Use content hash in filename to prevent duplicate files on disk.
+    // If the same file content was already saved, reuse the existing file.
+    const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+    const safeName = sanitizeFilename(originalName);
+    const storedName = `${hash}-${safeName}`;
     const filePath = path.join(uploadsDir, storedName);
 
-    await fs.promises.writeFile(filePath, content);
+    if (!fs.existsSync(filePath)) {
+      await fs.promises.writeFile(filePath, content);
+    }
 
     attachments.push({
       id: uuidv4(),
@@ -442,13 +450,9 @@ async function pollInbox(inboxId) {
 
     // Fetch only UNSEEN messages within the lookback window — prevents bulk-importing
     // all historical mail when an inbox is first connected
-    let unseenUids = await client.search({ seen: false, since }, { uid: true });
-
-    // Fallback: if no UNSEEN found in window, grab any recent messages
-    // (handles cases where messages were already marked Seen externally)
-    if (!unseenUids || unseenUids.length === 0) {
-      unseenUids = await client.search({ since }, { uid: true });
-    }
+    // NOTE: Do NOT fall back to fetching seen messages — that causes infinite
+    // re-processing of the same emails every poll cycle, duplicating attachments.
+    const unseenUids = await client.search({ seen: false, since }, { uid: true });
 
     const fetchUids = [...new Set((Array.isArray(unseenUids) ? unseenUids : []).map(uid => Number(uid)).filter(Number.isFinite))]
       .sort((a, b) => b - a)
@@ -483,7 +487,10 @@ async function processIncomingEmail({ inbox, rawMsg, client }) {
   // Force-reconnect Prisma to avoid stale MySQL pool
   try { await prisma.$disconnect(); await prisma.$connect(); } catch (_) {}
   const parsed    = await simpleParser(rawMsg.source);
-  const messageId = parsed.messageId || `generated-${uuidv4()}`;
+  // Use a stable fallback when Message-ID header is missing — deriving from
+  // inbox + IMAP UID ensures the same email always maps to the same key,
+  // preventing infinite re-processing on every poll cycle.
+  const messageId = parsed.messageId || `generated-inbox-${inbox.id}-uid-${rawMsg.uid}`;
   const headerDate = toValidDate(parsed.date);
   const internalDate = toValidDate(rawMsg.internalDate);
   const messageDate = pickNewestDate(headerDate, internalDate) || new Date();
