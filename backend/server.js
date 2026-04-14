@@ -1130,6 +1130,8 @@ app.use('/api/email', require('./routes/email'));
 app.use('/api/facebook', require('./routes/facebook'));
 // WhatsApp Cloud API webhook (GET = Meta verification challenge, no auth required)
 app.use('/api/whatsapp', require('./routes/whatsapp'));
+// Instagram Messaging webhook (GET = Meta verification challenge, no auth required)
+app.use('/api/instagram', require('./routes/instagram'));
 
 // Live monitor - visitor sessions
 app.use('/api/monitor', require('./middleware/auth'), (req, res) => {

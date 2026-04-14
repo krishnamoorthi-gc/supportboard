@@ -293,8 +293,13 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const contact=conv?contacts.find(c=>c.id===conv.cid):null;
   const isEmailCh=conv?.ch==="email";
   const isWhatsAppCh=conv?.ch==="whatsapp";
+  const isFacebookCh=conv?.ch==="facebook";
+  const isInstagramCh=conv?.ch==="instagram";
+  const isSocialCh=isFacebookCh||isInstagramCh; // true for any social channel needing real-API send
   const activeInbox=conv?inboxes.find((ib:any)=>ib.id===conv.iid):null;
-  const whatsappCfg=(activeInbox?.cfg||{}) as Record<string,any>;
+  const activeInboxCfg=(activeInbox?.cfg||activeInbox?.config||{}) as Record<string,any>;
+  // ── WhatsApp config ──
+  const whatsappCfg=(activeInboxCfg) as Record<string,any>;
   const whatsappPhoneNumberId=String(whatsappCfg.phoneNumberId||"").trim();
   const whatsappAccessToken=String(whatsappCfg.apiKey||whatsappCfg.accessToken||"").trim();
   const whatsappVerifyToken=String(whatsappCfg.verifyToken||"").trim();
@@ -308,6 +313,22 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const whatsappMissingInboundBits=[
     !whatsappVerifyToken?"Verify Token":"",
     !whatsappWebhookUrl?"Webhook URL":"",
+  ].filter(Boolean);
+  // ── Facebook config ──
+  const facebookCfg=(activeInboxCfg) as Record<string,any>;
+  const facebookPageToken=String(facebookCfg.accessToken||facebookCfg.pageAccessToken||"").trim();
+  const facebookPageId=String(facebookCfg.pageId||"").trim();
+  const facebookSendReady=!isFacebookCh||(!!facebookPageToken&&!!facebookPageId);
+  const facebookMissingSendBits=[
+    !facebookPageId?"Page ID":"",
+    !facebookPageToken?"Page Access Token":"",
+  ].filter(Boolean);
+  // ── Instagram config ──
+  const instagramCfg=(activeInboxCfg) as Record<string,any>;
+  const instagramPageToken=String(instagramCfg.accessToken||instagramCfg.pageAccessToken||"").trim();
+  const instagramSendReady=!isInstagramCh||(!!instagramPageToken);
+  const instagramMissingSendBits=[
+    !instagramPageToken?"Page Access Token":"",
   ].filter(Boolean);
   const contactEmail=(contact?.email||conv?.contact_email||"").trim();
   const contactPhone=(contact?.phone||conv?.contact_phone||"").trim().replace(/^\+/,"");
@@ -357,12 +378,14 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const [msgsLoading,setMsgsLoading]=useState(false);
   useEffect(()=>{
     if(!api.isConnected()||!aid)return;
-    const shouldRefresh=!msgs[aid]?.length||conv?.ch==="email"||(conv?.unread||0)>0;
+    const ch=conv?.ch||"";
+    const isRealTimeCh=ch==="email"||ch==="whatsapp"||ch==="facebook"||ch==="instagram";
+    const shouldRefresh=!msgs[aid]?.length||isRealTimeCh||(conv?.unread||0)>0;
     if(!shouldRefresh)return;
     let cancelled=false;
     setMsgsLoading(true);
-    // Fire-and-forget IMAP poll — don't block message loading
-    if(conv?.ch==="email"&&conv?.iid){
+    // Fire-and-forget IMAP poll for email — don't block message loading
+    if(ch==="email"&&conv?.iid){
       api.post("/email/poll-now",{ inboxId: conv.iid }).catch(()=>{});
     }
     (async()=>{
@@ -374,6 +397,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         }else{
           setMsgs(p=>({...p,[aid]:[]}));
         }
+        // Mark as read
+        setConvs(p=>p.map((c:any)=>c.id===aid?{...c,unread:0}:c));
       }catch{}
       if(!cancelled)setMsgsLoading(false);
     })();
@@ -426,6 +451,58 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       }
     };
   },[aid,conv?.ch,conv?.iid,isActive,setConvs,setMsgs]);
+
+  // ── Real-time sync for WhatsApp / Facebook / Instagram ─────────────────────
+  // WebSocket already delivers new messages instantly.  This periodic sync is a
+  // safety-net that catches any missed events (tab in background, WS reconnect).
+  const socialSyncRef=useRef(false);
+  useEffect(()=>{
+    const ch=conv?.ch||"";
+    const isSocial=ch==="whatsapp"||ch==="facebook"||ch==="instagram";
+    if(!isActive||!api.isConnected()||!aid||!isSocial)return;
+
+    let cancelled=false;
+    const syncSocialConversation=async()=>{
+      if(cancelled||socialSyncRef.current)return;
+      if(typeof document!=="undefined"&&document.visibilityState==="hidden")return;
+      socialSyncRef.current=true;
+      try{
+        const res=await api.get(`/conversations/${aid}/messages`);
+        if(cancelled)return;
+        if(Array.isArray(res?.messages)&&res.messages.length){
+          setMsgs(p=>{
+            const incoming=hydrateConversationMessages(res.messages);
+            const existing=p[aid]||[];
+            // Only update if server has more messages (avoids overwriting optimistic inserts)
+            if(incoming.length>=existing.length)return {...p,[aid]:incoming};
+            return p;
+          });
+          setConvs(p=>p.map((c:any)=>c.id===aid?{...c,unread:0}:c));
+        }
+      }catch{}
+      finally{socialSyncRef.current=false;}
+    };
+
+    const onVisibilityChange=()=>{
+      if(typeof document==="undefined"||document.visibilityState==="visible"){
+        syncSocialConversation();
+      }
+    };
+
+    // Poll every 8 seconds for social channels (WebSocket is primary, this is backup)
+    const intervalId=window.setInterval(syncSocialConversation,8000);
+    syncSocialConversation();
+    if(typeof document!=="undefined"){
+      document.addEventListener("visibilitychange",onVisibilityChange);
+    }
+    return()=>{
+      cancelled=true;
+      window.clearInterval(intervalId);
+      if(typeof document!=="undefined"){
+        document.removeEventListener("visibilitychange",onVisibilityChange);
+      }
+    };
+  },[aid,conv?.ch,isActive,setConvs,setMsgs]);
 
   const prevCounts=useRef({});
 
@@ -517,7 +594,17 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       showT(`WhatsApp inbox setup incomplete: ${whatsappMissingSendBits.join(", ")}`,"error");
       return;
     }
-    if((isEmailCh||isWhatsAppCh)&&!isNote&&!api.isConnected()){
+    if(isFacebookCh&&!isNote&&!facebookSendReady){
+      setInp(txt);
+      showT(`Facebook inbox setup incomplete: ${facebookMissingSendBits.join(", ")}`,"error");
+      return;
+    }
+    if(isInstagramCh&&!isNote&&!instagramSendReady){
+      setInp(txt);
+      showT(`Instagram inbox setup incomplete: ${instagramMissingSendBits.join(", ")}`,"error");
+      return;
+    }
+    if((isEmailCh||isWhatsAppCh||isFacebookCh||isInstagramCh)&&!isNote&&!api.isConnected()){
       setInp(txt);
       showT("API disconnected — message not sent","error");
       return;
@@ -548,6 +635,14 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       if(isWhatsAppCh&&!isNote){
         payload.toPhone=contactPhone;
       }
+      if(isFacebookCh&&!isNote){
+        // contact.phone is stored as 'fb:<psid>' — backend normalizes it
+        payload.toFacebookId=String(contact?.phone||conv?.contact_phone||"").replace(/^fb:/i,"");
+      }
+      if(isInstagramCh&&!isNote){
+        // contact.phone is stored as 'ig:<ig_user_id>' — backend normalizes it
+        payload.toInstagramId=String(contact?.phone||conv?.contact_phone||"").replace(/^ig:/i,"");
+      }
       try{
         const res=await api.post(`/conversations/${aid}/messages`,payload);
         const savedMsg=res?.message;
@@ -565,19 +660,19 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         setInp(txt);
         setReplyTo(prevReplyTo);
         setAttachments(prevAttachments);
-        const chLabel=isEmailCh&&!isNote?"Email":isWhatsAppCh&&!isNote?"WhatsApp":"Message";
+        const chLabel=isEmailCh&&!isNote?"Email":isWhatsAppCh&&!isNote?"WhatsApp":isFacebookCh&&!isNote?"Facebook":isInstagramCh&&!isNote?"Instagram":"Message";
         showT(`${chLabel} not sent: ${(e as any)?.message||"Delivery failed"}`,"error");
         return;
       }
     }
     if(isNote)return; // Notes don't trigger replies
-    if(isEmailCh||isWhatsAppCh){
-      // Trigger IMAP poll shortly after sending to pick up sent copy & fast auto-replies
+    if(isEmailCh||isWhatsAppCh||isFacebookCh||isInstagramCh){
+      // For email: trigger IMAP poll shortly after to pick up sent copy & fast auto-replies
       if(isEmailCh&&conv?.iid){
         setTimeout(()=>api.post("/email/poll-now",{inboxId:conv.iid}).catch(()=>{}),2000);
         setTimeout(()=>api.post("/email/poll-now",{inboxId:conv.iid}).catch(()=>{}),6000);
       }
-      return; // Real channels — wait for actual customer reply, no fake demo
+      return; // Real channels — wait for actual customer reply via WebSocket, no fake demo
     }
     const pool=REPLY_POOL[aid]||["Thanks for the reply!"];
     setTimeout(()=>{
@@ -1144,6 +1239,22 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           {contactPhone&&!whatsappSendReady&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ Send setup missing: {whatsappMissingSendBits.join(", ")}</span>}
           {whatsappSendReady&&!whatsappInboundReady&&<span style={{fontSize:9,color:C.y,fontFamily:FM}}>⚠ Reply sync missing: {whatsappMissingInboundBits.join(", ")}</span>}
         </div>}
+        {/* Facebook Messenger header */}
+        {isFacebookCh&&!isNote&&<div style={{marginBottom:6,display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"#1877f211",border:"1px solid #1877f233",borderRadius:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:12}}>💬</span>
+          <span style={{fontSize:10,color:"#1877f2",fontFamily:FM,fontWeight:600}}>Facebook Messenger</span>
+          <span style={{fontSize:10,color:C.t2,fontFamily:FB,flex:1}}>To: {contact?.name||contactName}</span>
+          {!facebookSendReady&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ Setup missing: {facebookMissingSendBits.join(", ")}</span>}
+          {facebookSendReady&&<span style={{fontSize:9,color:"#1877f2",fontFamily:FM}}>🔒 Connected</span>}
+        </div>}
+        {/* Instagram header */}
+        {isInstagramCh&&!isNote&&<div style={{marginBottom:6,display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"#e1306c11",border:"1px solid #e1306c33",borderRadius:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:12}}>📸</span>
+          <span style={{fontSize:10,color:"#e1306c",fontFamily:FM,fontWeight:600}}>Instagram DM</span>
+          <span style={{fontSize:10,color:C.t2,fontFamily:FB,flex:1}}>To: {contact?.name||contactName}</span>
+          {!instagramSendReady&&<span style={{fontSize:9,color:C.r,fontFamily:FM}}>⚠ Setup missing: {instagramMissingSendBits.join(", ")}</span>}
+          {instagramSendReady&&<span style={{fontSize:9,color:"#e1306c",fontFamily:FM}}>🔒 Connected</span>}
+        </div>}
         {/* Email fields — compact single-area */}
         {isEmailCh&&!isNote&&<div style={{marginBottom:6,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,overflow:"hidden"}}>
           <div style={{display:"flex",alignItems:"center",gap:0,borderBottom:`1px solid ${C.b1}`}}>
@@ -1185,7 +1296,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         </div>}
         {/* Textarea — full width, taller */}
         <textarea value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&!isEmailCh&&(e.preventDefault(),sendMsg())}
-          placeholder={isNote?"Internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message…":"Type reply… (Enter to send)"}
+          placeholder={isNote?"Internal note (not visible to customer)…":isEmailCh?"Compose email reply…":isWhatsAppCh?"Type WhatsApp message…":isFacebookCh?"Type Facebook message…":isInstagramCh?"Type Instagram DM…":"Type reply… (Enter to send)"}
           rows={isEmailCh?3:2}
           style={{width:"100%",boxSizing:"border-box",background:isNote?"#fffbe6":C.bg,border:`1px solid ${isNote?C.y+"66":C.b2}`,borderRadius:8,padding:"8px 10px",fontSize:13,color:isNote?"#5a4e1a":C.t1,resize:"vertical",lineHeight:1.5,fontFamily:FB,transition:"background .15s",outline:"none"}}/>
         {/* Signature preview */}
@@ -1208,12 +1319,20 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
           <div style={{flex:1}}/>
           <button onClick={()=>{setShowCanned(p=>!p);setCQ("");}} style={{padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.t2,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer"}}>⚡ Canned</button>
           <button onClick={genAI} style={{padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.p,background:C.pd,border:`1px solid ${C.p}44`,cursor:"pointer"}}>✦ AI</button>
-          <button onClick={sendMsg} style={{padding:"5px 16px",borderRadius:7,fontSize:12,fontWeight:700,background:isNote?C.y:isWhatsAppCh?"#25d366":C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",fontFamily:FM,transition:"background .15s"}} title={isWhatsAppCh?"Send via WhatsApp":"Send"}>{editMsgId?"Save":isWhatsAppCh?"Send 📤":"Send ↑"}</button>
+          <button onClick={sendMsg} style={{padding:"5px 16px",borderRadius:7,fontSize:12,fontWeight:700,background:isNote?C.y:isWhatsAppCh?"#25d366":isFacebookCh?"#1877f2":isInstagramCh?"#e1306c":C.a,color:isNote?"#5a4e1a":"#fff",border:"none",cursor:"pointer",fontFamily:FM,transition:"background .15s"}} title={isWhatsAppCh?"Send via WhatsApp":isFacebookCh?"Send via Facebook":isInstagramCh?"Send via Instagram":"Send"}>{editMsgId?"Save":isWhatsAppCh?"Send 💬":isFacebookCh?"Send 💬":isInstagramCh?"Send 📸":"Send ↑"}</button>
         </div>
-        {/* WhatsApp status */}
+        {/* Channel status footer */}
         {isWhatsAppCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:5,fontSize:9,color:whatsappSendReady&&whatsappInboundReady?"#25d366":whatsappSendReady?C.y:C.r,fontFamily:FM}}>
           <span>{whatsappSendReady&&whatsappInboundReady?"🔒":"⚠"}</span>
-          <span>{whatsappSendReady&&whatsappInboundReady?"WhatsApp ready":"Setup incomplete — check Meta API credentials and webhook"}</span>
+          <span>{whatsappSendReady&&whatsappInboundReady?"WhatsApp ready · Real-time via webhook":"Setup incomplete — check Meta API credentials and webhook"}</span>
+        </div>}
+        {isFacebookCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:5,fontSize:9,color:facebookSendReady?"#1877f2":C.r,fontFamily:FM}}>
+          <span>{facebookSendReady?"🔒":"⚠"}</span>
+          <span>{facebookSendReady?"Facebook Messenger ready · Real-time via webhook":"Setup incomplete — check Facebook App credentials"}</span>
+        </div>}
+        {isInstagramCh&&!isNote&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:5,fontSize:9,color:instagramSendReady?"#e1306c":C.r,fontFamily:FM}}>
+          <span>{instagramSendReady?"🔒":"⚠"}</span>
+          <span>{instagramSendReady?"Instagram DM ready · Real-time via webhook":"Setup incomplete — check Instagram Page Access Token"}</span>
         </div>}
       </div>
     </div>

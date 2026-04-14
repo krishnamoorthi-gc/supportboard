@@ -560,10 +560,14 @@ export default function App(){
           });
           // Sound + notification for customer messages
           if(msg.role==="customer"||msg.role==="contact"){
-            pushNotification({text:"💬 New message in conversation",type:"message",targetScreen:"inbox",conversationId:m.conversationId||null,targetConversation:m.conversation||null});
+            const ch=m.conversation?.inbox_type||m.conversation?.channel||"";
+            const chIcon=ch==="whatsapp"?"💬":ch==="facebook"?"💬":ch==="instagram"?"📸":ch==="email"?"📧":"💬";
+            const chLabel=ch==="whatsapp"?"WhatsApp":ch==="facebook"?"Facebook":ch==="instagram"?"Instagram":ch==="email"?"Email":"";
             const senderName=m.conversation?.contact_name||"Customer";
             const preview=msg.text?.slice(0,60)||(Array.isArray(msg.attachments)&&msg.attachments.length>0?"📷 Image":"New message");
-            showT(`💬 ${senderName}: ${preview}`,"info");
+            const notifText=chLabel?`${chIcon} ${chLabel} · ${senderName}: ${preview}`:`${chIcon} ${senderName}: ${preview}`;
+            pushNotification({text:notifText,type:"message",targetScreen:"inbox",conversationId:m.conversationId||null,targetConversation:m.conversation||null});
+            showT(notifText,"info");
           }
         }
         // ── Real-time: inbound email received via IMAP polling ────────────
@@ -607,7 +611,10 @@ export default function App(){
               return [...p,{id:cid,name:m.contact_name||"Customer",email:m.contact_email||"",av,color:m.contact_color||"#4c82fb",tags:[],convs:1}];
             });
           }
-          const campLabel=cv?.campaign_name||m.campaign_name?"📣 Campaign reply":"💬 New conversation";
+          const newCvCh=cv?.inbox_type||cv?.channel||"";
+          const newCvChIcon=newCvCh==="whatsapp"?"💬":newCvCh==="facebook"?"💬":newCvCh==="instagram"?"📸":newCvCh==="email"?"📧":"💬";
+          const newCvChLabel=newCvCh==="whatsapp"?" via WhatsApp":newCvCh==="facebook"?" via Facebook":newCvCh==="instagram"?" via Instagram":newCvCh==="email"?" via Email":"";
+          const campLabel=cv?.campaign_name||m.campaign_name?`📣 Campaign reply${newCvChLabel}`:`${newCvChIcon} New conversation${newCvChLabel}`;
           pushNotification({text:`${campLabel} from ${m.contact_name||"visitor"}${cv?.campaign_name||m.campaign_name?" ("+( cv?.campaign_name||m.campaign_name)+")":""}`,type:"message",targetScreen:"inbox",conversationId:cv?.id||m.conversation_id||null,targetConversation:cv||null});
           // AI Auto-Tag — classify new conversation
           const convId=cv?.id||m.conversation_id;

@@ -504,6 +504,36 @@ async function processIncomingMessage(event, inbox, pageToken) {
     contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(ctId);
   }
 
+  // ── check if this is a campaign reply ──────────────────────────────────
+  let campaignId = null;
+  let campaignName = null;
+  try {
+    const campLog = await db.prepare(`
+      SELECT l.campaign_id, c.name as campaign_name
+      FROM campaign_send_log l
+      LEFT JOIN campaigns c ON l.campaign_id = c.id
+      WHERE l.contact_id=?
+        AND l.channel='facebook'
+        AND l.status='sent'
+        AND l.sent_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+      ORDER BY l.sent_at DESC LIMIT 1
+    `).get(contact.id);
+    if (campLog) {
+      campaignId   = campLog.campaign_id;
+      campaignName = campLog.campaign_name;
+      try {
+        const camp = await db.prepare('SELECT stats FROM campaigns WHERE id=?').get(campaignId);
+        if (camp) {
+          const stats = JSON.parse(camp.stats || '{}');
+          stats.replies = (stats.replies || 0) + 1;
+          await db.prepare('UPDATE campaigns SET stats=? WHERE id=?').run(JSON.stringify(stats), campaignId);
+        }
+      } catch {}
+    }
+  } catch (e) {
+    console.log('[facebook] Campaign lookup skipped:', e.message);
+  }
+
   // Find or create conversation
   let conv = await db.prepare(
     "SELECT * FROM conversations WHERE contact_id=? AND inbox_id=? AND status='open' ORDER BY updated_at DESC LIMIT 1"
@@ -511,15 +541,29 @@ async function processIncomingMessage(event, inbox, pageToken) {
 
   if (!conv) {
     const cvId = 'cv' + uid();
+    const subject = campaignName
+      ? `Campaign Reply: ${campaignName} — ${senderName}`
+      : `Facebook: ${senderName}`;
     await db.prepare(`
-      INSERT INTO conversations (id, contact_id, inbox_id, subject, status, channel, labels, agent_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
-    `).run(cvId, contact.id, inbox.id, `Facebook: ${senderName}`, 'open', 'facebook',
-           JSON.stringify(['facebook']), agentId, ts, ts);
+      INSERT INTO conversations (id, contact_id, inbox_id, subject, status, channel, campaign_id, campaign_name, labels, agent_id, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(cvId, contact.id, inbox.id, subject, 'open', 'facebook',
+           campaignId, campaignName, JSON.stringify(['facebook']), agentId, ts, ts);
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
     const fullConv = await buildFullConv(cvId);
-    broadcastToAll({ type: 'new_conversation', conversation_id: cvId, subject: `Facebook: ${senderName}`, contact_name: senderName, conversation: fullConv });
+    broadcastToAll({
+      type: 'new_conversation',
+      conversation_id: cvId,
+      subject,
+      contact_name: senderName,
+      campaign_id: campaignId,
+      campaign_name: campaignName,
+      conversation: fullConv,
+    });
+  } else if (campaignId && !conv.campaign_id) {
+    await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
+      .run(campaignId, campaignName, conv.id);
   }
 
   // Parse attachments
@@ -565,7 +609,8 @@ async function buildFullConv(convId) {
     const cv = await db.prepare(`
       SELECT c.*, ct.name as contact_name, ct.email as contact_email,
              ct.phone as contact_phone, ct.avatar as contact_avatar, ct.color as contact_color,
-             i.name as inbox_name, i.type as inbox_type, i.color as inbox_color
+             i.name as inbox_name, i.type as inbox_type, i.color as inbox_color,
+             c.campaign_id, c.campaign_name
       FROM conversations c
       LEFT JOIN contacts ct ON c.contact_id = ct.id
       LEFT JOIN inboxes i ON c.inbox_id = i.id

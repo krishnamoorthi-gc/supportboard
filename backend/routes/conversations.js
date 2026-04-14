@@ -5,6 +5,7 @@ const { uid, paginate } = require('../utils/helpers');
 const { sendEmail, extractVisibleEmailText } = require('../services/emailService');
 const { sendFacebookMessage, normalizeFacebookRecipientId } = require('../services/facebookService');
 const { sendWhatsAppMessage } = require('../services/whatsappService');
+const { sendInstagramMessage, normalizeInstagramRecipientId } = require('../services/instagramService');
 const { broadcastToAll } = require('../ws');
 
 function parseAttachments(value) {
@@ -369,6 +370,27 @@ router.post('/:id/messages', auth, async (req, res) => {
     }
   }
 
+  // ── Instagram send ──────────────────────────────────────────────────────
+  let igResult = null;
+  if (role === 'agent' && conv.inbox_type === 'instagram') {
+    const { toInstagramId } = req.body;
+    const recipientId = normalizeInstagramRecipientId(toInstagramId || conv.contact_phone || '');
+    if (!recipientId) {
+      return res.status(400).json({ error: 'Instagram recipient ID missing for this conversation' });
+    }
+    try {
+      igResult = await sendInstagramMessage({
+        inboxId:     conv.inbox_id_val,
+        to:          recipientId,
+        text:        text || '',
+        attachments: normalizedAttachments,
+      });
+    } catch (igErr) {
+      console.error('[conversations] Instagram send failed:', igErr.message);
+      return res.status(502).json({ error: `Instagram delivery failed: ${igErr.message}` });
+    }
+  }
+
   const id = uid();
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
   await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,whatsapp_message_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
@@ -379,7 +401,7 @@ router.post('/:id/messages', auth, async (req, res) => {
     role === 'agent' ? req.agent.id : null,
     JSON.stringify(normalizedAttachments),
     smtpResult?.smtpMessageId || null,
-    waResult?.messages?.[0]?.id || fbResult?.message_id || null,
+    waResult?.messages?.[0]?.id || fbResult?.message_id || igResult?.message_id || null,
     createdAt
   );
 
@@ -446,6 +468,11 @@ router.post('/:id/messages', auth, async (req, res) => {
       delivered: true,
       messageId: fbResult?.message_id,
       recipientId: fbResult?.recipient_id,
+    } : null,
+    instagram: igResult ? {
+      delivered: true,
+      messageId: igResult?.message_id,
+      recipientId: igResult?.recipient_id,
     } : null,
   });
 });

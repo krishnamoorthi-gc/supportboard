@@ -5,9 +5,9 @@ import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSou
 const MKT_VARS=["first_name","last_name","email","company","amount","discount","code","link","date","time","product","order_id","status","hours","points","unsubscribe"];
 const mktGoalC=g=>({promotion:C.r,engagement:C.a,retention:C.p,transactional:C.cy}[g]||C.t3);
 const mktStC=s=>({sent:C.g,active:C.a,scheduled:C.cy,draft:C.t3,paused:C.y,failed:C.r,sending:C.cy}[s]||C.t3);
-const mktChC=c=>({whatsapp:"#25d366",email:C.a,sms:C.y,push:"#ff6b35"}[c]||C.t3);
+const mktChC=c=>({whatsapp:"#25d366",email:C.a,sms:C.y,push:"#ff6b35",facebook:"#1877f2",instagram:"#e1306c"}[c]||C.t3);
 const mktChE=c=><ChIcon t={c} s={16}/>;
-const mktChL=c=>({whatsapp:"WhatsApp",email:"Email",sms:"SMS",push:"Push"}[c]||c);
+const mktChL=c=>({whatsapp:"WhatsApp",email:"Email",sms:"SMS",push:"Push",facebook:"Facebook",instagram:"Instagram"}[c]||c);
 const mktPct=(a,b)=>b?Math.round(a/b*100):0;
 const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250",unsubscribe:"To unsubscribe, reply STOP"}[k]||m));
 
@@ -169,7 +169,7 @@ export default function MarketingScr({contacts,pushNotification}){
   const dupTpl=t=>{const nid="tl"+uid();setTemplates(p=>[{...t,id:nid,name:t.name+" (Copy)",openRate:0,ctr:0},...p]);showT("Template duplicated","success");if(api.isConnected())api.post("/marketing/templates",{name:t.name+" (Copy)",type:t.ch,category:t.cat,description:t.desc,subject:t.subj,body:t.body}).then(r=>{if(r?.template)setTemplates(p=>p.map(x=>x.id===nid?{...x,id:r.template.id}:x));}).catch(()=>{});};
   const delTpl=id=>{setTemplates(p=>p.filter(t=>t.id!==id));showT("Template deleted","success");if(api.isConnected())api.del(`/marketing/templates/${id}`).catch(()=>{});};
 
-  const chFilter=mtab==="whatsapp"||mtab==="email"||mtab==="sms"||mtab==="push"?mtab:null;
+  const chFilter=["whatsapp","email","sms","push","facebook","instagram"].includes(mtab)?mtab:null;
   console.log('📊 Marketing state:', { totalCamps: camps.length, mtab, chFilter, filter, search });
   console.log('📋 First camp:', camps[0]);
   const vis=camps.filter(c=>{
@@ -313,7 +313,7 @@ export default function MarketingScr({contacts,pushNotification}){
       <Btn ch="✦ AI Studio" v="ai" onClick={()=>setMtab("ai_studio")}/>
       <Btn ch="⚡ A/B Test" v="ai" onClick={()=>setShowABTest(true)}/>
       <div style={{display:"flex",gap:3}}>
-        {[["whatsapp","+ WA","#25d366"],["email","+ Email",C.a],["sms","+ SMS",C.y],["push","+ Push","#ff6b35"]].map(([id,lbl,clr])=>(
+        {[["whatsapp","+ WA","#25d366"],["facebook","+ FB","#1877f2"],["instagram","+ IG","#e1306c"],["email","+ Email",C.a],["sms","+ SMS",C.y],["push","+ Push","#ff6b35"]].map(([id,lbl,clr])=>(
           <button key={id} onClick={()=>openNewForCh(id)} style={{padding:"5px 10px",borderRadius:7,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:clr+"15",color:clr,border:`1px solid ${clr}44`}}>{lbl}</button>
         ))}
       </div>
@@ -322,7 +322,7 @@ export default function MarketingScr({contacts,pushNotification}){
 
     {/* Tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`,background:C.s1,padding:"0 24px"}}>
-      {[["overview","reports","Overview"],["whatsapp",null,"WhatsApp"],["email",null,"Email"],["sms",null,"SMS"],["push",null,"Push"],["groups","contacts","Groups"],["automations","automations","Automations"],["ai_studio","aibot","AI Studio"],["segments","contacts","Segments"],["templates","knowledgebase","Templates"],["analytics","reports","Analytics"]].map(([id,navId,lbl])=>(
+      {[["overview","reports","Overview"],["whatsapp",null,"WhatsApp"],["facebook",null,"Facebook"],["instagram",null,"Instagram"],["email",null,"Email"],["sms",null,"SMS"],["push",null,"Push"],["groups","contacts","Groups"],["automations","automations","Automations"],["ai_studio","aibot","AI Studio"],["segments","contacts","Segments"],["templates","knowledgebase","Templates"],["analytics","reports","Analytics"]].map(([id,navId,lbl])=>(
         <button key={id} onClick={()=>{setMtab(id);setFilter("all");}} style={{padding:"11px 14px",fontSize:10.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.3px",color:mtab===id?C.a:C.t3,borderBottom:`2px solid ${mtab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>{navId?<NavIcon id={navId} s={13} col={mtab===id?C.a:C.t3}/>:<ChIcon t={id} s={13}/>} {lbl}</button>
       ))}
     </div>
@@ -343,8 +343,8 @@ export default function MarketingScr({contacts,pushNotification}){
         </div>
 
         {/* Channel summary cards */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:20}}>
-          {["whatsapp","email","sms","push"].map(ch=>{const t=chTot(ch);return(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 1fr",gap:12,marginBottom:20}}>
+          {["whatsapp","facebook","instagram","email","sms","push"].map(ch=>{const t=chTot(ch);return(
             <div key={ch} onClick={()=>setMtab(ch)} className="hov" style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,padding:"16px",cursor:"pointer",transition:"background .12s"}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
                 <div style={{width:36,height:36,borderRadius:9,background:mktChC(ch)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{mktChE(ch)}</div>
@@ -367,8 +367,8 @@ export default function MarketingScr({contacts,pushNotification}){
         <CampTable data={camps.filter(c=>c.status!=="draft").slice(0,5)}/>
       </>}
 
-      {/* ═══ CHANNEL TABS (WhatsApp / Email / SMS) ═══ */}
-      {(mtab==="whatsapp"||mtab==="email"||mtab==="sms"||mtab==="push")&&<>
+      {/* ═══ CHANNEL TABS (WhatsApp / Facebook / Instagram / Email / SMS) ═══ */}
+      {(mtab==="whatsapp"||mtab==="facebook"||mtab==="instagram"||mtab==="email"||mtab==="sms"||mtab==="push")&&<>
         {/* Channel KPIs */}
         {(()=>{const t=chTot(mtab);return <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
           {[{l:"Campaigns",v:t.cnt,c:mktChC(mtab)},{l:"Sent",v:t.sent.toLocaleString(),c:C.cy},{l:"Delivered",v:mktPct(t.del,t.sent)+"%",c:C.g},{l:mtab==="email"?"Open Rate":"Read Rate",v:mktPct(t.read,t.del)+"%",c:C.p},{l:"Click Rate",v:mktPct(t.click,t.read)+"%",c:C.y}].map(k=>(
@@ -682,7 +682,7 @@ export default function MarketingScr({contacts,pushNotification}){
           <div style={{flex:1}}><Fld label="Automation Name"><Inp val={autoName} set={setAutoName} ph="e.g. Welcome Series"/></Fld></div>
           <div style={{flex:1}}><Fld label="Primary Channel">
             <div style={{display:"flex",gap:4}}>
-              {[["whatsapp","WA","#25d366"],["email","Email",C.a],["sms","SMS",C.y],["push","Push","#ff6b35"]].map(([id,lbl,clr])=>(
+              {[["whatsapp","WA","#25d366"],["facebook","FB","#1877f2"],["instagram","IG","#e1306c"],["email","Email",C.a],["sms","SMS",C.y],["push","Push","#ff6b35"]].map(([id,lbl,clr])=>(
                 <button key={id} onClick={()=>setAutoCh(id)} style={{flex:1,padding:"7px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",background:autoCh===id?clr+"18":"transparent",color:autoCh===id?clr:C.t3,border:`1.5px solid ${autoCh===id?clr+"55":C.b1}`,fontFamily:FB,display:"flex",alignItems:"center",justifyContent:"center",gap:3}}><ChIcon t={id} s={12}/>{lbl}</button>
               ))}
             </div>
@@ -735,7 +735,7 @@ export default function MarketingScr({contacts,pushNotification}){
         {/* Channel comparison */}
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,padding:"18px",marginBottom:16}}>
           <div style={{fontSize:14,fontWeight:700,fontFamily:FD,marginBottom:14}}>Channel Comparison</div>
-          {["whatsapp","email","sms","push"].map(ch=>{const t=chTot(ch);const maxS=Math.max(...["whatsapp","email","sms","push"].map(c=>chTot(c).sent),1);return(
+          {["whatsapp","facebook","instagram","email","sms","push"].map(ch=>{const t=chTot(ch);const maxS=Math.max(...["whatsapp","facebook","instagram","email","sms","push"].map(c=>chTot(c).sent),1);return(
             <div key={ch} style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
               <div style={{width:28,height:28,borderRadius:7,background:mktChC(ch)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{mktChE(ch)}</div>
               <span style={{fontSize:12,color:C.t2,width:70,flexShrink:0}}>{mktChL(ch)}</span>
@@ -1019,7 +1019,7 @@ export default function MarketingScr({contacts,pushNotification}){
       {mtab==="templates"&&<>
         <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
           <div style={{display:"flex",gap:4}}>
-            {["all","email","whatsapp","sms","push"].map(f=>(
+            {["all","whatsapp","facebook","instagram","email","sms","push"].map(f=>(
               <button key={f} onClick={()=>setTplFilter(f)} style={{padding:"4px 12px",borderRadius:20,fontSize:10,fontWeight:700,fontFamily:FM,cursor:"pointer",background:tplFilter===f?mktChC(f)+"22":"transparent",color:tplFilter===f?mktChC(f):C.t3,border:`1px solid ${tplFilter===f?mktChC(f)+"55":C.b1}`,textTransform:"capitalize"}}>{f==="all"?"All Channels":mktChL(f)}</button>
             ))}
           </div>
@@ -1079,7 +1079,7 @@ export default function MarketingScr({contacts,pushNotification}){
         <div style={{display:"flex",gap:12}}>
           <div style={{flex:1}}><Fld label="Channel">
             <div style={{display:"flex",gap:4}}>
-              {[["whatsapp","WhatsApp","#25d366"],["email","Email",C.a],["sms","SMS",C.y],["push","Push","#ff6b35"]].map(([id,lbl,clr])=>(
+              {[["whatsapp","WA","#25d366"],["facebook","FB","#1877f2"],["instagram","IG","#e1306c"],["email","Email",C.a],["sms","SMS",C.y],["push","Push","#ff6b35"]].map(([id,lbl,clr])=>(
                 <button key={id} onClick={()=>setTplCh(id)} style={{flex:1,padding:"7px",borderRadius:8,fontSize:10,fontWeight:700,cursor:"pointer",background:tplCh===id?clr+"18":"transparent",color:tplCh===id?clr:C.t3,border:`1.5px solid ${tplCh===id?clr+"55":C.b1}`,fontFamily:FB,display:"flex",alignItems:"center",justifyContent:"center",gap:3}}><ChIcon t={id} s={12}/>{lbl}</button>
               ))}
             </div>
@@ -1318,9 +1318,9 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
     {/* Step 1 */}
     {step===1&&<div>
       <Fld label="Channel">
-        <div style={{display:"flex",gap:8}}>
-          {[["whatsapp","WhatsApp","#25d366"],["email","Email",C.a],["sms","SMS",C.y],["push","Push","#ff6b35"]].map(([id,lbl,clr])=>(
-            <button key={id} onClick={()=>setCh(id)} style={{flex:1,padding:"10px",borderRadius:10,fontSize:12,fontWeight:700,cursor:"pointer",background:ch===id?clr+"18":"transparent",color:ch===id?clr:C.t3,border:`1.5px solid ${ch===id?clr+"55":C.b1}`,fontFamily:FB,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><ChIcon t={id} s={15}/>{lbl}</button>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {[["whatsapp","WhatsApp","#25d366"],["facebook","Facebook","#1877f2"],["instagram","Instagram","#e1306c"],["email","Email",C.a],["sms","SMS",C.y],["push","Push","#ff6b35"]].map(([id,lbl,clr])=>(
+            <button key={id} onClick={()=>setCh(id)} style={{flex:"1 1 calc(33% - 6px)",minWidth:90,padding:"9px 6px",borderRadius:10,fontSize:11,fontWeight:700,cursor:"pointer",background:ch===id?clr+"18":"transparent",color:ch===id?clr:C.t3,border:`1.5px solid ${ch===id?clr+"55":C.b1}`,fontFamily:FB,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><ChIcon t={id} s={13}/>{lbl}</button>
           ))}
         </div>
       </Fld>
@@ -1617,9 +1617,9 @@ function ABTestModal({segments,userTemplates=[],onClose,onLaunch}){
     {step===1&&<div>
       <Fld label="Test Name"><Inp val={name} set={setName} ph="e.g. Subject Line Test — March Promo"/></Fld>
       <Fld label="Channel">
-        <div style={{display:"flex",gap:8}}>
-          {[["whatsapp","WhatsApp","#25d366"],["email","Email",C.a],["sms","SMS",C.y]].map(([id,lbl,clr])=>(
-            <button key={id} onClick={()=>setCh(id)} style={{flex:1,padding:"10px",borderRadius:10,fontSize:12,fontWeight:700,cursor:"pointer",background:ch===id?clr+"18":"transparent",color:ch===id?clr:C.t3,border:`1.5px solid ${ch===id?clr+"55":C.b1}`,fontFamily:FB,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><ChIcon t={id} s={15}/>{lbl}</button>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {[["whatsapp","WhatsApp","#25d366"],["facebook","Facebook","#1877f2"],["instagram","Instagram","#e1306c"],["email","Email",C.a],["sms","SMS",C.y]].map(([id,lbl,clr])=>(
+            <button key={id} onClick={()=>setCh(id)} style={{flex:"1 1 calc(33% - 6px)",minWidth:90,padding:"9px 6px",borderRadius:10,fontSize:11,fontWeight:700,cursor:"pointer",background:ch===id?clr+"18":"transparent",color:ch===id?clr:C.t3,border:`1.5px solid ${ch===id?clr+"55":C.b1}`,fontFamily:FB,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><ChIcon t={id} s={13}/>{lbl}</button>
           ))}
         </div>
       </Fld>

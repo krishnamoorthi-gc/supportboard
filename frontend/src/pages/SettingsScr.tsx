@@ -565,7 +565,7 @@ function InboxSet({inboxes,setInboxes}){
     ],
     telegram:[{k:"botToken",l:"Bot Token",ph:"123456:ABCdef..."},{k:"webhookUrl",l:"Webhook URL",ph:"https://api.yoursite.com/tg/webhook"}],
     facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"appId",l:"App ID",ph:"933722449370118"},{k:"appSecret",l:"App Secret",ph:"abc123def456..."},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"}],
-    instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Access Token",ph:"IGQxxxxxxx"}],
+    instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_ig_verify_token"}],
     email:[{k:"imapHost",l:"IMAP Host",ph:"imap.gmail.com"},{k:"imapPort",l:"IMAP Port",ph:"993"},{k:"smtpHost",l:"SMTP Host",ph:"smtp.gmail.com"},{k:"smtpPort",l:"SMTP Port",ph:"587"},{k:"emailUser",l:"Email Address",ph:"support@yourcompany.com"},{k:"emailPass",l:"Password / App Password",ph:"••••••••"}],
     sms:[{k:"phoneNumber",l:"Phone Number",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Auth Token",ph:"xxxxxxxxxx"}],
     viber:[{k:"botToken",l:"Bot Token",ph:"xxxx-xxxx-xxxx"},{k:"webhookUrl",l:"Webhook URL",ph:"https://..."}],
@@ -581,6 +581,8 @@ function InboxSet({inboxes,setInboxes}){
   const dayNames=["S","M","T","W","T","F","S"];
   const defaultFormFields=[{id:"ff1",type:"text",label:"Full Name",placeholder:"Your name",required:true,options:[]},{id:"ff2",type:"email",label:"Email Address",placeholder:"you@company.com",required:true,options:[]},{id:"ff3",type:"select",label:"Department",placeholder:"Select department",required:true,options:["Sales","Support","Billing","Technical","Other"]},{id:"ff4",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}];
   const facebookWebhookUrl=`${backendUrl}/api/facebook/webhook`;
+  const instagramWebhookUrl=`${backendUrl}/api/instagram/webhook`;
+  const whatsappWebhookUrl=`${backendUrl}/api/whatsapp/webhook`;
   const connectionConfiguredMsg=
     form.type==="whatsapp"
       ?"Meta webhook verification and a live WhatsApp message are still needed before inbox replies can sync in real time"
@@ -728,6 +730,16 @@ function InboxSet({inboxes,setInboxes}){
         const missingPerms=e?.data?.missingPermissions?.length?" Missing permissions: "+e.data.missingPermissions.join(", "):"";
         showT("Facebook connection failed: "+(e?.data?.error||e?.message||"unknown")+missingPerms,"error");
       }
+      return;
+    }
+    if(form.type==="instagram"){
+      const igMissing=[];
+      if(!String(cfg.pageId||"").trim())igMissing.push("Instagram Business Account ID");
+      if(!String(cfg.accessToken||"").trim())igMissing.push("Page Access Token");
+      if(!String(cfg.verifyToken||"").trim())igMissing.push("Webhook Verify Token");
+      if(igMissing.length){cfgFld("connStatus","failed");showT("Fill in: "+igMissing.join(", "),"error");return;}
+      cfgFld("connStatus","configured");
+      showT("Instagram setup looks complete. Real inbound DMs start only after Meta webhook verification.","info");
       return;
     }
     cfgFld("connTesting",true);cfgFld("connStatus","");
@@ -971,6 +983,50 @@ function InboxSet({inboxes,setInboxes}){
           <Fld key={f.k} label={f.l}><Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph}/></Fld>
         ))}
 
+        {/* ── Instagram webhook URL + verify token display ── */}
+        {form.type==="instagram"&&<div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>Instagram Webhook</div>
+          <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Meta App Dashboard add the Instagram product, then configure the Webhooks product with this callback URL and the same verify token shown below. Subscribe to the <code style={{fontFamily:FM,color:"#e1306c"}}>messages</code> field.</div>
+          <div style={{display:"grid",gap:10}}>
+            <div>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>CALLBACK URL</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                <div style={{flex:1,fontSize:11,fontFamily:FM,color:C.g,wordBreak:"break-all"}}>{instagramWebhookUrl}</div>
+                <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(instagramWebhookUrl,"Callback URL")}/>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>VERIFY TOKEN</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                <div style={{flex:1,fontSize:11,fontFamily:FM,color:cfg.verifyToken?"#e1306c":C.t3,wordBreak:"break-all"}}>{cfg.verifyToken||"Enter a webhook verify token above"}</div>
+                <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(cfg.verifyToken||"","Verify Token")}/>
+              </div>
+            </div>
+          </div>
+        </div>}
+
+        {/* ── WhatsApp webhook URL display ── */}
+        {form.type==="whatsapp"&&<div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>WhatsApp Webhook</div>
+          <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Meta App Dashboard → WhatsApp → Configuration, set this as the Callback URL and the verify token you entered above.</div>
+          <div style={{display:"grid",gap:10}}>
+            <div>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>CALLBACK URL</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                <div style={{flex:1,fontSize:11,fontFamily:FM,color:C.g,wordBreak:"break-all"}}>{whatsappWebhookUrl}</div>
+                <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(whatsappWebhookUrl,"Callback URL")}/>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>VERIFY TOKEN</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                <div style={{flex:1,fontSize:11,fontFamily:FM,color:cfg.verifyToken?"#25d366":C.t3,wordBreak:"break-all"}}>{cfg.verifyToken||"Enter a webhook verify token above"}</div>
+                <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(cfg.verifyToken||"","Verify Token")}/>
+              </div>
+            </div>
+          </div>
+        </div>}
+
         {/* Action buttons */}
         {(chFields[form.type]||[]).length>0&&<div style={{display:"flex",gap:8,marginTop:10,marginBottom:14}}>
           <Btn ch={cfg.connTesting?"Testing…":"Test Connection"} v="primary" onClick={()=>testConnection(edit?.id)}/>
@@ -1010,7 +1066,7 @@ function InboxSet({inboxes,setInboxes}){
                 <div>• Facebook Business Manager access</div>
               </div>
               <div style={{fontSize:13,fontWeight:700,color:C.t1,marginBottom:8}}>Step-by-Step Setup</div>
-              {[{n:"1",t:"Get API Access",d:"Go to developers.facebook.com → Create App → Select WhatsApp Business → Generate permanent API token"},{n:"2",t:"Phone Number",d:"In Meta Business Suite → WhatsApp Manager → Phone Numbers → Add your verified business number (format: +91 XXXXX XXXXX)"},{n:"3",t:"API Key",d:"Copy the WhatsApp Business API key from App Dashboard → API Setup → Permanent Token. Starts with 'EAA...'"},{n:"4",t:"Webhook URL",d:"Set your webhook callback URL. SupportDesk provides: https://api.supportdesk.app/webhooks/wa/{your_account_id}"},{n:"5",t:"Test",d:"Click 'Test Connection' above. Send a test message to your WhatsApp number to verify messages arrive."}].map(s=>(
+              {[{n:"1",t:"Get API Access",d:"Go to developers.facebook.com → Create App → Select WhatsApp Business → Generate permanent API token"},{n:"2",t:"Phone Number",d:"In Meta Business Suite → WhatsApp Manager → Phone Numbers → Add your verified business number (format: +91 XXXXX XXXXX)"},{n:"3",t:"API Key",d:"Copy the WhatsApp Business API key from App Dashboard → API Setup → Permanent Token. Starts with 'EAA...'"},{n:"4",t:"Webhook URL",d:"Meta App Dashboard → WhatsApp → Configuration → Set Callback URL to your server's /api/whatsapp/webhook → Enter the same Verify Token you filled above → Subscribe to: messages"},{n:"5",t:"Test",d:"Click 'Test Connection' above. Send a test message to your WhatsApp number to verify messages arrive."}].map(s=>(
                 <div key={s.n} style={{display:"flex",gap:10,marginBottom:10}}>
                   <div style={{width:22,height:22,borderRadius:"50%",background:C.a+"22",border:`1px solid ${C.a}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:C.a,fontFamily:FM,flexShrink:0}}>{s.n}</div>
                   <div><div style={{fontSize:12,fontWeight:700,color:C.t1}}>{s.t}</div><div style={{fontSize:11,color:C.t3}}>{s.d}</div></div>
@@ -1053,7 +1109,7 @@ function InboxSet({inboxes,setInboxes}){
               </>}
               {form.type==="instagram"&&<>
                 <div style={{padding:"8px 12px",background:C.pd,borderRadius:8,border:`1px solid ${C.p}33`,marginBottom:12,fontSize:11}}>Requires an <strong>Instagram Professional Account</strong> linked to a <strong>Facebook Page</strong>.</div>
-                {[{n:"1",t:"Professional Account",d:"Convert to Professional: Instagram Settings → Account → Switch to Professional → Select Business"},{n:"2",t:"Link to Facebook Page",d:"Instagram Settings → Account → Sharing to Other Apps → Facebook → Link your Facebook Page"},{n:"3",t:"Create Facebook App",d:"developers.facebook.com → Create App → Add Instagram Graph API product"},{n:"4",t:"Account ID",d:"Instagram Graph API → Get your Instagram Business Account ID (numeric, starts with 178...). Paste above."},{n:"5",t:"Access Token",d:"Generate a long-lived token via Facebook App → Graph API Explorer → Select instagram_basic + instagram_manage_messages permissions"},{n:"6",t:"Webhook",d:"Webhook URL: https://api.supportdesk.app/webhooks/ig/{account_id} → Subscribe to: messages"},{n:"7",t:"Test",d:"Send a DM to your Instagram account. Should appear in SupportDesk within seconds."}].map(s=>(
+                {[{n:"1",t:"Professional Account",d:"Convert to Professional: Instagram Settings → Account → Switch to Professional → Select Business"},{n:"2",t:"Link to Facebook Page",d:"Instagram Settings → Account → Sharing to Other Apps → Facebook → Link your Facebook Page"},{n:"3",t:"Create Facebook App",d:"developers.facebook.com → Create App → Add Instagram Graph API product"},{n:"4",t:"Account ID",d:"Instagram Graph API → Get your Instagram Business Account ID (numeric, starts with 178...). Paste above."},{n:"5",t:"Access Token",d:"Generate a long-lived token via Facebook App → Graph API Explorer → Select instagram_basic + instagram_manage_messages permissions"},{n:"6",t:"Webhook & Verify Token",d:"Meta App → Webhooks product → Set Callback URL to your server's /api/instagram/webhook → Set Verify Token (same value you entered above) → Subscribe to: messages, messaging_postbacks"},{n:"7",t:"Test",d:"Send a DM to your Instagram account. Should appear in SupportDesk within seconds."}].map(s=>(
                   <div key={s.n} style={{display:"flex",gap:10,marginBottom:10}}><div style={{width:22,height:22,borderRadius:"50%",background:C.p+"22",border:`1px solid ${C.p}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:C.p,fontFamily:FM,flexShrink:0}}>{s.n}</div><div><div style={{fontSize:12,fontWeight:700,color:C.t1}}>{s.t}</div><div style={{fontSize:11,color:C.t3}}>{s.d}</div></div></div>
                 ))}
                 <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>{["Receive DMs","Send replies","Story mentions","Images & video","Quick replies","Ice breakers"].map(f=><Tag key={f} text={f} color={C.p}/>)}</div>

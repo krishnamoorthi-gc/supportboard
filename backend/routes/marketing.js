@@ -13,6 +13,12 @@ try { whatsappSvc = require('../services/whatsappService'); } catch {}
 let smsSvc = null;
 try { smsSvc = require('../services/smsService'); } catch {}
 
+let facebookSvc = null;
+try { facebookSvc = require('../services/facebookService'); } catch {}
+
+let instagramSvc = null;
+try { instagramSvc = require('../services/instagramService'); } catch {}
+
 const nowIso = () => new Date().toISOString();
 
 function toArray(value) {
@@ -319,6 +325,28 @@ async function getLaunchableSmsInbox(agentId) {
   }) || null;
 }
 
+async function getLaunchableFacebookInbox(agentId) {
+  const inboxes = await db.prepare(
+    'SELECT * FROM inboxes WHERE agent_id=? AND type=? AND active=1 ORDER BY created_at ASC, name ASC'
+  ).all(agentId, 'facebook');
+
+  return inboxes.find(inbox => {
+    const cfg = normalizeInboxConfig(inbox.config);
+    return !!(cfg.pageId && (cfg.accessToken || cfg.pageAccessToken));
+  }) || null;
+}
+
+async function getLaunchableInstagramInbox(agentId) {
+  const inboxes = await db.prepare(
+    'SELECT * FROM inboxes WHERE agent_id=? AND type=? AND active=1 ORDER BY created_at ASC, name ASC'
+  ).all(agentId, 'instagram');
+
+  return inboxes.find(inbox => {
+    const cfg = normalizeInboxConfig(inbox.config);
+    return !!(cfg.accessToken || cfg.pageAccessToken);
+  }) || null;
+}
+
 function broadcastCampaignProgress(campaignId, data) {
   broadcastToAll({
     type: 'campaign_progress',
@@ -536,6 +564,158 @@ async function launchCampaign(campaignRow, agentId) {
     }
 
     return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'whatsapp', simulated: !inbox }, results };
+  }
+
+  // ── FACEBOOK CAMPAIGN ──────────────────────────────────────────
+  if (campaign.type === 'facebook') {
+    const inbox = await getLaunchableFacebookInbox(agentId);
+
+    // Recipients: contacts tagged with 'facebook' or phone starting with 'fb:'
+    const recipients = audience.filter(contact => {
+      const phone = String(contact.phone || '').trim();
+      const tags   = toArray(contact.tags).map(t => String(t).toLowerCase());
+      return phone.startsWith('fb:') || tags.includes('facebook');
+    });
+
+    if (!recipients.length) {
+      throw marketingError(
+        'No recipients with Facebook IDs found. Contacts must have previously messaged your Facebook Page.',
+        422, { campaign }
+      );
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const results = [];
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      const fbId = String(recipient.phone || '').replace(/^fb:/i, '');
+      const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+
+      try {
+        if (facebookSvc?.sendFacebookMessage && inbox) {
+          await facebookSvc.sendFacebookMessage({
+            inboxId: inbox.id,
+            to:      fbId,
+            text:    mergedBody || campaign.name || 'Campaign message',
+          });
+        }
+
+        sent += 1;
+        results.push({ fbId: recipient.phone, name: recipient.name || null, status: 'sent' });
+
+        await db.prepare(
+          'INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)'
+        ).run(uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'facebook', 'sent', nowIso());
+
+      } catch (err) {
+        failed += 1;
+        results.push({ fbId: recipient.phone, name: recipient.name || null, status: 'failed', error: err.message });
+
+        await db.prepare(
+          'INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,error_message) VALUES (?,?,?,?,?,?,?,?)'
+        ).run(uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'facebook', 'failed', err.message);
+      }
+
+      broadcastCampaignProgress(campaign.id, {
+        status:         'sending',
+        total:          recipients.length,
+        sent,
+        failed,
+        current:        i + 1,
+        currentContact: recipient.name || recipient.phone,
+        channel:        'facebook',
+      });
+    }
+
+    const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
+    const finalStatus = sent ? 'sent' : 'failed';
+    const updated = await persistCampaignLaunch(campaign.id, agentId, { status: finalStatus, sentAt: sent ? nowIso() : null, stats });
+    broadcastCampaignProgress(campaign.id, { status: sent ? 'completed' : 'failed', total: recipients.length, sent, failed, channel: 'facebook' });
+
+    if (!sent) {
+      const firstError = results.find(r => r.error)?.error || 'Failed to send Facebook campaign';
+      throw marketingError(firstError, 422, { campaign: updated, summary: { sent: 0, failed, totalRecipients: recipients.length, channel: 'facebook' }, results });
+    }
+
+    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'facebook', simulated: !inbox }, results };
+  }
+
+  // ── INSTAGRAM CAMPAIGN ─────────────────────────────────────────
+  if (campaign.type === 'instagram') {
+    const inbox = await getLaunchableInstagramInbox(agentId);
+
+    // Recipients: contacts tagged with 'instagram' or phone starting with 'ig:'
+    const recipients = audience.filter(contact => {
+      const phone = String(contact.phone || '').trim();
+      const tags   = toArray(contact.tags).map(t => String(t).toLowerCase());
+      return phone.startsWith('ig:') || tags.includes('instagram');
+    });
+
+    if (!recipients.length) {
+      throw marketingError(
+        'No recipients with Instagram IDs found. Contacts must have previously messaged your Instagram Business Account.',
+        422, { campaign }
+      );
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const results = [];
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      const igId = String(recipient.phone || '').replace(/^ig:/i, '');
+      const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+
+      try {
+        if (instagramSvc?.sendInstagramMessage && inbox) {
+          await instagramSvc.sendInstagramMessage({
+            inboxId: inbox.id,
+            to:      igId,
+            text:    mergedBody || campaign.name || 'Campaign message',
+          });
+        }
+
+        sent += 1;
+        results.push({ igId: recipient.phone, name: recipient.name || null, status: 'sent' });
+
+        await db.prepare(
+          'INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)'
+        ).run(uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'instagram', 'sent', nowIso());
+
+      } catch (err) {
+        failed += 1;
+        results.push({ igId: recipient.phone, name: recipient.name || null, status: 'failed', error: err.message });
+
+        await db.prepare(
+          'INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,error_message) VALUES (?,?,?,?,?,?,?,?)'
+        ).run(uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'instagram', 'failed', err.message);
+      }
+
+      broadcastCampaignProgress(campaign.id, {
+        status:         'sending',
+        total:          recipients.length,
+        sent,
+        failed,
+        current:        i + 1,
+        currentContact: recipient.name || recipient.phone,
+        channel:        'instagram',
+      });
+    }
+
+    const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
+    const finalStatus = sent ? 'sent' : 'failed';
+    const updated = await persistCampaignLaunch(campaign.id, agentId, { status: finalStatus, sentAt: sent ? nowIso() : null, stats });
+    broadcastCampaignProgress(campaign.id, { status: sent ? 'completed' : 'failed', total: recipients.length, sent, failed, channel: 'instagram' });
+
+    if (!sent) {
+      const firstError = results.find(r => r.error)?.error || 'Failed to send Instagram campaign';
+      throw marketingError(firstError, 422, { campaign: updated, summary: { sent: 0, failed, totalRecipients: recipients.length, channel: 'instagram' }, results });
+    }
+
+    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'instagram', simulated: !inbox }, results };
   }
 
   // ── SMS CAMPAIGN ───────────────────────────────────────────────
