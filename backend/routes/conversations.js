@@ -366,7 +366,11 @@ router.post('/:id/messages', auth, async (req, res) => {
       });
     } catch (fbErr) {
       console.error('[conversations] Facebook send failed:', fbErr.message);
-      return res.status(502).json({ error: `Facebook delivery failed: ${fbErr.message}` });
+      const isNoUser = fbErr.message.includes('No matching user') || fbErr.message.includes('#100');
+      const hint = isNoUser
+        ? 'This contact has not messaged your Page yet. Facebook only allows replies to users who message your page first.'
+        : fbErr.message;
+      return res.status(502).json({ error: `Facebook not sent: ${hint}` });
     }
   }
 

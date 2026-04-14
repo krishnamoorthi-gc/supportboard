@@ -498,7 +498,7 @@ function InboxSet({inboxes,setInboxes}){
     // Advanced
     autoClose:false,autoCloseDays:7,allowAttach:true,maxAttachMB:10,rateLimit:false,rateLimitPerMin:30,
     // Connection status
-    connStatus:"",connTesting:false,showDocs:false,fbConnecting:false,pageName:"",pagePicture:"",pageCategory:"",connectedAt:"",_pendingPages:null,
+    connStatus:"",connTesting:false,showDocs:false,pageName:"",pagePicture:"",pageCategory:"",connectedAt:"",
     // Pre-chat form
     formEnabled:true,formTitle:"Before we start…",formDesc:"Please fill in your details so we can assist you better.",
     formFields:[
@@ -509,49 +509,6 @@ function InboxSet({inboxes,setInboxes}){
       {id:"ff5",type:"textarea",label:"How can we help?",placeholder:"Describe your issue…",required:false,options:[]}
     ]
   });
-  // ── Handle Facebook OAuth redirect callback ──
-  useEffect(()=>{
-    const hash=window.location.hash||"";
-    const qIdx=hash.indexOf("?");
-    if(qIdx<0)return;
-    const params=new URLSearchParams(hash.slice(qIdx));
-    if(params.get("fb_success")){
-      const pageName=params.get("fb_page")||"Page";
-      showT("✓ Connected to Facebook: "+pageName,"success");
-      // Reload inboxes to get updated config
-      api.get("/settings/inboxes").then(r=>{if(r?.inboxes)setInboxes(r.inboxes.map(i=>{let c={};try{c=typeof i.config==="string"?JSON.parse(i.config):i.config||{};}catch{}return{...i,cfg:c};}));});
-      // Clean URL
-      window.location.hash="#/settings";
-    }
-    if(params.get("fb_error")){
-      showT("Facebook error: "+decodeURIComponent(params.get("fb_error")||"Unknown"),"error");
-      window.location.hash="#/settings";
-    }
-    if(params.get("fb_pick_page")){
-      const fbInboxId=params.get("fb_inbox");
-      // Open that inbox for page selection
-      if(fbInboxId){
-        const ib=inboxes.find(i=>i.id===fbInboxId);
-        if(ib){
-          // Reload inbox to get pending pages
-          api.get("/settings/inboxes").then(r=>{
-            if(r?.inboxes){
-              const updated=r.inboxes.map(i=>{let c={};try{c=typeof i.config==="string"?JSON.parse(i.config):i.config||{};}catch{}return{...i,cfg:c};});
-              setInboxes(updated);
-              const freshIb=updated.find(i=>i.id===fbInboxId);
-              if(freshIb){
-                setForm({name:freshIb.name,type:freshIb.type,greeting:freshIb.greeting||"",color:freshIb.color,active:freshIb.active});
-                setCfg(p=>({...p,...freshIb.cfg}));
-                setEdit(freshIb);setCfgTab("connection");setShowForm(true);
-                showT("Multiple pages found — please select one","info");
-              }
-            }
-          });
-        }
-      }
-      window.location.hash="#/settings";
-    }
-  },[]);
 
   const fld=(k,v)=>setForm(p=>({...p,[k]:v}));
   const cfgFld=(k,v)=>setCfg(p=>({...p,[k]:v}));
@@ -605,44 +562,9 @@ function InboxSet({inboxes,setInboxes}){
       cfgFld("pagePicture","");
       cfgFld("pageCategory","");
       cfgFld("connectedAt","");
-      cfgFld("_pendingPages",null);
-      cfgFld("fbConnecting",false);
     }
     cfgFld("connStatus","");
     showT("Credentials cleared","info");
-  };
-  const disconnectFacebook=async()=>{
-    if(!edit?.id)return;
-    try{
-      await api.post("/facebook/disconnect",{inboxId:edit.id});
-      cfgFld("connStatus","");
-      cfgFld("pageId","");
-      cfgFld("accessToken","");
-      cfgFld("pageName","");
-      cfgFld("pagePicture","");
-      cfgFld("pageCategory","");
-      cfgFld("connectedAt","");
-      cfgFld("_pendingPages",null);
-      showT("Facebook page disconnected","info");
-    }catch{
-      showT("Disconnect failed","error");
-    }
-  };
-  const startFacebookConnect=async()=>{
-    if(!cfg.appId||!cfg.appSecret){showT("Please enter App ID and App Secret first, then Save Changes before connecting","error");return;}
-    if(!edit?.id){showT("Please Save Changes first to create the inbox, then connect","error");return;}
-    try{
-      await api.patch("/settings/inboxes/"+edit.id,{config:{...cfg}});
-    }catch{}
-    try{
-      cfgFld("fbConnecting",true);
-      const r=await api.get("/facebook/auth?inboxId="+edit.id);
-      if(r?.redirectUrl){window.location.href=r.redirectUrl;}
-      else{showT(r?.error||"Failed to start OAuth","error");cfgFld("fbConnecting",false);}
-    }catch(e){
-      showT("Connection failed: "+(e?.message||e),"error");
-      cfgFld("fbConnecting",false);
-    }
   };
   const [newOptText,setNewOptText]=useState("");
   const openEdit=ib=>{
@@ -651,8 +573,13 @@ function InboxSet({inboxes,setInboxes}){
     setCfg(p=>({...p,...ibCfg,formEnabled:ibCfg.formEnabled!==undefined?ibCfg.formEnabled:true,formTitle:ibCfg.formTitle||"Before we start…",formDesc:ibCfg.formDesc||"Please fill in your details so we can assist you better.",formFields:ibCfg.formFields||[...defaultFormFields]}));
     setEdit(ib);setCfgTab("general");setShowForm(true);setNewOptText("");
   };
+  const channelDefaultName={facebook:"Facebook Page",whatsapp:"WhatsApp",instagram:"Instagram",telegram:"Telegram",email:"Email",sms:"SMS",viber:"Viber",line:"LINE",tiktok:"TikTok",x:"X (Twitter)",apple:"Apple Business",voice:"Voice",video:"Video",api:"API",live:"Live Chat"};
   const save=()=>{
-    if(!form.name.trim()){showT("Name required","error");return;}
+    if(!form.name.trim()){
+      const autoName=channelDefaultName[form.type]||form.type;
+      fld("name",autoName);
+      form.name=autoName;
+    }
     const payload={...form,cfg:{...cfg}};
     if(edit){setInboxes(p=>p.map(i=>i.id===edit.id?{...i,...payload}:i));if(api.isConnected())api.patch(`/settings/inboxes/${edit.id}`,{name:payload.name,type:payload.type,color:payload.color,greeting:payload.greeting,active:payload.active,config:payload.cfg}).then(r=>{if(r?.inbox){let c={};try{c=typeof r.inbox.config==="string"?JSON.parse(r.inbox.config):r.inbox.config||{};}catch{}setInboxes(p=>p.map(i=>i.id===edit.id?{...r.inbox,cfg:c}:i));}}).catch(()=>{});}
     else{const nid="ib"+uid();setInboxes(p=>[...p,{id:nid,...payload,convs:0}]);if(api.isConnected())api.post("/settings/inboxes",{name:payload.name,type:payload.type||"live",color:payload.color,greeting:payload.greeting,config:payload.cfg}).then(r=>{if(r?.inbox){let c={};try{c=typeof r.inbox.config==="string"?JSON.parse(r.inbox.config):r.inbox.config||{};}catch{}setInboxes(p=>p.map(i=>i.id===nid?{...r.inbox,cfg:c}:i));}}).catch(()=>{});}
@@ -723,7 +650,8 @@ function InboxSet({inboxes,setInboxes}){
         const r=await api.post("/facebook/subscribe",{inboxId});
         cfgFld("connTesting",false);
         cfgFld("connStatus","connected");
-        showT(r?.success?"Facebook page is ready for inbound + outbound messaging":"Facebook page validation complete","success");
+        if(r?.pageName){cfgFld("pageName",r.pageName);cfgFld("pagePicture",r.pagePicture||"");cfgFld("pageCategory",r.pageCategory||"");}
+        showT(r?.pageName?"Connected to "+r.pageName+" — ready for messaging":"Facebook page connected — ready for messaging","success");
       }catch(e:any){
         cfgFld("connTesting",false);
         cfgFld("connStatus","failed");
@@ -893,72 +821,30 @@ function InboxSet({inboxes,setInboxes}){
         {/* Credential fields */}
         {(chFields[form.type]||[]).length===0&&<div style={{padding:"20px",textAlign:"center",color:C.t3,fontSize:12,background:C.gd,borderRadius:10,border:`1px solid ${C.g}33`}}>No external credentials required for Live Chat. Just enable the inbox and add the widget snippet to your website.</div>}
 
-        {/* ── Facebook OAuth Connect Button ── */}
+        {/* ── Facebook Settings ── */}
         {form.type==="facebook"&&<>
-          <div style={{marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:42,height:42,borderRadius:12,background:"#1877F222",display:"flex",alignItems:"center",justifyContent:"center",color:"#1877F2"}}>
-                <ChIcon t="facebook" s={22}/>
-              </div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:800,color:C.t1}}>Facebook Integration</div>
-                <div style={{fontSize:10.5,color:C.t3,marginTop:2}}>Connect your Facebook page and copy the webhook details into Meta.</div>
-              </div>
-              <Tag text={cfg.connStatus==="connected"?"Connected":cfg.connStatus==="configured"?"Configured":"Not Connected"} color={cfg.connStatus==="connected"?C.g:cfg.connStatus==="configured"?C.y:"#1877F2"}/>
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
-              <Btn ch={cfg.fbConnecting?"Connecting...":"Connect with Facebook"} v="primary" sm onClick={startFacebookConnect} disabled={!!cfg.fbConnecting}/>
-              {cfg.connStatus==="connected"&&<Btn ch="Disconnect" v="ghost" sm onClick={disconnectFacebook}/>}
-            </div>
-            <div style={{fontSize:10,color:C.t3,marginTop:8}}>OAuth is optional here. You can also fill the fields below manually if you already have the page credentials.</div>
-          </div>
-
-          {cfg.connStatus==="connected"&&cfg.pageName&&
-            <div style={{padding:"14px 16px",background:"#e7f5e9",borderRadius:12,border:"1px solid #25d36644",marginBottom:12}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                {cfg.pagePicture&&<img src={cfg.pagePicture} alt="" style={{width:38,height:38,borderRadius:"50%",border:"2px solid #25d366"}}/>}
-                <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#1a7f37"}}>Connected to {cfg.pageName}</div>
-                  <div style={{fontSize:10,color:"#57606a"}}>{cfg.pageCategory||"Facebook Page"}{cfg.pageId?" · Page ID: "+cfg.pageId:""}{cfg.connectedAt?" · Connected: "+cfg.connectedAt:""}</div>
-                </div>
-              </div>
-            </div>
-          }
-
-          {cfg._pendingPages&&cfg._pendingPages.length>1&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:14,marginBottom:12}}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Select a Facebook Page</div>
-            <div style={{fontSize:10.5,color:C.t3,marginBottom:10}}>Facebook returned multiple pages. Pick the one that should deliver Messenger conversations into this inbox.</div>
-            {cfg._pendingPages.map(p=>(
-              <div key={p.id} onClick={async()=>{
-                try{
-                  await api.post("/facebook/select-page",{inboxId:edit?.id,pageId:p.id});
-                  cfgFld("pageId",p.id);cfgFld("pageName",p.name);cfgFld("pagePicture",p.picture);cfgFld("pageCategory",p.category||"");cfgFld("accessToken",p.accessToken);
-                  cfgFld("connStatus","connected");cfgFld("_pendingPages",null);
-                  showT("Connected to "+p.name+"!","success");
-                }catch{showT("Failed to select page","error");}
-              }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.bg,borderRadius:10,border:`1px solid ${C.b1}`,marginBottom:6,cursor:"pointer",transition:"border-color 0.2s"}}
-              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor="#1877F2";}}
-              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=C.b1;}}>
-                {p.picture&&<img src={p.picture} alt="" style={{width:32,height:32,borderRadius:"50%"}}/>}
-                <div style={{flex:1}}>
-                  <div style={{fontSize:12,fontWeight:700}}>{p.name}</div>
-                  <div style={{fontSize:10,color:C.t3}}>{p.category||"Page"} · ID: {p.id}</div>
-                </div>
-                <div style={{fontSize:11,fontWeight:700,color:"#1877F2"}}>Select</div>
-              </div>
-            ))}
-          </div>}
-
-          {[{k:"pageId",l:"PAGE ID",ph:"123456789",type:"text"},{k:"accessToken",l:"PAGE ACCESS TOKEN",ph:"EAAxxxxxxx",type:"password"},{k:"appId",l:"APP ID",ph:"933722449370118",type:"text"},{k:"appSecret",l:"APP SECRET",ph:"abc123def456...",type:"password"},{k:"verifyToken",l:"WEBHOOK VERIFY TOKEN",ph:"supportdesk_facebook_verify",type:"text"}].map(f=>(
+          {[{k:"appId",l:"APP ID",ph:"933722449370118",type:"text"},{k:"appSecret",l:"APP SECRET",ph:"abc123def456...",type:"password"},{k:"pageId",l:"PAGE ID",ph:"123456789",type:"text"},{k:"accessToken",l:"PAGE ACCESS TOKEN",ph:"EAAxxxxxxx",type:"password"},{k:"verifyToken",l:"WEBHOOK VERIFY TOKEN",ph:"supportdesk_facebook_verify",type:"text"}].map(f=>(
             <div key={f.k} style={{marginBottom:10}}>
               <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>{f.l}</div>
               <Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph} type={f.type}/>
             </div>
           ))}
 
+          {cfg.connStatus==="connected"&&cfg.pageName&&
+            <div style={{padding:"14px 16px",background:"#e7f5e9",borderRadius:12,border:"1px solid #25d36644",marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {cfg.pagePicture&&<img src={cfg.pagePicture} alt="" style={{width:38,height:38,borderRadius:"50%",border:"2px solid #25d366"}}/>}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1a7f37"}}>Connected: {cfg.pageName}</div>
+                  <div style={{fontSize:10,color:"#57606a"}}>{cfg.pageCategory||"Facebook Page"}{cfg.pageId?" · Page ID: "+cfg.pageId:""}</div>
+                </div>
+              </div>
+            </div>
+          }
+
           <div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
             <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>Messenger Webhook</div>
-            <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Meta App Dashboard add the Webhooks product, then use this callback URL and the same verify token shown below. Subscribe your page to the <code style={{fontFamily:FM,color:C.a}}>messages</code> field.</div>
+            <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>Copy this callback URL and verify token into your Meta App Dashboard under Webhooks. Subscribe to the <code style={{fontFamily:FM,color:C.a}}>messages</code> field.</div>
             <div style={{display:"grid",gap:10}}>
               <div>
                 <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>CALLBACK URL</div>

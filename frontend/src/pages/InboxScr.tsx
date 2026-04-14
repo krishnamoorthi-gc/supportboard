@@ -1789,9 +1789,59 @@ function NewConvMdl({contacts,inboxes,agents,onClose,onCreate}){
   const [msg,setMsg]=useState("");
   const [agent,setAgent]=useState("");
   const [creating,setCreating]=useState(false);
-  return <Mdl title="New Conversation" onClose={onClose}>
-    <Fld label="Contact"><Sel val={cid} set={setCid} opts={contacts.map(c=>({v:c.id,l:c.name}))}/></Fld>
-    <Fld label="Inbox"><Sel val={iid} set={setIid} opts={inboxes.map(i=>({v:i.id,l:i.name}))}/></Fld>
+  const [fbUsers,setFbUsers]=useState([]);
+  const [fbLoading,setFbLoading]=useState(false);
+  const [fbQ,setFbQ]=useState("");
+  const selInbox=inboxes.find(i=>i.id===iid);
+  const isFbInbox=selInbox?.type==="facebook";
+
+  const loadFb=async(q?:string)=>{
+    setFbLoading(true);
+    try{const r=await api.get("/facebook/users"+(q?"?q="+encodeURIComponent(q):""));setFbUsers(r?.users||[]);}catch{setFbUsers([]);}
+    setFbLoading(false);
+  };
+  useEffect(()=>{if(isFbInbox)loadFb();},[iid]);
+
+  // Filter contacts for Facebook inbox: show fb contacts first
+  const sortedContacts=isFbInbox
+    ?[...contacts].sort((a,b)=>{const aFb=(a.tags||[]).includes("facebook")||String(a.phone||"").startsWith("fb:");const bFb=(b.tags||[]).includes("facebook")||String(b.phone||"").startsWith("fb:");if(aFb!==bFb)return aFb?-1:1;return 0;})
+    :contacts;
+
+  return <Mdl title="New Conversation" onClose={onClose} w={isFbInbox?600:undefined}>
+    <Fld label="Inbox"><Sel val={iid} set={setIid} opts={inboxes.map(i=>({v:i.id,l:i.name+(i.type==="facebook"?" (Facebook)":i.type==="whatsapp"?" (WhatsApp)":"")}))}/></Fld>
+    <Fld label="Contact"><Sel val={cid} set={setCid} opts={sortedContacts.map(c=>({v:c.id,l:c.name+((c.tags||[]).includes("facebook")?" [FB]":"")}))}/></Fld>
+
+    {/* Facebook users quick pick */}
+    {isFbInbox&&<div style={{margin:"0 0 12px",padding:"10px 12px",background:"#1877F208",border:"1px solid #1877F222",borderRadius:10}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <span style={{fontSize:11,fontWeight:700,color:"#1877F2",fontFamily:FM}}>Facebook Page Users</span>
+        <span style={{fontSize:9,color:C.t3,fontFamily:FM}}>{fbUsers.length} users</span>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        <input value={fbQ} onChange={e=>setFbQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")loadFb(fbQ);}} placeholder="Search FB users..." style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.b1}`,fontSize:11,background:C.bg,color:C.t1,outline:"none",fontFamily:FB}}/>
+        <button onClick={()=>loadFb(fbQ)} style={{padding:"5px 10px",borderRadius:6,fontSize:10,fontWeight:700,color:"#fff",background:"#1877F2",border:"none",cursor:"pointer"}}>Search</button>
+      </div>
+      {fbLoading&&<div style={{textAlign:"center",padding:"8px 0"}}><Spin/></div>}
+      {!fbLoading&&<div style={{maxHeight:150,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+        {fbUsers.map(u=>{
+          // Find matching contact
+          const matchCt=contacts.find(c=>String(c.phone||"")===("fb:"+u.fbId));
+          return <div key={u.fbId} onClick={()=>{if(matchCt)setCid(matchCt.id);}} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:matchCt&&cid===matchCt.id?"#1877F218":C.s1,border:`1px solid ${matchCt&&cid===matchCt.id?"#1877F244":C.b1}`,borderRadius:8,cursor:matchCt?"pointer":"default",opacity:matchCt?1:0.6}}>
+            <div style={{width:26,height:26,borderRadius:"50%",background:"#1877F218",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#1877F2"}}>{(u.name||"?")[0]?.toUpperCase()}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
+              <div style={{fontSize:9,color:C.t3,fontFamily:FM}}>{u.messageCount||0} msgs</div>
+            </div>
+            {matchCt
+              ?<span style={{fontSize:9,color:cid===matchCt.id?"#1877F2":C.g,fontWeight:700,fontFamily:FM}}>{cid===matchCt.id?"Selected":"Select"}</span>
+              :<span style={{fontSize:9,color:C.t3,fontFamily:FM}}>Not in contacts</span>
+            }
+          </div>;
+        })}
+        {fbUsers.length===0&&!fbLoading&&<div style={{textAlign:"center",fontSize:10,color:C.t3,padding:"8px 0"}}>No Facebook users found</div>}
+      </div>}
+    </div>}
+
     <Fld label="Subject"><Inp val={subject} set={setSubject} ph="What is this conversation about?"/></Fld>
     <Fld label="First Message (optional)"><textarea value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Type a first message…" rows={3} style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"none",outline:"none"}}/></Fld>
     <Fld label="Assign To (optional)"><Sel val={agent} set={setAgent} opts={[{v:"",l:"Unassigned"},...agents.map(a=>({v:a.id,l:a.name}))]}/></Fld>

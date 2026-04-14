@@ -40,6 +40,7 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
 
   // ═══ CRM: Smart Lists ═══
   const [smartLists]=useState([
+    {id:"sl0",name:"Facebook",icon:"",filter:ct=>(ct.tags||[]).includes("facebook")||String(ct.phone||"").startsWith("fb:")},
     {id:"sl1",name:"High-Value at Risk",icon:"🔥",filter:ct=>getScore(ct)>=50&&ct.csat&&ct.csat<3.5},
     {id:"sl2",name:"New This Week",icon:"🆕",filter:ct=>ct.createdAt?.includes("/03/26")},
     {id:"sl3",name:"VIP Customers",icon:"⭐",filter:ct=>(ct.tags||[]).includes("vip")},
@@ -49,6 +50,74 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
   ]);
   const [activeList,setActiveList]=useState(null);
   const listFiltered=activeList?contacts.filter(smartLists.find(l=>l.id===activeList)?.filter||(_=>true)):filtered;
+
+  // ═══ Facebook Users ═══
+  const [showFbUsers,setShowFbUsers]=useState(false);
+  const [fbUsers,setFbUsers]=useState([]);
+  const [fbSearch,setFbSearch]=useState("");
+  const [fbLoading,setFbLoading]=useState(false);
+  const [fbAdding,setFbAdding]=useState("");
+  const [manualFbId,setManualFbId]=useState("");
+  const [manualFbName,setManualFbName]=useState("");
+  const addManualFbUser=async()=>{
+    if(!manualFbId.trim()&&!manualFbName.trim()){showT("Enter a name or Facebook ID","error");return;}
+    const fbId=manualFbId.trim()||("manual_"+uid());
+    setFbAdding(fbId);
+    try{
+      const r=await api.post("/facebook/users/add",{fbId,name:manualFbName.trim()||"Facebook User"});
+      if(r?.existing){showT((r.contact?.name||"User")+" is already a contact","info");}
+      else{
+        const ct=r.contact;
+        const av=(ct.name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+        setContacts(p=>[{...ct,av,tags:ct.tags||["facebook"],convs:0,color:ct.color||"#1877f2",plan:"Starter",company:"",csat:0},...p]);
+        showT(ct.name+" added as contact","success");
+      }
+      setManualFbId("");setManualFbName("");
+      if(showFbUsers)loadFbUsers(fbSearch);
+    }catch(e:any){showT("Failed: "+(e?.message||"unknown"),"error");}
+    setFbAdding("");
+  };
+  const loadFbUsers=async(q?:string)=>{
+    setFbLoading(true);
+    try{
+      const r=await api.get("/facebook/users"+(q?"?q="+encodeURIComponent(q):""));
+      setFbUsers(r?.users||[]);
+    }catch(e:any){
+      showT(e?.data?.error||e?.message||"Failed to load Facebook users","error");
+      setFbUsers([]);
+    }
+    setFbLoading(false);
+  };
+  const [fbSyncing,setFbSyncing]=useState(false);
+  const syncAllFbUsers=async()=>{
+    setFbSyncing(true);
+    try{
+      const r=await api.post("/facebook/users/sync");
+      if(r?.added>0){
+        showT(r.added+" Facebook contacts imported","success");
+        // Reload contacts
+        try{const cr=await api.get("/contacts?limit=200");if(cr?.contacts)setContacts(cr.contacts.map(c=>({...c,av:(c.name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(),tags:typeof c.tags==="string"?JSON.parse(c.tags||"[]"):c.tags||[],convs:c.conversation_count||0,color:c.color||"#4c82fb",plan:c.plan||"Starter",company:c.company||"",csat:c.csat||0})));}catch{}
+      }else{showT("All Facebook users already in contacts","info");}
+      // Refresh the list in modal
+      if(showFbUsers)loadFbUsers(fbSearch);
+    }catch(e:any){showT(e?.data?.error||e?.message||"Sync failed","error");}
+    setFbSyncing(false);
+  };
+  const addFbUser=async(u)=>{
+    setFbAdding(u.fbId);
+    try{
+      const r=await api.post("/facebook/users/add",{fbId:u.fbId,name:u.name});
+      if(r?.existing){showT(u.name+" is already a contact","info");}
+      else{
+        const ct=r.contact;
+        const av=(ct.name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+        setContacts(p=>[{...ct,av,tags:ct.tags||["facebook"],convs:0,color:ct.color||"#1877f2",plan:"Starter",company:"",csat:0},...p]);
+        showT(u.name+" added as contact","success");
+      }
+      setFbUsers(p=>p.map(x=>x.fbId===u.fbId?{...x,isContact:true}:x));
+    }catch(e:any){showT("Failed to add: "+(e?.message||"unknown"),"error");}
+    setFbAdding("");
+  };
 
   // ═══ CRM: Merge ═══
   const [showMerge,setShowMerge]=useState(false);const [mergeA,setMergeA]=useState(null);const [mergeB,setMergeB]=useState(null);
@@ -61,7 +130,7 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
       <span style={{padding:"12px 0",fontSize:15,fontWeight:700,fontFamily:FD}}>👤 Contacts</span>
       <div style={{flex:1}}/>
       <div style={{display:"flex",gap:4,padding:"6px 0"}}>
-        {smartLists.map(l=>{const cnt=contacts.filter(l.filter).length;return cnt>0?<button key={l.id} onClick={()=>setActiveList(activeList===l.id?null:l.id)} style={{padding:"3px 8px",borderRadius:14,fontSize:10,fontFamily:FM,background:activeList===l.id?C.ad:"transparent",color:activeList===l.id?C.a:C.t3,border:`1px solid ${activeList===l.id?C.a+"44":C.b1}`,cursor:"pointer"}}>{l.icon} {cnt}</button>:null;})}
+        {smartLists.map(l=>{const cnt=contacts.filter(l.filter).length;const isFb=l.id==="sl0";return cnt>0?<button key={l.id} onClick={()=>setActiveList(activeList===l.id?null:l.id)} style={{padding:"3px 8px",borderRadius:14,fontSize:10,fontFamily:FM,background:activeList===l.id?(isFb?"#1877F222":C.ad):"transparent",color:activeList===l.id?(isFb?"#1877F2":C.a):C.t3,border:`1px solid ${activeList===l.id?(isFb?"#1877F255":C.a+"44"):C.b1}`,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{isFb?<ChIcon t="facebook" s={12}/>:l.icon} {cnt}</button>:null;})}
         <Btn ch="📥 Import" v="ghost" sm onClick={()=>setShowImport(true)}/>
         <Btn ch="🔄 Merge" v="ghost" sm onClick={()=>setShowMerge(true)}/>
       </div>
@@ -86,6 +155,7 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
             <Btn ch="↓ Import CSV" v="ghost" sm onClick={()=>setShowImport(true)}/>
             <Btn ch="↑ Export CSV" v="ghost" sm onClick={()=>{exportCSV([["Name","Email","Phone","Company","Plan","Conversations","CSAT"],...contacts.map(c=>[c.name,c.email,c.phone,c.company,c.plan,c.convs,c.csat])],"contacts.csv");showT("Contacts exported","success");}}/>
             <Btn ch={bulkMode?"Cancel":"☑ Bulk"} v="ghost" sm onClick={()=>{setBulkMode(!bulkMode);setBulkSel([]);}}/>
+            <button onClick={()=>{setShowFbUsers(true);loadFbUsers();}} style={{padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:600,color:"#1877F2",background:"#1877F210",border:"1px solid #1877F233",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><ChIcon t="facebook" s={14}/> Add from Facebook</button>
             <Btn ch="⊕ New Contact" v="primary" onClick={()=>{setForm(EMPTY);setEditC(null);setShowForm(true);}}/>
         </div>
       </div>
@@ -321,6 +391,75 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
         </div>
       </div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>{setShowMerge(false);setMergeA(null);setMergeB(null);}}/><Btn ch="Merge Contacts" v="danger" onClick={doMerge}/></div>
+    </Mdl>}
+
+    {/* ═══ Facebook Users Modal ═══ */}
+    {showFbUsers&&<Mdl title="Add Contacts from Facebook" onClose={()=>{setShowFbUsers(false);setFbUsers([]);setFbSearch("");setManualFbId("");setManualFbName("");}} w={560}>
+
+      {/* Manual Add Section */}
+      <div style={{padding:"12px 14px",background:"#1877F208",border:"1px solid #1877F222",borderRadius:10,marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#1877F2",fontFamily:FM,marginBottom:8}}>ADD FACEBOOK CONTACT</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>NAME *</div>
+            <input value={manualFbName} onChange={e=>setManualFbName(e.target.value)} placeholder="e.g. Krishna Moorthi" style={{width:"100%",padding:"7px 10px",borderRadius:7,border:`1px solid ${C.b1}`,fontSize:12,background:C.bg,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,marginBottom:4}}>FACEBOOK ID (optional)</div>
+            <input value={manualFbId} onChange={e=>setManualFbId(e.target.value)} placeholder="e.g. 122097347732735502" style={{width:"100%",padding:"7px 10px",borderRadius:7,border:`1px solid ${C.b1}`,fontSize:12,background:C.bg,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={addManualFbUser} disabled={!!fbAdding||(!manualFbName.trim()&&!manualFbId.trim())} style={{padding:"7px 16px",borderRadius:8,fontSize:12,fontWeight:700,color:"#fff",background:"#1877F2",border:"none",cursor:fbAdding?"wait":"pointer",opacity:fbAdding||(!manualFbName.trim()&&!manualFbId.trim())?0.5:1}}>+ Add as Facebook Contact</button>
+          <span style={{fontSize:9,color:C.t3,fontFamily:FM,lineHeight:1.4}}>Note: You can only send messages after they message your Page first.</span>
+        </div>
+      </div>
+
+      {/* Search existing */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <div style={{flex:1,display:"flex",alignItems:"center",gap:8,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"7px 10px"}}>
+          <span style={{color:C.t3}}>⌕</span>
+          <input value={fbSearch} onChange={e=>setFbSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")loadFbUsers(fbSearch);}} placeholder="Search..." style={{flex:1,background:"none",border:"none",fontSize:12,color:C.t1,fontFamily:FB,outline:"none"}}/>
+          {fbSearch&&<span onClick={()=>{setFbSearch("");loadFbUsers();}} style={{color:C.t3,cursor:"pointer"}}>×</span>}
+        </div>
+        <Btn ch="Search" v="primary" sm onClick={()=>loadFbUsers(fbSearch)}/>
+        <button onClick={syncAllFbUsers} disabled={fbSyncing} style={{padding:"6px 12px",borderRadius:7,fontSize:10,fontWeight:700,color:"#1877F2",background:"#1877F210",border:"1px solid #1877F233",cursor:fbSyncing?"wait":"pointer",opacity:fbSyncing?0.6:1,whiteSpace:"nowrap"}}>{fbSyncing?"Syncing...":"Sync All"}</button>
+      </div>
+
+      <div style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,letterSpacing:"0.5px",marginBottom:8}}>MESSENGER USERS & EXISTING CONTACTS ({fbUsers.length})</div>
+
+      {fbLoading&&<div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"20px 0"}}><Spin/><span style={{fontSize:12,color:C.t3}}>Loading...</span></div>}
+
+      {!fbLoading&&fbUsers.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.t3,fontSize:11}}>No Messenger users yet. When someone messages your Facebook Page, they will appear here automatically. You can also manually add contacts above.</div>}
+
+      {!fbLoading&&fbUsers.length>0&&<div style={{maxHeight:300,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+        {fbUsers.map(u=>{
+          const srcColor=u.source==="friend"?"#1877F2":u.source==="messenger"?"#25d366":"#8b8b8b";
+          const srcLabel=u.source==="friend"?"Friend":u.source==="messenger"?"Messenger":"Contact";
+          return <div key={u.fbId} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:u.isContact?C.gd+"88":C.s2,border:`1px solid ${u.isContact?C.g+"33":C.b1}`,borderRadius:10}}>
+            {u.picture
+              ?<img src={u.picture} alt="" style={{width:32,height:32,borderRadius:"50%",border:"2px solid #1877F233"}}/>
+              :<div style={{width:32,height:32,borderRadius:"50%",background:"#1877F222",display:"flex",alignItems:"center",justifyContent:"center",color:"#1877F2",fontSize:13,fontWeight:700}}>{(u.name||"?")[0]?.toUpperCase()}</div>
+            }
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</span>
+                <span style={{fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:4,background:srcColor+"18",color:srcColor,fontFamily:FM}}>{srcLabel}</span>
+              </div>
+              <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:1}}>
+                {u.fbId}{u.messageCount>0?" · "+u.messageCount+" msgs":""}{u.lastActive?" · "+new Date(u.lastActive).toLocaleDateString():""}
+              </div>
+            </div>
+            {u.isContact
+              ?<span style={{fontSize:9,fontWeight:700,color:C.g,fontFamily:FM,padding:"3px 8px",background:C.gd,borderRadius:5,border:`1px solid ${C.g}33`}}>Added</span>
+              :<button onClick={()=>addFbUser(u)} disabled={fbAdding===u.fbId} style={{padding:"5px 12px",borderRadius:7,fontSize:10,fontWeight:700,color:"#fff",background:"#1877F2",border:"none",cursor:fbAdding===u.fbId?"wait":"pointer",opacity:fbAdding===u.fbId?0.6:1}}>+ Add</button>
+            }
+          </div>;})}
+      </div>}
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+        <Btn ch="Close" v="ghost" onClick={()=>{setShowFbUsers(false);setFbUsers([]);setFbSearch("");setManualFbId("");setManualFbName("");}}/>
+      </div>
     </Mdl>}
   </div>;
   const [note,setNote]=useState(contact.notes||"");
