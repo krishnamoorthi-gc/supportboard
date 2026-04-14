@@ -1219,7 +1219,7 @@ app.post(['/data-deletion', '/data-deletion.html'], (req, res) => {
 });
 
 // ── Serve frontend (production) ──
-const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist_build');
 if (fs.existsSync(frontendDist)) {
   // Clean URLs for policy pages (no .html extension)
   for (const page of ['data-deletion', 'privacy', 'terms', 'about', 'landing']) {
