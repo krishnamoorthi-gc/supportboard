@@ -696,6 +696,39 @@ function InboxSet({inboxes,setInboxes}){
       return;
     }
     // Non-email channels (or unsaved email) — keep the simulated test
+    if(form.type==="facebook"){
+      if(!inboxId){
+        cfgFld("connStatus","failed");
+        showT("Save this Facebook inbox first, then test the page connection","error");
+        return;
+      }
+      const fbMissing=[];
+      if(!String(cfg.pageId||"").trim())fbMissing.push("Page ID");
+      if(!String(cfg.accessToken||"").trim())fbMissing.push("Page Access Token");
+      if(!String(cfg.appId||"").trim())fbMissing.push("App ID");
+      if(!String(cfg.appSecret||"").trim())fbMissing.push("App Secret");
+      if(!String(cfg.verifyToken||"").trim())fbMissing.push("Webhook Verify Token");
+      if(fbMissing.length){
+        cfgFld("connStatus","failed");
+        showT("Fill in: "+fbMissing.join(", "),"error");
+        return;
+      }
+      cfgFld("connTesting",true);cfgFld("connStatus","");
+      showT("Validating Facebook page token + webhook subscription...","info");
+      try{
+        await api.patch("/settings/inboxes/"+inboxId,{config:{...cfg}});
+        const r=await api.post("/facebook/subscribe",{inboxId});
+        cfgFld("connTesting",false);
+        cfgFld("connStatus","connected");
+        showT(r?.success?"Facebook page is ready for inbound + outbound messaging":"Facebook page validation complete","success");
+      }catch(e:any){
+        cfgFld("connTesting",false);
+        cfgFld("connStatus","failed");
+        const missingPerms=e?.data?.missingPermissions?.length?" Missing permissions: "+e.data.missingPermissions.join(", "):"";
+        showT("Facebook connection failed: "+(e?.data?.error||e?.message||"unknown")+missingPerms,"error");
+      }
+      return;
+    }
     cfgFld("connTesting",true);cfgFld("connStatus","");
     showT("Testing connection…","info");
     setTimeout(()=>{cfgFld("connTesting",false);cfgFld("connStatus","connected");showT("Connection successful! ✓","success");},2000);

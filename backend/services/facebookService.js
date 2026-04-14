@@ -1,0 +1,147 @@
+'use strict';
+/**
+ * Facebook Messenger service helpers
+ * Handles outbound Messenger sends and page webhook subscription checks.
+ */
+
+const db = require('../db');
+
+const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
+
+function safeJson(v, fb) {
+  try { return typeof v === 'string' ? JSON.parse(v) : v || fb; }
+  catch { return fb; }
+}
+
+async function getInboxConfig(inboxId) {
+  const row = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
+  if (!row) return null;
+  return { ...row, cfg: safeJson(row.config, {}) };
+}
+
+function normalizeFacebookRecipientId(value) {
+  return String(value || '').trim().replace(/^fb:/i, '');
+}
+
+async function debugFacebookToken({ inputToken, appId, appSecret }) {
+  if (!inputToken || !appId || !appSecret) return null;
+  const appAccessToken = `${appId}|${appSecret}`;
+  const url = new URL(`${GRAPH_BASE}/debug_token`);
+  url.searchParams.set('input_token', inputToken);
+  url.searchParams.set('access_token', appAccessToken);
+
+  const res = await fetch(url, { method: 'GET' });
+  const data = await res.json();
+  if (!res.ok || data?.error) {
+    const msg = data?.error?.message || JSON.stringify(data);
+    throw new Error(`Facebook token debug failed: ${msg}`);
+  }
+  return data.data || null;
+}
+
+async function ensurePageWebhookSubscription({ pageId, pageAccessToken }) {
+  if (!pageId) throw new Error('Facebook pageId not configured');
+  if (!pageAccessToken) throw new Error('Facebook page access token not configured');
+
+  const url = new URL(`${GRAPH_BASE}/${pageId}/subscribed_apps`);
+  url.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,message_deliveries,message_reads');
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${pageAccessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  const data = await res.json();
+  if (!res.ok || data?.error) {
+    const msg = data?.error?.message || JSON.stringify(data);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function sendFacebookMessage({ inboxId, to, text, attachments = [] }) {
+  const inbox = await getInboxConfig(inboxId);
+  if (!inbox) throw new Error(`Facebook inbox ${inboxId} not found`);
+
+  const pageAccessToken = inbox.cfg.accessToken || '';
+  const recipientId = normalizeFacebookRecipientId(to);
+  if (!pageAccessToken) throw new Error(`Facebook page access token not configured for inbox ${inboxId}`);
+  if (!recipientId) throw new Error('Facebook recipient ID missing');
+
+  const url = `${GRAPH_BASE}/me/messages`;
+  const headers = {
+    'Authorization': `Bearer ${pageAccessToken}`,
+    'Content-Type': 'application/json',
+  };
+
+  const results = [];
+
+  for (const att of attachments) {
+    const attUrl = resolvePublicUrl(att.url);
+    if (!attUrl) continue;
+
+    const attachmentType = resolveAttachmentType(att.contentType || att.name || '');
+    const body = {
+      recipient: { id: recipientId },
+      messaging_type: 'RESPONSE',
+      message: {
+        attachment: {
+          type: attachmentType,
+          payload: { url: attUrl, is_reusable: false },
+        },
+      },
+    };
+
+    const r = await graphPost(url, headers, body);
+    results.push(r);
+  }
+
+  if (text && text.trim()) {
+    const body = {
+      recipient: { id: recipientId },
+      messaging_type: 'RESPONSE',
+      message: { text: text.trim() },
+    };
+    const r = await graphPost(url, headers, body);
+    results.push(r);
+  }
+
+  if (results.length === 0) throw new Error('Nothing to send (no text and no attachments)');
+  return results[results.length - 1];
+}
+
+async function graphPost(url, headers, body) {
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok || data?.error) {
+    const msg = data?.error?.message || JSON.stringify(data);
+    throw new Error(`Meta Graph API ${res.status}: ${msg}`);
+  }
+  return data;
+}
+
+function resolvePublicUrl(relOrAbs) {
+  if (!relOrAbs) return null;
+  if (/^https?:\/\//i.test(relOrAbs)) return relOrAbs;
+  const base = (process.env.PUBLIC_URL || process.env.API_BASE_URL || '').replace(/\/$/, '');
+  if (!base) return null;
+  return `${base}${relOrAbs.startsWith('/') ? '' : '/'}${relOrAbs}`;
+}
+
+function resolveAttachmentType(contentTypeOrName) {
+  const s = String(contentTypeOrName || '').toLowerCase();
+  if (s.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(s)) return 'image';
+  if (s.startsWith('video/') || /\.(mp4|mov|avi|mkv)$/i.test(s)) return 'video';
+  if (s.startsWith('audio/') || /\.(mp3|ogg|aac|m4a|opus)$/i.test(s)) return 'audio';
+  return 'file';
+}
+
+module.exports = {
+  debugFacebookToken,
+  ensurePageWebhookSubscription,
+  getInboxConfig,
+  normalizeFacebookRecipientId,
+  sendFacebookMessage,
+};

@@ -15,6 +15,7 @@ const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
 const { broadcastToAll } = require('../ws');
+const { debugFacebookToken, ensurePageWebhookSubscription } = require('../services/facebookService');
 
 const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -160,7 +161,7 @@ router.get('/callback', async (req, res) => {
         pageCategory: page.category,
         pagePicture: page.picture,
         accessToken: page.accessToken,
-        connStatus: 'connected',
+        connStatus: 'configured',
         connectedAt: now()
       };
 
@@ -169,7 +170,12 @@ router.get('/callback', async (req, res) => {
 
       // Subscribe to webhooks automatically
       try {
-        await subscribePageWebhook(page.id, page.accessToken);
+        await ensurePageWebhookSubscription({ pageId: page.id, pageAccessToken: page.accessToken });
+        await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify({
+          ...newCfg,
+          connStatus: 'connected',
+          webhookSubscribedAt: now(),
+        }), inboxId);
       } catch (e) {
         console.warn('[facebook] Auto-subscribe failed:', e.message);
       }
@@ -225,7 +231,7 @@ router.post('/select-page', auth, async (req, res) => {
     pageCategory: page.category,
     pagePicture: page.picture,
     accessToken: page.accessToken,
-    connStatus: 'connected',
+    connStatus: 'configured',
     connectedAt: now()
   };
   delete newCfg._pendingPages;
@@ -236,7 +242,12 @@ router.post('/select-page', auth, async (req, res) => {
 
   // Subscribe to webhooks
   try {
-    await subscribePageWebhook(page.id, page.accessToken);
+    await ensurePageWebhookSubscription({ pageId: page.id, pageAccessToken: page.accessToken });
+    await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify({
+      ...newCfg,
+      connStatus: 'connected',
+      webhookSubscribedAt: now(),
+    }), inboxId);
   } catch (e) {
     console.warn('[facebook] Subscribe failed:', e.message);
   }
@@ -284,21 +295,82 @@ router.post('/disconnect', auth, async (req, res) => {
   res.json({ success: true });
 });
 
-// ── Helper: Subscribe page to app webhooks ───────────────────────────────────
-async function subscribePageWebhook(pageId, pageAccessToken) {
-  const subRes = await fetch(`${GRAPH_BASE}/${pageId}/subscribed_apps`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      access_token: pageAccessToken,
-      subscribed_fields: 'messages,messaging_postbacks,message_deliveries,message_reads'
-    })
-  });
-  const data = await subRes.json();
-  if (data.error) throw new Error(data.error.message);
-  console.log(`[facebook] ✓ Page ${pageId} subscribed to webhooks`);
-  return data;
-}
+// ── POST /api/facebook/subscribe  — Validate token + subscribe page ─────────
+router.post('/subscribe', auth, async (req, res) => {
+  const { inboxId } = req.body;
+  if (!inboxId) return res.status(400).json({ error: 'inboxId required' });
+
+  const inbox = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
+  if (!inbox) return res.status(404).json({ error: 'Inbox not found' });
+
+  const cfg = safeJson(inbox.config, {});
+  if (!cfg.pageId) return res.status(400).json({ error: 'Facebook Page ID not configured' });
+  if (!cfg.accessToken) return res.status(400).json({ error: 'Facebook page access token not configured' });
+
+  try {
+    let tokenInfo = null;
+    if (cfg.appId && cfg.appSecret) {
+      tokenInfo = await debugFacebookToken({
+        inputToken: cfg.accessToken,
+        appId: cfg.appId,
+        appSecret: cfg.appSecret,
+      });
+    }
+
+    const scopes = tokenInfo?.scopes || [];
+    const missingPermissions = tokenInfo
+      ? ['pages_messaging', 'pages_manage_metadata'].filter(scope => !scopes.includes(scope))
+      : [];
+    if (missingPermissions.length) {
+      return res.status(400).json({
+        error: `Facebook token is missing required permissions: ${missingPermissions.join(', ')}`,
+        missingPermissions,
+        tokenScopes: scopes,
+      });
+    }
+
+    await ensurePageWebhookSubscription({ pageId: cfg.pageId, pageAccessToken: cfg.accessToken });
+    const newCfg = {
+      ...cfg,
+      connStatus: 'connected',
+      webhookSubscribedAt: now(),
+    };
+    await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify(newCfg), inboxId);
+
+    console.log(`[facebook] ✓ Page ${cfg.pageId} subscribed to webhooks`);
+    res.json({ success: true, pageId: cfg.pageId, tokenScopes: scopes });
+  } catch (err) {
+    console.error('[facebook] Subscribe endpoint error:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ── GET /api/facebook/debug  (temporary — check config) ──────────────────────
+router.get('/debug', async (req, res) => {
+  try {
+    const allInboxes = await db.prepare("SELECT id, name, type, active, config FROM inboxes WHERE type='facebook'").all();
+    const info = allInboxes.map(ib => {
+      const cfg = safeJson(ib.config, {});
+      return {
+        id: ib.id, name: ib.name, type: ib.type, active: ib.active,
+        hasPageId: !!cfg.pageId,
+        hasAccessToken: !!cfg.accessToken,
+        hasAppId: !!cfg.appId,
+        hasAppSecret: !!cfg.appSecret,
+        verifyToken: cfg.verifyToken || '(not set)',
+        connStatus: cfg.connStatus || '(none)',
+        pageName: cfg.pageName || '(none)',
+      };
+    });
+    res.json({
+      facebookInboxes: info,
+      envFbToken: process.env.FB_VERIFY_TOKEN ? 'set(' + process.env.FB_VERIFY_TOKEN.slice(0, 6) + '...)' : '(not set)',
+      envWaToken: process.env.WA_VERIFY_TOKEN ? 'set' : '(not set)',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ── GET /api/facebook/webhook  (Meta verification) ───────────────────────────
 router.get('/webhook', async (req, res) => {
@@ -306,30 +378,57 @@ router.get('/webhook', async (req, res) => {
   const token     = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
+  console.log('[facebook] Webhook verify request:', { mode, token: token ? token.slice(0, 6) + '...' : '(none)', challenge: challenge ? 'yes' : 'no' });
+
   if (mode !== 'subscribe') {
-    return res.status(400).send('Bad request');
+    return res.status(400).send('Bad request: mode must be subscribe');
   }
 
   try {
+    // Check all active facebook inboxes
     const inboxes = await db.prepare(
       "SELECT config FROM inboxes WHERE type='facebook' AND active=1"
     ).all();
 
+    console.log('[facebook] Found', inboxes.length, 'active facebook inboxes');
+
     for (const ib of inboxes) {
       const cfg = safeJson(ib.config, {});
+      console.log('[facebook] Inbox verifyToken:', cfg.verifyToken ? cfg.verifyToken.slice(0, 6) + '...' : '(none)');
       if (cfg.verifyToken && cfg.verifyToken === token) {
-        console.log('[facebook] Webhook verified ✓');
+        console.log('[facebook] Webhook verified via inbox config ✓');
         return res.status(200).send(challenge);
       }
     }
 
+    // Also check all active whatsapp inboxes (some users store FB config there)
+    const waInboxes = await db.prepare(
+      "SELECT config FROM inboxes WHERE active=1"
+    ).all();
+    for (const ib of waInboxes) {
+      const cfg = safeJson(ib.config, {});
+      if (cfg.verifyToken && cfg.verifyToken === token) {
+        console.log('[facebook] Webhook verified via general inbox config ✓');
+        return res.status(200).send(challenge);
+      }
+    }
+
+    // Fallback: env variable
     if (process.env.FB_VERIFY_TOKEN && process.env.FB_VERIFY_TOKEN === token) {
+      console.log('[facebook] Webhook verified via env ✓');
+      return res.status(200).send(challenge);
+    }
+
+    // Fallback: WhatsApp verify token env
+    if (process.env.WA_VERIFY_TOKEN && process.env.WA_VERIFY_TOKEN === token) {
+      console.log('[facebook] Webhook verified via WA env ✓');
       return res.status(200).send(challenge);
     }
   } catch (e) {
-    console.error('[facebook] Verification error:', e.message);
+    console.error('[facebook] Verification DB error:', e.message);
   }
 
+  console.warn('[facebook] Webhook verification failed — token mismatch. Received:', token);
   return res.status(403).send('Forbidden');
 });
 
@@ -354,6 +453,10 @@ router.post('/webhook', async (req, res) => {
       const pageToken = cfg.accessToken || '';
 
       for (const event of entry.messaging || []) {
+        if (event.message?.is_echo) {
+          console.log('[facebook] Ignoring echo message:', event.message?.mid || '(unknown)');
+          continue;
+        }
         if (event.message) {
           await processIncomingMessage(event, inbox, pageToken);
         }

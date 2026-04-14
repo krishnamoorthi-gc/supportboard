@@ -3,6 +3,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid, paginate } = require('../utils/helpers');
 const { sendEmail, extractVisibleEmailText } = require('../services/emailService');
+const { sendFacebookMessage, normalizeFacebookRecipientId } = require('../services/facebookService');
 const { sendWhatsAppMessage } = require('../services/whatsappService');
 const { broadcastToAll } = require('../ws');
 
@@ -258,6 +259,7 @@ router.post('/:id/messages', auth, async (req, res) => {
   let smtpResult    = null;
   let resolvedRecipient = null;
   let waResult      = null;
+  let fbResult      = null;
 
   if (role === 'agent' && conv.inbox_type === 'email') {
     resolvedRecipient = String(toEmail || conv.contact_email || '').split(',')[0].trim().toLowerCase();
@@ -347,6 +349,26 @@ router.post('/:id/messages', auth, async (req, res) => {
     }
   }
 
+  // ── Facebook Messenger send ──────────────────────────────────────────────
+  if (role === 'agent' && conv.inbox_type === 'facebook') {
+    const { toFacebookId } = req.body;
+    const recipientId = normalizeFacebookRecipientId(toFacebookId || conv.contact_phone || '');
+    if (!recipientId) {
+      return res.status(400).json({ error: 'Facebook recipient ID missing for this conversation' });
+    }
+    try {
+      fbResult = await sendFacebookMessage({
+        inboxId:     conv.inbox_id_val,
+        to:          recipientId,
+        text:        text || '',
+        attachments: normalizedAttachments,
+      });
+    } catch (fbErr) {
+      console.error('[conversations] Facebook send failed:', fbErr.message);
+      return res.status(502).json({ error: `Facebook delivery failed: ${fbErr.message}` });
+    }
+  }
+
   const id = uid();
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
   await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,whatsapp_message_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
@@ -357,7 +379,7 @@ router.post('/:id/messages', auth, async (req, res) => {
     role === 'agent' ? req.agent.id : null,
     JSON.stringify(normalizedAttachments),
     smtpResult?.smtpMessageId || null,
-    waResult?.messages?.[0]?.id || null,
+    waResult?.messages?.[0]?.id || fbResult?.message_id || null,
     createdAt
   );
 
@@ -419,6 +441,11 @@ router.post('/:id/messages', auth, async (req, res) => {
     whatsapp: waResult ? {
       delivered: true,
       messageId: waResult?.messages?.[0]?.id,
+    } : null,
+    facebook: fbResult ? {
+      delivered: true,
+      messageId: fbResult?.message_id,
+      recipientId: fbResult?.recipient_id,
     } : null,
   });
 });
