@@ -86,6 +86,9 @@ export default function App(){
   const [regConfirm,setRegConfirm]=useState("");
   const [regLoading,setRegLoading]=useState(false);
   const [regError,setRegError]=useState("");
+  const [showLoginPass,setShowLoginPass]=useState(false);
+  const [showRegPass,setShowRegPass]=useState(false);
+  const [showRegConfirm,setShowRegConfirm]=useState(false);
 
   const handleLogout=async()=>{
     try {
@@ -130,7 +133,8 @@ export default function App(){
   };
 
   const doLogin=async()=>{
-    if(!loginEmail||!loginPass)return;
+    if(!loginEmail){setLoginError("Please enter your email address");return;}
+    if(!loginPass){setLoginError("Please enter your password");return;}
     setLoginLoading(true);setLoginError("");
     try{
       const res=await api.post("/auth/login",{email:loginEmail,password:loginPass});
@@ -723,13 +727,25 @@ export default function App(){
         !showRegister ? <>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Email</label>
-            <input value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} type="email" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <input value={loginEmail} onChange={e=>{setLoginEmail(e.target.value);if(loginError)setLoginError("");}} type="email" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
           </div>
-          <div style={{marginBottom:14}}>
+          <div style={{marginBottom:loginError?10:14}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><label style={{fontSize:12,fontWeight:700,color:"#374151"}}>Password</label><button style={{fontSize:11,color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Forgot?</button></div>
-            <input value={loginPass} onChange={e=>setLoginPass(e.target.value)} type="password" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <div style={{position:"relative"}}>
+              <input value={loginPass} onChange={e=>{setLoginPass(e.target.value);if(loginError)setLoginError("");}} type={showLoginPass?"text":"password"} style={{width:"100%",padding:"10px 42px 10px 14px",borderRadius:10,border:`1.5px solid ${loginError?"#ef4444":"#d1d5db"}`,fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif",background:loginError?"#fef2f2":"#fff"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor=loginError?"#ef4444":"#2563eb"} onBlur={e=>e.target.style.borderColor=loginError?"#ef4444":"#d1d5db"}/>
+              <button type="button" onClick={()=>setShowLoginPass(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:2,color:"#9ca3af",display:"flex",alignItems:"center"}} title={showLoginPass?"Hide password":"Show password"}>
+                {showLoginPass
+                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                }
+              </button>
+            </div>
           </div>
-          <button onClick={doLogin} disabled={loginLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#2563eb,#4f46e5)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",opacity:loginLoading?0.7:1,marginBottom:16}}>
+          {loginError&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#dc2626",fontWeight:500}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            {loginError}
+          </div>}
+          <button onClick={doLogin} disabled={loginLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#2563eb,#4f46e5)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:loginLoading?"not-allowed":"pointer",fontFamily:"'Outfit',sans-serif",opacity:loginLoading?0.7:1,marginBottom:16}}>
             {loginLoading?"Signing in…":"Sign In"}
           </button>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><div style={{flex:1,height:1,background:"#e5e7eb"}}/><span style={{fontSize:11,color:"#9ca3af"}}>or continue with</span><div style={{flex:1,height:1,background:"#e5e7eb"}}/></div>
@@ -759,11 +775,27 @@ export default function App(){
           </div>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Password</label>
-            <input value={regPass} onChange={e=>setRegPass(e.target.value)} type="password" placeholder="Min 6 characters" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <div style={{position:"relative"}}>
+              <input value={regPass} onChange={e=>setRegPass(e.target.value)} type={showRegPass?"text":"password"} placeholder="Min 6 characters" style={{width:"100%",padding:"10px 42px 10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+              <button type="button" onClick={()=>setShowRegPass(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:2,color:"#9ca3af",display:"flex",alignItems:"center"}} title={showRegPass?"Hide":"Show"}>
+                {showRegPass
+                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                }
+              </button>
+            </div>
           </div>
           <div style={{marginBottom:16}}>
             <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Confirm Password</label>
-            <input value={regConfirm} onChange={e=>setRegConfirm(e.target.value)} type="password" placeholder="Re-enter password" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doRegister();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <div style={{position:"relative"}}>
+              <input value={regConfirm} onChange={e=>setRegConfirm(e.target.value)} type={showRegConfirm?"text":"password"} placeholder="Re-enter password" style={{width:"100%",padding:"10px 42px 10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doRegister();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+              <button type="button" onClick={()=>setShowRegConfirm(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:2,color:"#9ca3af",display:"flex",alignItems:"center"}} title={showRegConfirm?"Hide":"Show"}>
+                {showRegConfirm
+                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                }
+              </button>
+            </div>
           </div>
           <button onClick={doRegister} disabled={regLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#10b981,#059669)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",opacity:regLoading?0.7:1,marginBottom:16}}>
             {regLoading?"Creating Account…":"Create Account"}
