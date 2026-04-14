@@ -163,7 +163,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         if(setAgents)setAgents((p:any[])=>p.map(a=>a.id===msg.agentId?{...a,status:msg.status}:a));
         break;
       case 'tc_call_offer':
-        setIncomingCall({from:msg.from,callId:msg.callId,offer:msg.offer,callerName:msg.callerName||'Team Member'});
+        setIncomingCall({from:msg.from,callId:msg.callId,offer:msg.offer,callerName:msg.callerName||'Team Member',callType:msg.callType||'voice'});
         break;
       case 'tc_call_answer':
         if(peerRef.current)peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.answer)).catch(()=>{});
@@ -215,53 +215,88 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // ── WebRTC call helpers ──
   const endCall=(sendSignal=true)=>{
     if(sendSignal&&callTargetRef.current)sendWs({type:'tc_call_end',targetId:callTargetRef.current,callId:callIdRef.current});
+    clearInterval(callTimerRef.current);callTimerRef.current=null;
     peerRef.current?.close();peerRef.current=null;
     localStreamRef.current?.getTracks().forEach(t=>t.stop());localStreamRef.current=null;
     if(localVideoRef.current)localVideoRef.current.srcObject=null;
     if(remoteVideoRef.current)remoteVideoRef.current.srcObject=null;
     callIdRef.current=null;callTargetRef.current=null;
     setActiveCall(null);setShowHuddle(false);setHuddleMic(true);setHuddleCam(false);setHuddleScreen(false);
+    setCallType(null);setCallDuration(0);setRemoteHasVideo(false);
   };
 
-  const initCall=async(targetId:string)=>{
+  const initCall=async(targetId:string,type:"voice"|"video"|"screen"="voice")=>{
     const callId='call'+uid();
     callIdRef.current=callId;callTargetRef.current=targetId;
+    setCallType(type);
     const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
     peerRef.current=pc;
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:huddleCam});
+      let stream:MediaStream;
+      if(type==="screen"){
+        const screenStream=await(navigator.mediaDevices as any).getDisplayMedia({video:{cursor:"always"},audio:true}).catch(()=>null);
+        // Reuse existing mic track from preview if available
+        const existingAudio=localStreamRef.current?.getAudioTracks()||[];
+        const micStream=existingAudio.length>0?null:await navigator.mediaDevices.getUserMedia({audio:true}).catch(()=>null);
+        const tracks=[...(screenStream?.getTracks()||[]),...existingAudio,...(micStream?.getAudioTracks()||[])];
+        stream=new MediaStream(tracks);
+        setHuddleScreen(true);setHuddleCam(false);
+        screenStream?.getVideoTracks()[0]?.addEventListener('ended',()=>endCall(true));
+      }else{
+        // Reuse preview stream if it already has the right tracks (avoids double permission prompt)
+        const preview=localStreamRef.current;
+        const previewHasVideo=(preview?.getVideoTracks().filter(t=>t.readyState==="live").length||0)>0;
+        const needsVideo=type==="video";
+        if(preview&&(needsVideo===previewHasVideo)){
+          stream=preview;
+        }else{
+          stream=await navigator.mediaDevices.getUserMedia({audio:true,video:needsVideo});
+        }
+        setHuddleCam(needsVideo);setHuddleScreen(false);
+      }
       localStreamRef.current=stream;
       if(localVideoRef.current)localVideoRef.current.srcObject=stream;
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
-    }catch{showT('Microphone access required for calls','error');}
+    }catch{showT('Microphone/camera access required for calls','error');}
     pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId,callId,candidate:e.candidate});};
-    pc.ontrack=(e)=>{if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];};
+    pc.ontrack=(e)=>{
+      if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];
+      if(e.track.kind==="video")setRemoteHasVideo(true);
+    };
     const offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
     const callerName=agents.find((a:any)=>a.id===myIdRef.current)?.name||'Team Member';
-    sendWs({type:'tc_call_offer',targetId,callId,offer,callerName,channelId:activeCh});
+    sendWs({type:'tc_call_offer',targetId,callId,offer,callerName,channelId:activeCh,callType:type});
     setActiveCall({callId,targetId,type:'outgoing'});setShowHuddle(true);
-    showT('Calling…','info');
+    setCallDuration(0);callTimerRef.current=setInterval(()=>setCallDuration(p=>p+1),1000);
+    showT(type==="video"?"📹 Video call started…":type==="screen"?"🖥 Screen share started…":"📞 Voice call started…","info");
   };
 
   const acceptCall=async()=>{
     if(!incomingCall)return;
+    const type=(incomingCall.callType||"voice") as "voice"|"video"|"screen";
+    setCallType(type);
     const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
     peerRef.current=pc;callIdRef.current=incomingCall.callId;callTargetRef.current=incomingCall.from;
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:huddleCam});
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:type==="video"});
       localStreamRef.current=stream;
       if(localVideoRef.current)localVideoRef.current.srcObject=stream;
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+      setHuddleCam(type==="video");
     }catch{}
     pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId:incomingCall.from,callId:incomingCall.callId,candidate:e.candidate});};
-    pc.ontrack=(e)=>{if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];};
+    pc.ontrack=(e)=>{
+      if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];
+      if(e.track.kind==="video")setRemoteHasVideo(true);
+    };
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
     const answer=await pc.createAnswer();
     await pc.setLocalDescription(answer);
     sendWs({type:'tc_call_answer',targetId:incomingCall.from,callId:incomingCall.callId,answer});
     setActiveCall({callId:incomingCall.callId,targetId:incomingCall.from,type:'incoming'});
     setIncomingCall(null);setShowHuddle(true);
+    setCallDuration(0);callTimerRef.current=setInterval(()=>setCallDuration(p=>p+1),1000);
   };
 
   // Mark all messages in a channel as read
@@ -277,8 +312,11 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     typingTimeoutRef.current=setTimeout(()=>sendWs({type:'tc_typing',channelId:activeCh,isTyping:false}),3000);
   };
   // ── Call / WebRTC state ──
-  const [incomingCall,setIncomingCall]=useState<{from:string,callId:string,offer:RTCSessionDescriptionInit,callerName:string}|null>(null);
+  const [incomingCall,setIncomingCall]=useState<{from:string,callId:string,offer:RTCSessionDescriptionInit,callerName:string,callType?:string}|null>(null);
   const [activeCall,setActiveCall]=useState<{callId:string,targetId:string,type:string}|null>(null);
+  const [callType,setCallType]=useState<"voice"|"video"|"screen"|null>(null);
+  const [callDuration,setCallDuration]=useState(0);
+  const [remoteHasVideo,setRemoteHasVideo]=useState(false);
   const [showSchedule,setShowSchedule]=useState(false);const [scheduleTime,setScheduleTime]=useState("");
   const [msgSearch,setMsgSearch]=useState("");const [showMsgSearch,setShowMsgSearch]=useState(false);
   const [showSlash,setShowSlash]=useState(false);
@@ -315,6 +353,9 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const remoteVideoRef=useRef<HTMLVideoElement|null>(null);
   const callIdRef=useRef<string|null>(null);
   const callTargetRef=useRef<string|null>(null);
+  const callTimerRef=useRef<any>(null);
+  const activeCallRef=useRef<any>(null);
+  useEffect(()=>{activeCallRef.current=activeCall;},[activeCall]);
   const handleFileUpload=async(e:any)=>{
     const f=e.target.files?.[0];if(!f)return;
     const sizeMB=(f.size/1024/1024).toFixed(1);const ext=f.name.split('.').pop()?.toLowerCase()||'file';
@@ -398,6 +439,47 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // Keyboard shortcuts
   useEffect(()=>{const h=e=>{if(e.ctrlKey&&e.key==="/"){e.preventDefault();setTcInp("/");setShowSlash(true);}if(e.ctrlKey&&e.shiftKey&&e.key==="M"){e.preventDefault();setChannels(p=>p.map(c=>c.id===activeCh?{...c,muted:!c.muted}:c));showT(aCh?.muted?"Unmuted":"Muted","info");}if(e.key==="Escape"){setShowThread(null);setShowMembers(false);setShowChInfo(false);setShowAiPanel(false);setShowFilesPanel(false);setShowEmojiPicker(false);setMentionSearch(null);setProfilePop(null);}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[activeCh]);
 
+  // ── Auto-start local media preview when call modal opens ──
+  useEffect(()=>{
+    if(!showHuddle||!callType||activeCallRef.current)return;
+    let cancelled=false;
+    (async()=>{
+      try{
+        if(callType==="video"){
+          const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:{width:{ideal:1280},height:{ideal:720},facingMode:"user"}});
+          if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}
+          localStreamRef.current=stream;
+          if(localVideoRef.current){localVideoRef.current.srcObject=stream;localVideoRef.current.play().catch(()=>{});}
+          setHuddleMic(true);setHuddleCam(true);
+        }else if(callType==="voice"){
+          const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+          if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}
+          localStreamRef.current=stream;
+          setHuddleMic(true);setHuddleCam(false);
+        }else if(callType==="screen"){
+          try{
+            const screenStream=await(navigator.mediaDevices as any).getDisplayMedia({video:{cursor:"always",displaySurface:"monitor"},audio:true});
+            if(cancelled){screenStream.getTracks().forEach(t=>t.stop());return;}
+            const micStream=await navigator.mediaDevices.getUserMedia({audio:true}).catch(()=>null);
+            const combined=new MediaStream([...screenStream.getTracks(),...(micStream?.getAudioTracks()||[])]);
+            localStreamRef.current=combined;
+            if(localVideoRef.current){localVideoRef.current.srcObject=combined;localVideoRef.current.play().catch(()=>{});}
+            setHuddleScreen(true);setHuddleMic(true);
+            screenStream.getVideoTracks()[0]?.addEventListener('ended',()=>{if(!cancelled)setHuddleScreen(false);});
+          }catch{if(!cancelled){setShowHuddle(false);showT("Screen share cancelled","info");}}
+        }
+      }catch{if(!cancelled)showT("Camera/mic access denied — check browser permissions","error");}
+    })();
+    return()=>{
+      cancelled=true;
+      if(!activeCallRef.current){
+        localStreamRef.current?.getTracks().forEach(t=>t.stop());
+        localStreamRef.current=null;
+        if(localVideoRef.current)localVideoRef.current.srcObject=null;
+      }
+    };
+  },[showHuddle,callType]);
+
   const aCh=channels.find(c=>c.id===activeCh);const aDm=tcDms.find(d=>d.id===activeCh);
   const dmAg=aDm?agents.find(a=>a.id===aDm.agentId):null;
   const curMsgs=tcMsgs[activeCh]||[];const fMsgs=msgSearch?curMsgs.filter(m=>m.text.toLowerCase().includes(msgSearch.toLowerCase())):curMsgs;
@@ -415,6 +497,16 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const cancelScheduled=id=>{setScheduledMsgs(p=>p.filter(s=>s.id!==id));showT("Cancelled","info");};
   const copyPermalink=mid=>{navigator.clipboard?.writeText(`#/teamchat?ch=${activeCh}&msg=${mid}`);showT("Link copied!","success");};
   const [huddleMic,setHuddleMic]=useState(true);const [huddleCam,setHuddleCam]=useState(false);const [huddleScreen,setHuddleScreen]=useState(false);
+  // Re-sync local stream to the video element after the huddle UI renders/updates.
+  // initCall captures the stream BEFORE setShowHuddle(true) renders the video elements,
+  // so localVideoRef.current is null at capture time — this effect fixes that.
+  useEffect(()=>{
+    if(!showHuddle||!localStreamRef.current)return;
+    if(localVideoRef.current&&localVideoRef.current.srcObject!==localStreamRef.current){
+      localVideoRef.current.srcObject=localStreamRef.current;
+      localVideoRef.current.play().catch(()=>{});
+    }
+  },[showHuddle,activeCall,huddleCam,huddleScreen]);
   const send=()=>{
     if(!tcInp.trim())return;const t=tcInp.trim();setTcInp("");setShowSlash(false);
     if(t==="/shrug"){addMsg("¯\\_(ツ)_/¯");return;}
@@ -774,12 +866,27 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         {aCh?<><span style={{fontSize:16,fontWeight:700}}>{aCh.icon}</span><div style={{flex:1,minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:16,fontWeight:700,fontFamily:FD}}>{aCh.name}</span>{aCh.muted&&<span style={{fontSize:10,color:C.t3}}>🔕</span>}<span style={{fontSize:11,color:C.t3,fontFamily:FM}}>· {getChMembers(aCh).length}</span></div>{aCh.topic&&<div style={{fontSize:12,color:C.t3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{aCh.topic}</div>}</div></>:
         dmAg?<><Av i={dmAg.av} c={dmAg.color} s={32} dot={dmAg.status==="online"}/><div style={{flex:1}}><div style={{fontSize:16,fontWeight:700,fontFamily:FD}}>{dmAg.name}</div><div style={{fontSize:12,color:C.t3,fontFamily:FM}}>{dmAg.role} · {dmAg.status}</div></div></>:null}
         <div style={{display:"flex",gap:3}}>
-          {[{i:"search",fn:()=>setShowMsgSearch(p=>!p),a:showMsgSearch},{e:"📌",fn:()=>setShowPinned(p=>!p),a:showPinned,cnt:chPins.length},{e:"📊",fn:()=>setShowPoll(true)},{e:"🎧",fn:()=>setShowHuddle(true)},{e:"📎",fn:()=>{addMsg("Shared a file:");setTcMsgs(p=>{const m=p[activeCh];if(!m)return p;const last=m[m.length-1];return{...p,[activeCh]:m.map(x=>x.id===last.id?{...x,file:{name:"upload_"+uid()+".pdf",size:"1.8 MB",type:"pdf"}}:x)};});showT("Shared","success");}},{e:"📂",fn:()=>setShowFilesPanel(p=>!p),a:showFilesPanel},{e:"🔔",fn:()=>setShowChNotif(true)},{e:"ℹ",fn:()=>setShowChInfo(p=>!p),a:showChInfo},{i:"contacts",fn:()=>setShowMembers(p=>!p),a:showMembers}].map((b,idx)=>
+          {[{i:"search",fn:()=>setShowMsgSearch(p=>!p),a:showMsgSearch},{e:"📌",fn:()=>setShowPinned(p=>!p),a:showPinned,cnt:chPins.length},{e:"📊",fn:()=>setShowPoll(true)},{e:"📂",fn:()=>setShowFilesPanel(p=>!p),a:showFilesPanel},{e:"🔔",fn:()=>setShowChNotif(true)},{e:"ℹ",fn:()=>setShowChInfo(p=>!p),a:showChInfo},{i:"contacts",fn:()=>setShowMembers(p=>!p),a:showMembers}].map((b,idx)=>
             <button key={idx} onClick={b.fn} style={{width:28,height:28,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",background:b.a?C.ad:C.s3,border:`1px solid ${b.a?C.a+"44":C.b1}`,cursor:"pointer",position:"relative"}} className="hov">
               {b.i?<NavIcon id={b.i} s={13} col={b.a?C.a:C.t3}/>:<span style={{fontSize:12,color:b.a?C.a:C.t3}}>{b.e}</span>}
               {b.cnt>0&&<span style={{position:"absolute",top:-3,right:-3,width:13,height:13,borderRadius:"50%",background:C.y,color:"#000",fontSize:7,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{b.cnt}</span>}
             </button>
           )}
+          {/* ── Call Buttons ── */}
+          <div style={{width:1,height:20,background:C.b2,margin:"0 2px",alignSelf:"center"}}/>
+          {[
+            {e:"📞",label:"Voice",type:"voice" as const,col:C.g,bg:"#dcfce7"},
+            {e:"📹",label:"Video",type:"video" as const,col:C.a,bg:C.ad},
+            {e:"🖥",label:"Share",type:"screen" as const,col:C.p,bg:C.pd},
+          ].map(b=>(
+            <button key={b.type} onClick={()=>{if(dmAg){initCall(dmAg.id,b.type);}else{setCallType(b.type);setShowHuddle(true);}}}
+              title={b.label+" Call"}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:36,padding:"0 8px",borderRadius:8,fontSize:11,fontWeight:700,fontFamily:FM,background:activeCall&&callType===b.type?b.bg:C.s3,color:activeCall&&callType===b.type?b.col:C.t3,border:`1px solid ${activeCall&&callType===b.type?b.col+"55":C.b1}`,cursor:"pointer",gap:1,transition:"all .15s",position:"relative"}} className="hov">
+              <span style={{fontSize:13}}>{b.e}</span>
+              <span style={{fontSize:8,lineHeight:1}}>{b.label}</span>
+              {activeCall&&callType===b.type&&<span style={{position:"absolute",top:-3,right:-3,width:8,height:8,borderRadius:"50%",background:C.g,border:`1.5px solid ${C.s1}`,animation:"pulse 1.5s infinite"}}/>}
+            </button>
+          ))}
         </div>
       </div>
       {aCh?.bookmarks?.length>0&&<div style={{padding:"6px 18px",borderBottom:`1px solid ${C.b1}22`,display:"flex",gap:5,overflowX:"auto",alignItems:"center"}}>
@@ -1082,46 +1189,128 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     </Mdl>}
 
     {/* ═══ MODALS ═══ */}
-    {showHuddle&&<Mdl title={(activeCall?"Live Call — ":"Huddle — ")+chLabel} onClose={()=>endCall(true)} w={480}>
-      <div style={{textAlign:"center",padding:"8px 0"}}>
-        {/* Video area */}
-        {(huddleCam||activeCall)&&<div style={{position:"relative",background:"#111",borderRadius:10,overflow:"hidden",marginBottom:10,height:200}}>
-          <video ref={remoteVideoRef} autoPlay playsInline style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-          <video ref={localVideoRef} autoPlay playsInline muted style={{position:"absolute",bottom:8,right:8,width:100,height:70,borderRadius:6,objectFit:"cover",border:`2px solid ${C.a}`}}/>
-          {!activeCall&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-            <div style={{fontSize:40,marginBottom:8}}>🎧</div>
-            <div style={{fontSize:13,color:"#ccc"}}>Voice Huddle</div>
+    {showHuddle&&(()=>{
+      const durFmt=(s:number)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+      const typeIcon=callType==="video"?"📹":callType==="screen"?"🖥":"📞";
+      const typeLabel=callType==="video"?"Video Call":callType==="screen"?"Screen Share":"Voice Call";
+      const typeColor=callType==="video"?C.a:callType==="screen"?C.p:C.g;
+      const onlineAgents=agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online");
+      const allAgents=agents.filter((a:any)=>a.id!==myIdRef.current);
+      const showVideo=(huddleCam||huddleScreen||remoteHasVideo)&&!!activeCall;
+      const peer=activeCall?agents.find((a:any)=>a.id===activeCall.targetId):null;
+      return <div style={{position:"fixed",inset:0,background:"#0d0d0d",zIndex:1000,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+        {/* ── Full-screen remote video ── */}
+        <video ref={remoteVideoRef} autoPlay playsInline style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:showVideo?"block":"none"}}/>
+
+        {/* ── Active voice call — big avatar + waveform ── */}
+        {!showVideo&&activeCall&&peer&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:24,background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)"}}>
+          <Av i={peer.av} c={peer.color} s={96} dot={peer.status==="online"}/>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:26,fontWeight:800,color:"#fff",fontFamily:FD}}>{peer.name}</div>
+            <div style={{fontSize:13,color:typeColor,fontFamily:FM,fontWeight:600,marginTop:6,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              <span style={{width:7,height:7,borderRadius:"50%",background:typeColor,display:"inline-block",animation:"pulse 1.5s infinite"}}/>
+              Connected · {durFmt(callDuration)}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:3,alignItems:"flex-end",height:48}}>
+            {[3,6,9,12,8,5,11,7,4,10,6,8,9,5,7].map((h,i)=>(
+              <div key={i} style={{width:4,height:h*3,borderRadius:2,background:typeColor,opacity:0.7,animation:`blink 1s infinite ${i*0.08}s`}}/>
+            ))}
+          </div>
+        </div>}
+
+        {/* ── Pre-call: member selector panel ── */}
+        {!activeCall&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:0,background:"linear-gradient(135deg,#0d0d0d 0%,#1a1a1a 100%)"}}>
+          {/* Local camera preview (video type only) */}
+          {callType==="video"&&<div style={{width:"min(480px,90vw)",marginBottom:16,borderRadius:12,overflow:"hidden",height:160,background:"#111",position:"relative",border:"1.5px solid #2a2a2a"}}>
+            <video ref={localVideoRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            <div style={{position:"absolute",bottom:8,left:10,fontSize:10,color:"#aaa",fontFamily:FM,fontWeight:600,background:"rgba(0,0,0,.6)",padding:"2px 8px",borderRadius:4}}>Preview</div>
           </div>}
+          {/* Call type + title */}
+          <div style={{marginBottom:20,textAlign:"center"}}>
+            <div style={{fontSize:30,marginBottom:6}}>{typeIcon}</div>
+            <div style={{fontSize:20,fontWeight:800,color:"#fff",fontFamily:FD}}>{typeLabel}</div>
+            <div style={{fontSize:12,color:"#777",fontFamily:FM,marginTop:4}}>Select a teammate to call</div>
+          </div>
+          {/* Call type switcher */}
+          <div style={{display:"flex",gap:8,marginBottom:20}}>
+            {([["voice","📞","Voice",C.g],["video","📹","Video",C.a],["screen","🖥","Screen",C.p]] as const).map(([t,ic,lb,cl])=>(
+              <button key={t} onClick={()=>setCallType(t)} style={{padding:"7px 16px",borderRadius:10,fontSize:12,fontWeight:700,fontFamily:FM,background:callType===t?cl+"28":"#1e1e1e",border:`1.5px solid ${callType===t?cl:cl+"28"}`,color:callType===t?cl:"#666",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"all .15s"}}><span>{ic}</span>{lb}</button>
+            ))}
+          </div>
+          {/* Teammate list */}
+          <div style={{width:"min(480px,90vw)",background:"#161616",borderRadius:14,border:"1px solid #262626",overflow:"hidden"}}>
+            <div style={{padding:"10px 16px",borderBottom:"1px solid #262626",fontSize:10,fontWeight:700,color:"#555",fontFamily:FM,letterSpacing:"0.6px"}}>
+              {onlineAgents.length>0?`${onlineAgents.length} ONLINE NOW`:"ALL TEAMMATES"}
+            </div>
+            <div style={{maxHeight:260,overflowY:"auto"}}>
+              {(onlineAgents.length>0?onlineAgents:allAgents).map((a:any)=>(
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:"1px solid #1c1c1c"}}>
+                  <Av i={a.av} c={a.color} s={36} dot={a.status==="online"}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#e8e8e8"}}>{a.name}</div>
+                    <div style={{fontSize:10,color:a.status==="online"?C.g:"#555",fontFamily:FM,fontWeight:600}}>{a.status}</div>
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    <button onClick={()=>initCall(a.id,"voice")} title="Voice" style={{width:32,height:32,borderRadius:8,background:"#1c2b1c",border:`1px solid ${C.g}44`,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">📞</button>
+                    <button onClick={()=>initCall(a.id,"video")} title="Video" style={{width:32,height:32,borderRadius:8,background:"#1a1f2e",border:`1px solid ${C.a}44`,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">📹</button>
+                    <button onClick={()=>initCall(a.id,"screen")} title="Screen" style={{width:32,height:32,borderRadius:8,background:"#221828",border:`1px solid ${C.p}44`,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">🖥</button>
+                  </div>
+                </div>
+              ))}
+              {onlineAgents.length===0&&allAgents.length===0&&<div style={{textAlign:"center",padding:"28px",fontSize:12,color:"#555"}}>No teammates to call</div>}
+            </div>
+          </div>
         </div>}
-        {!huddleCam&&!activeCall&&<><div style={{fontSize:40,marginBottom:8}}>🎧</div><div style={{fontSize:15,fontWeight:700,fontFamily:FD,marginBottom:4}}>Voice Huddle</div></>}
-        {activeCall?<div style={{fontSize:11,color:C.g,fontFamily:FM,fontWeight:700,marginBottom:10}}>● Live — connected</div>
-          :<div style={{fontSize:12,color:C.t3,marginBottom:12}}>Start a call with team members online</div>}
-        {/* Online members to call */}
-        {!activeCall&&<div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-          {agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online").map((a:any)=>(
-            <button key={a.id} onClick={()=>initCall(a.id)} title={"Call "+a.name} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:8,background:C.ad,border:`1px solid ${C.a}44`,cursor:"pointer"}}>
-              <Av i={a.av} c={a.color} s={32} dot/>
-              <div style={{fontSize:10,color:C.t2}}>{a.name.split(" ")[0]}</div>
-              <div style={{fontSize:9,color:C.a,fontWeight:700}}>📞 Call</div>
-            </button>
-          ))}
-          {agents.filter((a:any)=>a.id!==myIdRef.current&&a.status==="online").length===0&&
-            <div style={{fontSize:11,color:C.t3}}>No teammates online right now</div>}
-        </div>}
-        {/* Controls */}
-        <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:10}}>
-          <button onClick={()=>{setHuddleMic(p=>!p);const track=localStreamRef.current?.getAudioTracks()[0];if(track)track.enabled=!huddleMic;}} style={{width:44,height:44,borderRadius:"50%",background:huddleMic?C.g:C.rd,border:`2px solid ${huddleMic?C.g:C.r}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleMic?"Mute":"Unmute"}>{huddleMic?"🎤":"🔇"}</button>
-          <button onClick={()=>{setHuddleCam(p=>!p);const track=localStreamRef.current?.getVideoTracks()[0];if(track)track.enabled=!huddleCam;}} style={{width:44,height:44,borderRadius:"50%",background:huddleCam?C.a:C.s3,border:`2px solid ${huddleCam?C.a:C.b1}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleCam?"Camera Off":"Camera On"}>{huddleCam?"📹":"📷"}</button>
-          <button onClick={async()=>{setHuddleScreen(p=>!p);if(!huddleScreen&&peerRef.current){try{const s=await(navigator.mediaDevices as any).getDisplayMedia({video:true});const t=s.getVideoTracks()[0];const sender=peerRef.current.getSenders().find((s2:any)=>s2.track?.kind==="video");if(sender)sender.replaceTrack(t);}catch{}}}} style={{width:44,height:44,borderRadius:"50%",background:huddleScreen?C.p:C.s3,border:`2px solid ${huddleScreen?C.p:C.b1}`,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title={huddleScreen?"Stop Share":"Share Screen"}>{huddleScreen?"🖥":"💻"}</button>
-          <button onClick={()=>endCall(true)} style={{width:44,height:44,borderRadius:"50%",background:C.r,border:"none",cursor:"pointer",fontSize:18,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+
+        {/* ── Local video PiP (active call) ── */}
+        {showVideo&&<video ref={localVideoRef} autoPlay playsInline muted style={{position:"absolute",bottom:100,right:20,width:180,height:120,borderRadius:12,objectFit:"cover",border:`2px solid ${typeColor}`,boxShadow:"0 8px 32px rgba(0,0,0,.8)",zIndex:10}}/>}
+
+        {/* ── Floating top bar ── */}
+        <div style={{position:"absolute",top:0,left:0,right:0,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"linear-gradient(to bottom,rgba(0,0,0,.85),transparent)",zIndex:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:10,background:typeColor+"22",border:`1.5px solid ${typeColor}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{typeIcon}</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:FD}}>{typeLabel}</div>
+              <div style={{fontSize:11,color:typeColor,fontFamily:FM,fontWeight:600}}>{activeCall?<>● Live · {durFmt(callDuration)}</>:chLabel?`in ${chLabel}`:"Select teammate"}</div>
+            </div>
+          </div>
+          {huddleScreen&&<div style={{background:"rgba(0,0,0,.7)",borderRadius:6,padding:"4px 12px",fontSize:11,color:"#fff",fontFamily:FM,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:C.g,animation:"pulse 1.5s infinite",display:"inline-block"}}/>Sharing screen
+          </div>}
+          <button onClick={()=>endCall(true)} style={{width:36,height:36,borderRadius:10,background:"rgba(220,38,38,.85)",border:"1.5px solid #f87171",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700}}>✕</button>
         </div>
-        <div style={{display:"flex",justifyContent:"center",gap:16}}>
-          {[{l:"Mic",v:huddleMic,c:C.g},{l:"Camera",v:huddleCam,c:C.a},{l:"Screen",v:huddleScreen,c:C.p}].map(s=>(
-            <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:10,color:s.v?s.c:C.t3,fontWeight:700,fontFamily:FM}}>{s.v?"ON":"OFF"}</div><div style={{fontSize:9,color:C.t3}}>{s.l}</div></div>
-          ))}
+
+        {/* ── Floating bottom controls ── */}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"24px 0 28px",display:"flex",alignItems:"center",justifyContent:"center",gap:14,background:"linear-gradient(to top,rgba(0,0,0,.9) 60%,transparent)",zIndex:20}}>
+          {/* Mic */}
+          <button onClick={()=>{setHuddleMic(p=>!p);const track=localStreamRef.current?.getAudioTracks()[0];if(track)track.enabled=!huddleMic;}} title={huddleMic?"Mute mic":"Unmute mic"} style={{width:56,height:56,borderRadius:"50%",background:huddleMic?"rgba(34,197,94,.18)":"rgba(239,68,68,.18)",border:`2px solid ${huddleMic?C.g:C.r}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",flexShrink:0}}>
+            <span style={{fontSize:22}}>{huddleMic?"🎤":"🔇"}</span>
+          </button>
+          {/* Camera */}
+          <button onClick={async()=>{
+            if(!huddleCam){
+              try{const s=await navigator.mediaDevices.getUserMedia({video:true,audio:false});const vt=s.getVideoTracks()[0];if(peerRef.current){const sender=peerRef.current.getSenders().find((s2:any)=>s2.track?.kind==="video");if(sender)sender.replaceTrack(vt);else peerRef.current.addTrack(vt,localStreamRef.current||s);}if(localVideoRef.current){const combined=new MediaStream([...(localStreamRef.current?.getAudioTracks()||[]),vt]);localStreamRef.current=combined;localVideoRef.current.srcObject=combined;}setHuddleCam(true);}catch{showT("Camera access denied","error");}
+            }else{localStreamRef.current?.getVideoTracks().forEach(t=>{t.stop();});setHuddleCam(false);}
+          }} title={huddleCam?"Turn off camera":"Turn on camera"} style={{width:56,height:56,borderRadius:"50%",background:huddleCam?"rgba(59,130,246,.18)":"rgba(40,40,40,.8)",border:`2px solid ${huddleCam?C.a:"#444"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",flexShrink:0}}>
+            <span style={{fontSize:22}}>{huddleCam?"📹":"📷"}</span>
+          </button>
+          {/* Screen Share */}
+          <button onClick={async()=>{
+            if(!huddleScreen){
+              try{const s=await(navigator.mediaDevices as any).getDisplayMedia({video:{cursor:"always"},audio:true});const vt=s.getVideoTracks()[0];if(peerRef.current){const sender=peerRef.current.getSenders().find((s2:any)=>s2.track?.kind==="video");if(sender)sender.replaceTrack(vt);else peerRef.current.addTrack(vt,localStreamRef.current||s);}if(localVideoRef.current){const combined=new MediaStream([...(localStreamRef.current?.getAudioTracks()||[]),vt]);localStreamRef.current=combined;localVideoRef.current.srcObject=combined;}setHuddleScreen(true);setHuddleCam(false);vt.addEventListener("ended",()=>{setHuddleScreen(false);});showT("Screen sharing started","success");}catch{showT("Screen share cancelled","info");}
+            }else{localStreamRef.current?.getVideoTracks().forEach(t=>t.stop());setHuddleScreen(false);showT("Screen share stopped","info");}
+          }} title={huddleScreen?"Stop screen share":"Share screen"} style={{width:56,height:56,borderRadius:"50%",background:huddleScreen?"rgba(168,85,247,.18)":"rgba(40,40,40,.8)",border:`2px solid ${huddleScreen?C.p:"#444"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",flexShrink:0}}>
+            <span style={{fontSize:22}}>🖥</span>
+          </button>
+          {/* End Call */}
+          <button onClick={()=>endCall(true)} title="End call" style={{width:64,height:64,borderRadius:"50%",background:"#ef4444",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 24px rgba(239,68,68,.55)",transition:"all .15s",flexShrink:0}}>
+            <span style={{fontSize:26,color:"#fff"}}>✕</span>
+          </button>
         </div>
-      </div>
-    </Mdl>}
+      </div>;
+    })()}
     {showNewCh&&<Mdl title="Create Channel" onClose={()=>setShowNewCh(false)} w={360}><Fld label="Name"><Inp val={newChName} set={setNewChName} ph="e.g. design-feedback"/></Fld><Fld label="Description"><Inp val={newChDesc} set={setNewChDesc} ph="About this channel"/></Fld><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:10}}><Toggle val={newChPrivate} set={setNewChPrivate}/><span style={{fontSize:11,color:C.t2}}>Private</span></div><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn ch="Cancel" v="ghost" onClick={()=>setShowNewCh(false)}/><Btn ch="Create" v="primary" onClick={createCh}/></div></Mdl>}
     {/* Invite Members */}
     {showInvite&&aCh&&<Mdl title={"Add Members to #"+aCh.name} onClose={()=>setShowInvite(false)} w={380}>
@@ -1192,26 +1381,38 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           </div>
         ))}
       </div>
-      <div style={{display:"flex",gap:6}}>
-        <Btn ch="💬 Message" v="primary" full sm onClick={()=>startDm(profilePop)}/>
-        <Btn ch="📞 Call" v="ghost" full sm onClick={()=>{const id=profilePop;setProfilePop(null);initCall(id);}}/>
+      <div style={{display:"flex",gap:4}}>
+        <Btn ch="💬 DM" v="primary" full sm onClick={()=>startDm(profilePop)}/>
+        <button onClick={()=>{const id=profilePop;setProfilePop(null);initCall(id,"voice");setShowHuddle(true);}} style={{flex:1,padding:"6px",borderRadius:7,fontSize:11,fontWeight:700,background:"#dcfce7",color:C.g,border:`1px solid ${C.g}44`,cursor:"pointer",fontFamily:FM}}>📞 Voice</button>
+        <button onClick={()=>{const id=profilePop;setProfilePop(null);initCall(id,"video");setShowHuddle(true);}} style={{flex:1,padding:"6px",borderRadius:7,fontSize:11,fontWeight:700,background:C.ad,color:C.a,border:`1px solid ${C.a}44`,cursor:"pointer",fontFamily:FM}}>📹 Video</button>
       </div>
     </div></div>;})()}
 
     {/* ── Incoming Call Notification ── */}
-    {incomingCall&&<div style={{position:"fixed",top:20,right:20,zIndex:200,width:320,background:C.s2,border:`1px solid ${C.g}44`,borderRadius:14,padding:18,boxShadow:"0 16px 50px rgba(0,0,0,.6)",animation:"fadeUp .2s ease"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-        <div style={{width:44,height:44,borderRadius:"50%",background:C.gd,border:`2px solid ${C.g}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,animation:"pulse 1s infinite"}}>📞</div>
-        <div>
-          <div style={{fontSize:13,fontWeight:700,color:C.t1}}>{incomingCall.callerName}</div>
-          <div style={{fontSize:11,color:C.t3}}>Incoming call…</div>
+    {incomingCall&&(()=>{
+      const ic=incomingCall;
+      const ctIcon=ic.callType==="video"?"📹":ic.callType==="screen"?"🖥":"📞";
+      const ctLabel=ic.callType==="video"?"Video Call":ic.callType==="screen"?"Screen Share":"Voice Call";
+      const ctColor=ic.callType==="video"?C.a:ic.callType==="screen"?C.p:C.g;
+      return <div style={{position:"fixed",top:20,right:20,zIndex:200,width:340,background:C.s2,border:`2px solid ${ctColor}44`,borderRadius:16,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,.7)",animation:"fadeUp .2s ease"}}>
+        {/* Animated top bar */}
+        <div style={{height:3,background:`linear-gradient(90deg,${ctColor},${ctColor}88)`,animation:"pulse 1.2s ease-in-out infinite"}}/>
+        <div style={{padding:"16px 18px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+            <div style={{width:48,height:48,borderRadius:"50%",background:ctColor+"22",border:`2px solid ${ctColor}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,animation:"pulse 1.2s infinite",flexShrink:0}}>{ctIcon}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:800,fontFamily:FD,color:C.t1}}>{ic.callerName}</div>
+              <div style={{fontSize:11,color:ctColor,fontWeight:700,fontFamily:FM}}>{ctLabel}</div>
+              <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>Incoming…</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={acceptCall} style={{flex:1,padding:"11px",borderRadius:10,background:ctColor,color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:`0 4px 16px ${ctColor}44`}}>{ctIcon} Answer</button>
+            <button onClick={()=>{sendWs({type:'tc_call_end',targetId:ic.from,callId:ic.callId});setIncomingCall(null);}} style={{flex:1,padding:"11px",borderRadius:10,background:C.r,color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>✕ Decline</button>
+          </div>
         </div>
-      </div>
-      <div style={{display:"flex",gap:8}}>
-        <button onClick={acceptCall} style={{flex:1,padding:"10px",borderRadius:8,background:C.g,color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:700}}>📞 Answer</button>
-        <button onClick={()=>{sendWs({type:'tc_call_end',targetId:incomingCall.from,callId:incomingCall.callId});setIncomingCall(null);}} style={{flex:1,padding:"10px",borderRadius:8,background:C.r,color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:700}}>✕ Decline</button>
-      </div>
-    </div>}
+      </div>;
+    })()}
   </div>;
 }
 
