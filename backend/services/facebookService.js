@@ -61,6 +61,50 @@ async function ensurePageWebhookSubscription({ pageId, pageAccessToken }) {
   return data;
 }
 
+async function ensureAppWebhookSubscription({ appId, appSecret, callbackUrl, verifyToken }) {
+  if (!appId || !appSecret) return null;
+  if (!callbackUrl || !verifyToken) return null;
+
+  const appAccessToken = `${appId}|${appSecret}`;
+  const url = new URL(`${GRAPH_BASE}/${appId}/subscriptions`);
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      access_token: appAccessToken,
+      object: 'page',
+      callback_url: callbackUrl,
+      verify_token: verifyToken,
+      fields: 'messages,messaging_postbacks,message_deliveries,message_reads',
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || data?.error) {
+    console.warn('[facebook] App subscription update failed:', data?.error?.message || JSON.stringify(data));
+    return null;
+  }
+  console.log('[facebook] App-level webhook subscription updated with all fields');
+  return data;
+}
+
+async function fetchPageInfo({ pageId, pageAccessToken }) {
+  if (!pageId || !pageAccessToken) return null;
+  try {
+    const url = `${GRAPH_BASE}/${pageId}?fields=name,category,picture&access_token=${pageAccessToken}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data?.error) return null;
+    return {
+      pageName: data.name || '',
+      pageCategory: data.category || '',
+      pagePicture: data.picture?.data?.url || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function sendFacebookMessage({ inboxId, to, text, attachments = [] }) {
   const inbox = await getInboxConfig(inboxId);
   if (!inbox) throw new Error(`Facebook inbox ${inboxId} not found`);
@@ -140,7 +184,9 @@ function resolveAttachmentType(contentTypeOrName) {
 
 module.exports = {
   debugFacebookToken,
+  ensureAppWebhookSubscription,
   ensurePageWebhookSubscription,
+  fetchPageInfo,
   getInboxConfig,
   normalizeFacebookRecipientId,
   sendFacebookMessage,

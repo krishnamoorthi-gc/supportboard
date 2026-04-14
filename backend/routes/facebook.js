@@ -15,7 +15,7 @@ const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
 const { broadcastToAll } = require('../ws');
-const { debugFacebookToken, ensurePageWebhookSubscription } = require('../services/facebookService');
+const { debugFacebookToken, ensurePageWebhookSubscription, ensureAppWebhookSubscription, fetchPageInfo } = require('../services/facebookService');
 
 const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -329,19 +329,295 @@ router.post('/subscribe', auth, async (req, res) => {
       });
     }
 
+    // Subscribe page to webhooks (page-level)
     await ensurePageWebhookSubscription({ pageId: cfg.pageId, pageAccessToken: cfg.accessToken });
+
+    // Also update app-level subscription with all fields
+    const baseUrl = (process.env.PUBLIC_URL || process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+    const callbackUrl = `${baseUrl}/api/facebook/webhook`;
+    await ensureAppWebhookSubscription({
+      appId: cfg.appId,
+      appSecret: cfg.appSecret,
+      callbackUrl,
+      verifyToken: cfg.verifyToken,
+    });
+
+    // Fetch page name, category, picture from Graph API
+    const pageInfo = await fetchPageInfo({ pageId: cfg.pageId, pageAccessToken: cfg.accessToken });
+
     const newCfg = {
       ...cfg,
       connStatus: 'connected',
       webhookSubscribedAt: now(),
+      pageName: pageInfo?.pageName || cfg.pageName || '',
+      pageCategory: pageInfo?.pageCategory || cfg.pageCategory || '',
+      pagePicture: pageInfo?.pagePicture || cfg.pagePicture || '',
+      connectedAt: now(),
     };
     await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify(newCfg), inboxId);
 
-    console.log(`[facebook] ✓ Page ${cfg.pageId} subscribed to webhooks`);
-    res.json({ success: true, pageId: cfg.pageId, tokenScopes: scopes });
+    console.log(`[facebook] ✓ Page ${cfg.pageId} (${newCfg.pageName}) subscribed to webhooks`);
+    res.json({
+      success: true,
+      pageId: cfg.pageId,
+      pageName: newCfg.pageName,
+      pagePicture: newCfg.pagePicture,
+      pageCategory: newCfg.pageCategory,
+      tokenScopes: scopes,
+    });
   } catch (err) {
     console.error('[facebook] Subscribe endpoint error:', err.message);
     res.status(502).json({ error: err.message });
+  }
+});
+
+// ── helper: resolve FB credentials from DB inbox config ─────────────────────
+async function getFbCredentials(agentId, inboxId) {
+  let inbox;
+  if (inboxId) {
+    inbox = await db.prepare(
+      "SELECT * FROM inboxes WHERE id=? AND type='facebook' AND active=1"
+    ).get(inboxId);
+  }
+  if (!inbox) {
+    inbox = await db.prepare(
+      "SELECT * FROM inboxes WHERE type='facebook' AND active=1 AND (agent_id=? OR agent_id IS NULL) LIMIT 1"
+    ).get(agentId);
+  }
+  if (!inbox) return { pageId: '', accessToken: '', userAccessToken: '', pageName: '', inboxId: null };
+  const cfg = safeJson(inbox.config, {});
+  return {
+    pageId: cfg.pageId || '',
+    accessToken: cfg.accessToken || '',
+    userAccessToken: cfg.userAccessToken || '',
+    pageName: cfg.pageName || '',
+    inboxId: inbox.id,
+  };
+}
+
+// ── GET /api/facebook/users  — Search FB friends + page conversations ───────
+router.get('/users', auth, async (req, res) => {
+  const { q, inboxId } = req.query;
+
+  try {
+    const fb = await getFbCredentials(req.agent.id, inboxId);
+    if (!fb.accessToken && !fb.userAccessToken) {
+      return res.status(400).json({ error: 'Facebook not configured. Go to Settings → Facebook inbox and enter your tokens.' });
+    }
+
+    const usersMap = new Map();
+
+    // ── Source 1: Friends list (requires User Access Token with user_friends) ──
+    if (fb.userAccessToken) {
+      try {
+        const friendsUrl = `${GRAPH_BASE}/me/friends?fields=id,name,picture&limit=100&access_token=${fb.userAccessToken}`;
+        const friendsRes = await fetch(friendsUrl);
+        const friendsData = await friendsRes.json();
+        for (const f of friendsData.data || []) {
+          usersMap.set(f.id, {
+            fbId: f.id,
+            name: f.name || f.id,
+            picture: f.picture?.data?.url || '',
+            source: 'friend',
+            lastActive: '',
+            messageCount: 0,
+          });
+        }
+        console.log(`[facebook] Friends: ${friendsData.data?.length || 0} found`);
+      } catch (e) {
+        console.warn('[facebook] Friends fetch error:', e.message);
+      }
+
+      // Also try /me/accounts to get pages the user manages (for additional context)
+      try {
+        const pagesUrl = `${GRAPH_BASE}/me/accounts?fields=id,name,picture&access_token=${fb.userAccessToken}`;
+        const pagesRes = await fetch(pagesUrl);
+        const pagesData = await pagesRes.json();
+        // Don't add pages as users, just log
+        console.log(`[facebook] User manages ${pagesData.data?.length || 0} pages`);
+      } catch {}
+    }
+
+    // ── Source 2: Page conversations (people who messaged via Messenger) ──
+    if (fb.pageId && fb.accessToken) {
+      try {
+        const convsUrl = `${GRAPH_BASE}/${fb.pageId}/conversations?fields=participants,updated_time,message_count&limit=50&access_token=${fb.accessToken}`;
+        const convsRes = await fetch(convsUrl);
+        const convsData = await convsRes.json();
+        for (const conv of convsData.data || []) {
+          for (const p of conv.participants?.data || []) {
+            if (p.id === fb.pageId) continue;
+            if (!usersMap.has(p.id)) {
+              usersMap.set(p.id, {
+                fbId: p.id,
+                name: p.name || p.id,
+                picture: '',
+                source: 'messenger',
+                messageCount: conv.message_count || 0,
+                lastActive: conv.updated_time || '',
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[facebook] Conversations fetch error:', e.message);
+      }
+    }
+
+    // ── Source 3: Existing FB contacts from DB ──
+    try {
+      const dbContacts = await db.prepare(
+        "SELECT id, name, phone FROM contacts WHERE phone LIKE 'fb:%' AND (agent_id=? OR agent_id IS NULL)"
+      ).all(req.agent.id);
+      for (const c of dbContacts) {
+        const fbId = c.phone.replace(/^fb:/, '');
+        if (!usersMap.has(fbId)) {
+          usersMap.set(fbId, {
+            fbId,
+            name: c.name || fbId,
+            picture: '',
+            source: 'contact',
+            messageCount: 0,
+            lastActive: '',
+          });
+        }
+      }
+    } catch {}
+
+    let users = Array.from(usersMap.values());
+
+    // Check which are already contacts
+    for (const u of users) {
+      const existing = await db.prepare(
+        'SELECT id, name, phone FROM contacts WHERE phone=? AND (agent_id=? OR agent_id IS NULL)'
+      ).get('fb:' + u.fbId, req.agent.id);
+      u.isContact = !!existing;
+      u.contactId = existing?.id || null;
+    }
+
+    // Filter by search query
+    if (q) {
+      const lq = q.toLowerCase();
+      users = users.filter(u => u.name.toLowerCase().includes(lq) || u.fbId.includes(lq));
+    }
+
+    // Sort: non-contacts first, then by last active, then by name
+    users.sort((a, b) => {
+      if (a.isContact !== b.isContact) return a.isContact ? 1 : -1;
+      if (a.lastActive && b.lastActive) return new Date(b.lastActive) - new Date(a.lastActive);
+      return a.name.localeCompare(b.name);
+    });
+
+    const sources = [];
+    if (fb.userAccessToken) sources.push('friends');
+    if (fb.pageId && fb.accessToken) sources.push('messenger');
+    sources.push('contacts');
+
+    res.json({ users, pageId: fb.pageId, pageName: fb.pageName, sources });
+  } catch (err) {
+    console.error('[facebook] Users search error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/facebook/users/sync  — Import all FB users as contacts ────────
+router.post('/users/sync', auth, async (req, res) => {
+  const { inboxId } = req.body;
+  try {
+    const fb = await getFbCredentials(req.agent.id, inboxId);
+    if (!fb.accessToken && !fb.userAccessToken) {
+      return res.status(400).json({ error: 'Facebook not configured. Go to Settings → Facebook inbox and enter your credentials.' });
+    }
+
+    const usersMap = new Map();
+
+    // Friends (user token)
+    if (fb.userAccessToken) {
+      try {
+        const friendsRes = await fetch(`${GRAPH_BASE}/me/friends?fields=id,name&limit=100&access_token=${fb.userAccessToken}`);
+        const friendsData = await friendsRes.json();
+        for (const f of friendsData.data || []) {
+          usersMap.set(f.id, { fbId: f.id, name: f.name || f.id });
+        }
+      } catch {}
+    }
+
+    // Conversations (page token)
+    if (fb.pageId && fb.accessToken) {
+      try {
+        const convsRes = await fetch(`${GRAPH_BASE}/${fb.pageId}/conversations?fields=participants&limit=100&access_token=${fb.accessToken}`);
+        const convsData = await convsRes.json();
+        for (const conv of convsData.data || []) {
+          for (const p of conv.participants?.data || []) {
+            if (p.id === fb.pageId) continue;
+            if (!usersMap.has(p.id)) {
+              usersMap.set(p.id, { fbId: p.id, name: p.name || p.id });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    let added = 0, skipped = 0;
+    for (const u of usersMap.values()) {
+      const existing = await db.prepare(
+        'SELECT id FROM contacts WHERE phone=? AND (agent_id=? OR agent_id IS NULL)'
+      ).get('fb:' + u.fbId, req.agent.id);
+      if (existing) { skipped++; continue; }
+
+      const ctId = 'ct' + uid();
+      await db.prepare(
+        'INSERT INTO contacts (id,name,phone,color,tags,agent_id) VALUES (?,?,?,?,?,?)'
+      ).run(ctId, u.name, 'fb:' + u.fbId, '#1877f2', '["facebook"]', req.agent.id);
+      added++;
+    }
+
+    console.log(`[facebook] Sync: ${added} added, ${skipped} already existed`);
+    res.json({ success: true, added, skipped, total: usersMap.size });
+  } catch (err) {
+    console.error('[facebook] Sync error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/facebook/users/add  — Add a Facebook user as contact ──────────
+router.post('/users/add', auth, async (req, res) => {
+  const { fbId, name, inboxId } = req.body;
+  if (!fbId) return res.status(400).json({ error: 'fbId required' });
+
+  try {
+    // Check if already exists
+    const existing = await db.prepare(
+      'SELECT * FROM contacts WHERE phone=? AND (agent_id=? OR agent_id IS NULL)'
+    ).get('fb:' + fbId, req.agent.id);
+    if (existing) {
+      try { existing.tags = JSON.parse(existing.tags || '[]'); } catch { existing.tags = []; }
+      return res.json({ contact: existing, existing: true });
+    }
+
+    // Try to fetch profile from Facebook
+    let profileName = name || fbId;
+    const fb = await getFbCredentials(req.agent.id, inboxId);
+    if (fb.accessToken) {
+      try {
+        const profileRes = await fetch(`${GRAPH_BASE}/${fbId}?fields=first_name,last_name,profile_pic&access_token=${fb.accessToken}`);
+        const profile = await profileRes.json();
+        if (profile.first_name) profileName = `${profile.first_name} ${profile.last_name || ''}`.trim();
+      } catch {}
+    }
+
+    const ctId = 'ct' + uid();
+    await db.prepare(
+      'INSERT INTO contacts (id,name,phone,color,tags,agent_id) VALUES (?,?,?,?,?,?)'
+    ).run(ctId, profileName, 'fb:' + fbId, '#1877f2', '["facebook"]', req.agent.id);
+
+    const contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(ctId);
+    try { contact.tags = JSON.parse(contact.tags || '[]'); } catch { contact.tags = []; }
+
+    res.status(201).json({ contact, existing: false });
+  } catch (err) {
+    console.error('[facebook] Add user error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
