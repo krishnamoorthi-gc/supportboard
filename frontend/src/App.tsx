@@ -64,6 +64,7 @@ export default function App(){
   // ── Auth ──
   const [isLoggedIn,setIsLoggedIn]=useState(false);
   const [me,setMe]=useState<any>(null);
+  const meRef=useRef<any>(null);
   const [isRestoring,setIsRestoring]=useState(()=>!!localStorage.getItem("sd_token"));
   const [loginEmail,setLoginEmail]=useState("");
   const [loginPass,setLoginPass]=useState("");
@@ -182,6 +183,8 @@ export default function App(){
     }
     setLoginLoading(false);
   };
+
+  useEffect(()=>{meRef.current=me;},[me]);
 
   // ── Session restore on page reload ──
   useEffect(()=>{
@@ -510,20 +513,22 @@ export default function App(){
             setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||c.ch||"live",agent:cv.assignee_id,team:cv.team_id,labels,unread:cv.unread_count||c.unread||0,time:cv.updated_at||c.time||""}:c));
             // Notification for assignment changes
             const upd=m.updates||{};
+            const isMine=m.agent_id&&meRef.current&&String(m.agent_id)===String(meRef.current.id);
+            const assignedToMe=upd.assignee_id!==undefined&&meRef.current&&String(upd.assignee_id)===String(meRef.current.id);
             if(upd.assignee_id!==undefined){
               const agName=cv.assignee_name||"someone";
-              pushNotification({text:upd.assignee_id?`Assigned to ${agName}`:"Conversation unassigned",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+              pushNotification({text:upd.assignee_id?`Assigned to ${agName}`:"Conversation unassigned",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null,playSound:assignedToMe&&!isMine});
             } else if(upd.team_id!==undefined){
-              pushNotification({text:"Conversation transferred to another team",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+              pushNotification({text:"Conversation transferred to another team",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null,playSound:false});
             } else {
-              pushNotification({text:"Conversation updated"+(m.agent_name?" by "+m.agent_name:""),type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+              pushNotification({text:"Conversation updated"+(m.agent_name?" by "+m.agent_name:""),type:"info",targetScreen:"inbox",conversationId:m.conversationId||null,playSound:false});
             }
           } else {
             api.get(`/conversations/${m.conversationId}`).then(r=>{
               const cv=r?.conversation;
               if(cv)setConvs(p=>p.map(c=>c.id===cv.id?{...c,...cv,cid:cv.contact_id,iid:cv.inbox_id,ch:cv.inbox_type||cv.channel||"live",agent:cv.assignee_id,team:cv.team_id,labels:cv.labels||[],unread:cv.unread_count||0}:c));
             }).catch(()=>{});
-            pushNotification({text:"Conversation updated",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null});
+            pushNotification({text:"Conversation updated",type:"info",targetScreen:"inbox",conversationId:m.conversationId||null,playSound:false});
           }
         }
         if(m.type==="presence"){

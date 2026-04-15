@@ -207,7 +207,8 @@ router.patch('/:id', auth, async (req, res) => {
       priority: updates.priority
     },
     conversation: updated,
-    agent_name: req.agent.name
+    agent_name: req.agent.name,
+    agent_id: req.agent.id
   });
 
   res.json({ conversation: updated });
