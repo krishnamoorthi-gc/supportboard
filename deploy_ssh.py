@@ -10,7 +10,7 @@ cmd = (
     "echo '--- backend npm install ---' && cd ~/supportboard/backend && npm install --production 2>&1 && "
     "echo '--- frontend npm install ---' && cd ~/supportboard/frontend && npm install 2>&1 && "
     "echo '--- frontend build ---' && npm run build 2>&1 && "
-    "echo '--- pm2 restart ---' && pm2 restart onlypoa-live 2>&1 && "
+    "echo '--- pm2 restart ---' && pm2 restart supportdesk 2>&1 && "
     "echo '--- done ---'"
 )
 
