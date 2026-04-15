@@ -305,7 +305,7 @@ export default function MarketingScr({contacts,pushNotification}){
   };
   const launchCamp=id=>{
     const camp=camps.find(c=>c.id===id);
-    if(camp&&(camp.status==="sent"||camp.status==="sending")){showT("Campaign already sent","info");return;}
+    if(camp&&camp.status==="sending"){showT("Campaign is already being sent","info");return;}
     setCamps(p=>p.map(c=>c.id===id?{...c,status:"sending"}:c));
     if(!api.isConnected()){setCamps(p=>p.map(c=>c.id===id?{...c,status:"sent",date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"})}:c));showT("Campaign marked as sent (offline mode)","info");return;}
     api.patch(`/marketing/campaigns/${id}`,{status:"sent"}).then(r=>{
@@ -2135,6 +2135,7 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
         </div>
         <div style={{display:"flex",gap:5}}>
           {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<Btn ch="▶ Launch" v="success" sm onClick={()=>onLaunch(c)}/>}
+          {c.status==="sent"&&<Btn ch="Resend" v="primary" sm onClick={()=>onLaunch(c)}/>}
           {(c.status==="active"||c.status==="paused")&&<Btn ch={c.status==="paused"?"▶ Resume":"⏸ Pause"} v="warn" sm onClick={()=>onPause(c)}/>}
           <Btn ch="✎ Edit" v="ghost" sm onClick={()=>onEdit(c)}/>
           <Btn ch="⎘ Duplicate" v="ghost" sm onClick={()=>onDuplicate(c)}/>
