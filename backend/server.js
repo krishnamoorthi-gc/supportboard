@@ -67,6 +67,190 @@ app.get('/health', (req, res) => {
 // ── Public bot API (no auth — uses embed_token) ──
 const widgetCors = cors({ origin: '*' });
 
+// ── Live visitor tracking helpers ──────────────────────────────────────────
+const geoCache = new Map(); // ip → { country_name, city, region, country_code, latitude, longitude }
+
+function parseUA(ua = '') {
+  let browser = 'Unknown', os = 'Unknown', device = 'Desktop';
+  if (!ua) return { browser, os, device };
+  // Browser (order matters: Edge before Chrome, OPR before Chrome)
+  if (/Edg\/(\d+)/.test(ua))          browser = 'Edge '    + (ua.match(/Edg\/(\d+)/)    || ['',''])[1];
+  else if (/OPR\/(\d+)/.test(ua))     browser = 'Opera '   + (ua.match(/OPR\/(\d+)/)    || ['',''])[1];
+  else if (/Chrome\/(\d+)/.test(ua))  browser = 'Chrome '  + (ua.match(/Chrome\/(\d+)/) || ['',''])[1];
+  else if (/Firefox\/(\d+)/.test(ua)) browser = 'Firefox ' + (ua.match(/Firefox\/(\d+)/)|| ['',''])[1];
+  else if (/Version\/(\d+).*Safari/.test(ua)) browser = 'Safari ' + (ua.match(/Version\/(\d+)/) || ['',''])[1];
+  else if (/Safari\//.test(ua))       browser = 'Safari';
+  // OS
+  if      (/Windows NT 10/.test(ua))  os = 'Windows 11';
+  else if (/Windows NT 6\.3/.test(ua)) os = 'Windows 8.1';
+  else if (/Windows NT 6\.1/.test(ua)) os = 'Windows 7';
+  else if (/Windows/.test(ua))        os = 'Windows';
+  else if (/Mac OS X ([\d_]+)/.test(ua)) os = 'macOS ' + (ua.match(/Mac OS X ([\d_]+)/) || ['',''])[1].replace(/_/g, '.');
+  else if (/Android ([\d.]+)/.test(ua))  os = 'Android ' + (ua.match(/Android ([\d.]+)/) || ['',''])[1];
+  else if (/iPhone OS ([\d_]+)/.test(ua)) os = 'iOS '   + (ua.match(/iPhone OS ([\d_]+)/) || ['',''])[1].replace(/_/g, '.');
+  else if (/iPad.*OS ([\d_]+)/.test(ua))  os = 'iPadOS '+ (ua.match(/OS ([\d_]+)/)       || ['',''])[1].replace(/_/g, '.');
+  else if (/Linux/.test(ua))          os = 'Linux';
+  // Device
+  if (/Mobi|Android.*Mobile/.test(ua)) device = 'Mobile';
+  else if (/iPad|Tablet/.test(ua))     device = 'Tablet';
+  return { browser, os, device };
+}
+
+const FLAG_MAP = {
+  AF:'🇦🇫',AL:'🇦🇱',DZ:'🇩🇿',AD:'🇦🇩',AO:'🇦🇴',AG:'🇦🇬',AR:'🇦🇷',AM:'🇦🇲',AU:'🇦🇺',AT:'🇦🇹',
+  AZ:'🇦🇿',BS:'🇧🇸',BH:'🇧🇭',BD:'🇧🇩',BB:'🇧🇧',BY:'🇧🇾',BE:'🇧🇪',BZ:'🇧🇿',BJ:'🇧🇯',BT:'🇧🇹',
+  BO:'🇧🇴',BA:'🇧🇦',BW:'🇧🇼',BR:'🇧🇷',BN:'🇧🇳',BG:'🇧🇬',BF:'🇧🇫',BI:'🇧🇮',CV:'🇨🇻',KH:'🇰🇭',
+  CM:'🇨🇲',CA:'🇨🇦',CF:'🇨🇫',TD:'🇹🇩',CL:'🇨🇱',CN:'🇨🇳',CO:'🇨🇴',KM:'🇰🇲',CG:'🇨🇬',CD:'🇨🇩',
+  CR:'🇨🇷',HR:'🇭🇷',CU:'🇨🇺',CY:'🇨🇾',CZ:'🇨🇿',DK:'🇩🇰',DJ:'🇩🇯',DM:'🇩🇲',DO:'🇩🇴',EC:'🇪🇨',
+  EG:'🇪🇬',SV:'🇸🇻',GQ:'🇬🇶',ER:'🇪🇷',EE:'🇪🇪',SZ:'🇸🇿',ET:'🇪🇹',FJ:'🇫🇯',FI:'🇫🇮',FR:'🇫🇷',
+  GA:'🇬🇦',GM:'🇬🇲',GE:'🇬🇪',DE:'🇩🇪',GH:'🇬🇭',GR:'🇬🇷',GD:'🇬🇩',GT:'🇬🇹',GN:'🇬🇳',GW:'🇬🇼',
+  GY:'🇬🇾',HT:'🇭🇹',HN:'🇭🇳',HU:'🇭🇺',IS:'🇮🇸',IN:'🇮🇳',ID:'🇮🇩',IR:'🇮🇷',IQ:'🇮🇶',IE:'🇮🇪',
+  IL:'🇮🇱',IT:'🇮🇹',JM:'🇯🇲',JP:'🇯🇵',JO:'🇯🇴',KZ:'🇰🇿',KE:'🇰🇪',KI:'🇰🇮',KP:'🇰🇵',KR:'🇰🇷',
+  KW:'🇰🇼',KG:'🇰🇬',LA:'🇱🇦',LV:'🇱🇻',LB:'🇱🇧',LS:'🇱🇸',LR:'🇱🇷',LY:'🇱🇾',LI:'🇱🇮',LT:'🇱🇹',
+  LU:'🇱🇺',MG:'🇲🇬',MW:'🇲🇼',MY:'🇲🇾',MV:'🇲🇻',ML:'🇲🇱',MT:'🇲🇹',MH:'🇲🇭',MR:'🇲🇷',MU:'🇲🇺',
+  MX:'🇲🇽',FM:'🇫🇲',MD:'🇲🇩',MC:'🇲🇨',MN:'🇲🇳',ME:'🇲🇪',MA:'🇲🇦',MZ:'🇲🇿',MM:'🇲🇲',NA:'🇳🇦',
+  NR:'🇳🇷',NP:'🇳🇵',NL:'🇳🇱',NZ:'🇳🇿',NI:'🇳🇮',NE:'🇳🇪',NG:'🇳🇬',NO:'🇳🇴',OM:'🇴🇲',PK:'🇵🇰',
+  PW:'🇵🇼',PA:'🇵🇦',PG:'🇵🇬',PY:'🇵🇾',PE:'🇵🇪',PH:'🇵🇭',PL:'🇵🇱',PT:'🇵🇹',QA:'🇶🇦',RO:'🇷🇴',
+  RU:'🇷🇺',RW:'🇷🇼',KN:'🇰🇳',LC:'🇱🇨',VC:'🇻🇨',WS:'🇼🇸',SM:'🇸🇲',ST:'🇸🇹',SA:'🇸🇦',SN:'🇸🇳',
+  RS:'🇷🇸',SC:'🇸🇨',SL:'🇸🇱',SG:'🇸🇬',SK:'🇸🇰',SI:'🇸🇮',SB:'🇸🇧',SO:'🇸🇴',ZA:'🇿🇦',SS:'🇸🇸',
+  ES:'🇪🇸',LK:'🇱🇰',SD:'🇸🇩',SR:'🇸🇷',SE:'🇸🇪',CH:'🇨🇭',SY:'🇸🇾',TW:'🇹🇼',TJ:'🇹🇯',TZ:'🇹🇿',
+  TH:'🇹🇭',TL:'🇹🇱',TG:'🇹🇬',TO:'🇹🇴',TT:'🇹🇹',TN:'🇹🇳',TR:'🇹🇷',TM:'🇹🇲',TV:'🇹🇻',UG:'🇺🇬',
+  UA:'🇺🇦',AE:'🇦🇪',GB:'🇬🇧',US:'🇺🇸',UY:'🇺🇾',UZ:'🇺🇿',VU:'🇻🇺',VE:'🇻🇪',VN:'🇻🇳',YE:'🇾🇪',
+  ZM:'🇿🇲',ZW:'🇿🇼',HK:'🇭🇰',MO:'🇲🇴',SG:'🇸🇬',
+};
+
+async function geoLookup(ip) {
+  if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+    return { country_name: 'Local', city: 'localhost', region: '', country_code: '', latitude: null, longitude: null };
+  }
+  if (geoCache.has(ip)) return geoCache.get(ip);
+  try {
+    const res = await fetch(`https://ipapi.co/${ip}/json/`);
+    const data = await res.json();
+    if (data && !data.error) {
+      geoCache.set(ip, data);
+      setTimeout(() => geoCache.delete(ip), 3600000); // 1 hr cache
+      return data;
+    }
+  } catch {}
+  return {};
+}
+
+// ── GET /tracker.js — embeddable tracking script ────────────────────────────
+app.get('/tracker.js', widgetCors, (req, res) => {
+  // PUBLIC_URL takes priority — it's the externally reachable URL (ngrok, domain, etc.)
+  const BACKEND = process.env.PUBLIC_URL || process.env.BACKEND_URL || `http://${req.hostname}:${process.env.PORT || 4002}`;
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(`(function(){
+  'use strict';
+  var B='${BACKEND}';
+  var SK='_sd_vsid';
+  var sid=null;
+  try{sid=localStorage.getItem(SK);}catch{}
+  if(!sid){sid='vs_'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);try{localStorage.setItem(SK,sid);}catch{}}
+  var lastHb=0;
+  function src(){
+    var r=document.referrer;if(!r)return'Direct';
+    try{var h=new URL(r).hostname.replace(/^www\\./,'');
+      if(/google/.test(h))return'Google';if(/bing/.test(h))return'Bing';
+      if(/yahoo/.test(h))return'Yahoo';if(/facebook|fb\\.com/.test(h))return'Facebook';
+      if(/twitter|t\\.co/.test(h))return'Twitter';if(/linkedin/.test(h))return'LinkedIn';
+      if(/instagram/.test(h))return'Instagram';if(/youtube/.test(h))return'YouTube';
+      if(/reddit/.test(h))return'Reddit';return h;
+    }catch{return'Direct';}
+  }
+  function send(evt){
+    var now=Date.now();
+    if(evt==='heartbeat'&&now-lastHb<28000)return;
+    lastHb=now;
+    try{
+      var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch{}
+      fetch(B+'/api/track',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        keepalive:evt==='leave',
+        body:JSON.stringify({session_id:sid,event:evt,page:window.location.href,
+          referrer:document.referrer,source:src(),title:document.title,
+          screen_width:screen.width,screen_height:screen.height,
+          language:navigator.language||'en',tz:tz})
+      }).catch(function(){});
+    }catch{}
+  }
+  send('pageview');
+  setInterval(function(){send('heartbeat');},30000);
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send('leave');});
+  window.addEventListener('beforeunload',function(){send('leave');});
+  var lastUrl=window.location.href;
+  setInterval(function(){if(window.location.href!==lastUrl){lastUrl=window.location.href;send('pageview');}},1000);
+})();`);
+});
+
+// ── POST /api/track — receive tracking events from websites ─────────────────
+app.post('/api/track', widgetCors, async (req, res) => {
+  res.json({ ok: true }); // respond immediately so visitor's browser doesn't wait
+  try {
+    const { session_id, event, page, referrer, source, screen_width, screen_height, language } = req.body;
+    if (!session_id) return;
+
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
+    const ua = req.headers['user-agent'] || '';
+    const { browser, os, device } = parseUA(ua);
+    const { uid } = require('./utils/helpers');
+    const { broadcastToAll } = require('./ws');
+
+    if (event === 'leave') {
+      const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
+      if (existing) {
+        await db.prepare('UPDATE visitor_sessions SET last_seen=DATE_SUB(NOW(), INTERVAL 10 MINUTE) WHERE session_id=?').run(session_id);
+        broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
+      }
+      return;
+    }
+
+    const geo = await geoLookup(ip);
+    const flag = FLAG_MAP[geo.country_code] || '🌍';
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    const existing = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
+
+    if (existing) {
+      let history = [];
+      try { history = JSON.parse(existing.page_history || '[]'); } catch {}
+      if (history[history.length - 1] !== page) history.push(page);
+      if (history.length > 20) history.shift();
+      const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
+      await db.prepare(
+        'UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, last_seen=? WHERE session_id=?'
+      ).run(page, JSON.stringify(history), newCount, now, session_id);
+      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
+      if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
+    } else {
+      const id = uid();
+      await db.prepare(`INSERT INTO visitor_sessions
+        (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
+         page, page_history, pages_visited, referrer, source, browser, os, device,
+         screen_width, screen_height, language, user_agent, status, last_seen)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',?)`
+      ).run(
+        id, session_id, ip, flag,
+        geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
+        geo.latitude || null, geo.longitude || null,
+        page, JSON.stringify([page]),
+        referrer || '', source || 'Direct',
+        browser, os, device,
+        screen_width || null, screen_height || null,
+        language || 'en', ua, now
+      );
+      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(id);
+      if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
+    }
+  } catch (e) {
+    console.error('Track error:', e.message);
+  }
+});
+app.options('/api/track', widgetCors, (req, res) => res.sendStatus(204));
+
 app.get('/api/bot-public/:token', widgetCors, async (req, res) => {
   try {
     const bot = await db.prepare('SELECT * FROM bots WHERE embed_token=?').get(req.params.token);
@@ -1135,24 +1319,8 @@ app.use('/api/wa-templates', require('./routes/whatsappTemplates'));
 // Instagram Messaging webhook (GET = Meta verification challenge, no auth required)
 app.use('/api/instagram', require('./routes/instagram'));
 
-// Live monitor - visitor sessions
-app.use('/api/monitor', require('./middleware/auth'), (req, res) => {
-  if (req.method === 'GET') {
-    // Simulate real-time visitors
-    const visitors = Array.from({ length: Math.floor(Math.random() * 12) + 3 }, (_, i) => ({
-      id: `v${i + 1}`,
-      page: ['/pricing', '/features', '/docs', '/', '/blog', '/contact'][Math.floor(Math.random() * 6)],
-      country: ['India', 'United States', 'Germany', 'Brazil', 'Japan', 'UK', 'France', 'Canada'][Math.floor(Math.random() * 8)],
-      city: ['Chennai', 'New York', 'Berlin', 'São Paulo', 'Tokyo'][Math.floor(Math.random() * 5)],
-      source: ['Google', 'Direct', 'Twitter', 'LinkedIn', 'Referral'][Math.floor(Math.random() * 5)],
-      device: Math.random() > 0.5 ? 'desktop' : 'mobile',
-      duration: Math.floor(Math.random() * 600) + 30,
-      intent: ['buyer', 'researcher', 'support_seeker', 'competitor'][Math.floor(Math.random() * 4)],
-    }));
-    return res.json({ visitors, total: visitors.length });
-  }
-  res.json({ success: true });
-});
+// Live monitor - real visitor sessions
+app.use('/api/monitor', require('./middleware/auth'), require('./routes/monitor'));
 
 // Notifications
 app.use('/api/notifications', require('./middleware/auth'), async (req, res) => {
@@ -1284,4 +1452,17 @@ server.listen(PORT, async () => {
       console.warn('⚠️  Email system failed to start (is Redis running?):', err.message);
     }
   }, 3000); // 3 s delay lets DB init + seed complete first
+
+  // ── Cleanup stale visitor sessions every 90 seconds ──────────────────────
+  setInterval(async () => {
+    try {
+      const { broadcastToAll } = require('./ws');
+      const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+      const stale = await db.prepare('SELECT id FROM visitor_sessions WHERE last_seen < ?').all(cutoff);
+      for (const v of stale) {
+        await db.prepare('DELETE FROM visitor_sessions WHERE id=?').run(v.id);
+        broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: v.id });
+      }
+    } catch {}
+  }, 90000);
 });

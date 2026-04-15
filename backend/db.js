@@ -1313,6 +1313,45 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('chat_channels schema update:', e.message); }
 
+    // ── visitor_sessions: add full real-tracking columns ────────────────
+    try {
+      const vsCols = new Set((await query('SHOW COLUMNS FROM visitor_sessions')).map(c => c.Field));
+      const vsAdds = [
+        ['ip',           "ALTER TABLE visitor_sessions ADD COLUMN ip VARCHAR(100)"],
+        ['flag',         "ALTER TABLE visitor_sessions ADD COLUMN flag VARCHAR(20) DEFAULT '🌍'"],
+        ['country_code', "ALTER TABLE visitor_sessions ADD COLUMN country_code VARCHAR(10)"],
+        ['region',       "ALTER TABLE visitor_sessions ADD COLUMN region VARCHAR(255)"],
+        ['lat',          "ALTER TABLE visitor_sessions ADD COLUMN lat DECIMAL(10,6)"],
+        ['lng',          "ALTER TABLE visitor_sessions ADD COLUMN lng DECIMAL(10,6)"],
+        ['referrer',     "ALTER TABLE visitor_sessions ADD COLUMN referrer VARCHAR(1000)"],
+        ['browser',      "ALTER TABLE visitor_sessions ADD COLUMN browser VARCHAR(255)"],
+        ['os',           "ALTER TABLE visitor_sessions ADD COLUMN os VARCHAR(255)"],
+        ['screen_width', "ALTER TABLE visitor_sessions ADD COLUMN screen_width INT"],
+        ['screen_height',"ALTER TABLE visitor_sessions ADD COLUMN screen_height INT"],
+        ['language',     "ALTER TABLE visitor_sessions ADD COLUMN language VARCHAR(50)"],
+        ['status',       "ALTER TABLE visitor_sessions ADD COLUMN status VARCHAR(50) DEFAULT 'browsing'"],
+        ['visitor_name', "ALTER TABLE visitor_sessions ADD COLUMN visitor_name VARCHAR(255)"],
+        ['visitor_email',"ALTER TABLE visitor_sessions ADD COLUMN visitor_email VARCHAR(255)"],
+        ['pages_visited',"ALTER TABLE visitor_sessions ADD COLUMN pages_visited INT DEFAULT 1"],
+        ['page_history', "ALTER TABLE visitor_sessions ADD COLUMN page_history TEXT"],
+        // Use NULL default so old rows don't get current timestamp and appear as "live"
+        ['last_seen',    "ALTER TABLE visitor_sessions ADD COLUMN last_seen DATETIME"],
+        ['user_agent',   "ALTER TABLE visitor_sessions ADD COLUMN user_agent TEXT"],
+      ];
+      for (const [col, sql] of vsAdds) {
+        if (!vsCols.has(col)) {
+          await run(sql);
+          console.log(`✅ Added ${col} to visitor_sessions`);
+        }
+      }
+      // Always wipe rows that are not real tracker sessions:
+      // - session_id NULL  = inserted by old simulation code, not the tracker
+      // - ip NULL or empty = no real visitor data
+      // - last_seen NULL   = pre-tracker row that never got a heartbeat
+      await run("DELETE FROM visitor_sessions WHERE session_id IS NULL OR session_id = '' OR ip IS NULL OR ip = '' OR last_seen IS NULL");
+      console.log('🧹 Removed non-real visitor sessions on startup');
+    } catch (e) { console.error('visitor_sessions columns:', e.message); }
+
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
