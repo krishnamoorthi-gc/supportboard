@@ -525,7 +525,7 @@ function InboxSet({inboxes,setInboxes}){
     facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"appId",l:"App ID",ph:"933722449370118"},{k:"appSecret",l:"App Secret",ph:"abc123def456..."},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"}],
     instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_ig_verify_token"}],
     email:[{k:"imapHost",l:"IMAP Host",ph:"imap.gmail.com"},{k:"imapPort",l:"IMAP Port",ph:"993"},{k:"smtpHost",l:"SMTP Host",ph:"smtp.gmail.com"},{k:"smtpPort",l:"SMTP Port",ph:"587"},{k:"emailUser",l:"Email Address",ph:"support@yourcompany.com"},{k:"emailPass",l:"Password / App Password",ph:"••••••••"}],
-    sms:[{k:"phoneNumber",l:"Twilio Phone Number (From)",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Twilio Auth Token",ph:"xxxxxxxxxx"},{k:"webhookUrl",l:"Inbound Webhook URL (set in Twilio)",ph:"https://yoursite.com/api/sms/webhook"}],
+    sms:[{k:"phoneNumber",l:"Twilio Phone Number (From)",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Twilio Auth Token",ph:"xxxxxxxxxx"}],
     viber:[{k:"botToken",l:"Bot Token",ph:"xxxx-xxxx-xxxx"},{k:"webhookUrl",l:"Webhook URL",ph:"https://..."}],
     line:[{k:"accessToken",l:"Channel Access Token",ph:"xxxx"},{k:"apiKey",l:"Channel Secret",ph:"xxxx"}],
     tiktok:[{k:"accessToken",l:"Access Token",ph:"act.xxxx"},{k:"apiKey",l:"App Secret",ph:"xxxx"}],
@@ -669,6 +669,34 @@ function InboxSet({inboxes,setInboxes}){
       if(igMissing.length){cfgFld("connStatus","failed");showT("Fill in: "+igMissing.join(", "),"error");return;}
       cfgFld("connStatus","configured");
       showT("Instagram setup looks complete. Real inbound DMs start only after Meta webhook verification.","info");
+      return;
+    }
+    // ── SMS (Twilio) test connection ──
+    if(form.type==="sms"){
+      if(!inboxId){
+        cfgFld("connStatus","failed");
+        showT("Save this SMS inbox first, then test the Twilio connection","error");
+        return;
+      }
+      const smsMissing:string[]=[];
+      if(!String(cfg.apiKey||"").trim())smsMissing.push("Twilio Account SID");
+      if(!String(cfg.accessToken||"").trim())smsMissing.push("Twilio Auth Token");
+      if(!String(cfg.phoneNumber||"").trim())smsMissing.push("Twilio Phone Number");
+      if(smsMissing.length){cfgFld("connStatus","failed");showT("Fill in: "+smsMissing.join(", "),"error");return;}
+      cfgFld("connTesting",true);cfgFld("connStatus","");
+      showT("Testing Twilio connection…","info");
+      try{
+        await api.patch("/settings/inboxes/"+inboxId,{config:{...cfg}});
+        const r=await api.post("/sms/test-connection",{inboxId});
+        cfgFld("connTesting",false);
+        if(r?.success){
+          cfgFld("connStatus","connected");
+          showT("Twilio connected! Account: "+(r.account||"OK")+" · From: "+(r.fromNumber||"—"),"success");
+        }else{
+          cfgFld("connStatus","failed");
+          showT(r?.error||"Connection failed — check credentials","error");
+        }
+      }catch(e:any){cfgFld("connTesting",false);cfgFld("connStatus","failed");showT("Connection error: "+(e?.message||"unknown"),"error");}
       return;
     }
     cfgFld("connTesting",true);cfgFld("connStatus","");
@@ -911,6 +939,43 @@ function InboxSet({inboxes,setInboxes}){
                 <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(cfg.verifyToken||"","Verify Token")}/>
               </div>
             </div>
+          </div>
+        </div>}
+
+        {/* ── SMS webhook URL + send test ── */}
+        {form.type==="sms"&&edit?.id&&<div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+          <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>Twilio Webhook Setup</div>
+          <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Twilio Console → Phone Numbers → your number → Messaging Configuration, set the webhook URL below for inbound messages.</div>
+          <div style={{display:"grid",gap:10}}>
+            <div>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>INBOUND WEBHOOK URL</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                <div style={{flex:1,fontSize:11,fontFamily:FM,color:C.g,wordBreak:"break-all"}}>{(cfg.webhookUrl as string)||((window.location.origin.replace("5173","4002"))+"/api/sms/webhook")}</div>
+                <Btn ch="Copy" v="ghost" sm onClick={()=>{const u=(cfg.webhookUrl as string)||((window.location.origin.replace("5173","4002"))+"/api/sms/webhook");navigator.clipboard?.writeText(u);showT("Webhook URL copied","success");}}/>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>STATUS CALLBACK URL</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                <div style={{flex:1,fontSize:11,fontFamily:FM,color:"#f5a623",wordBreak:"break-all"}}>{(window.location.origin.replace("5173","4002"))+"/api/sms/status"}</div>
+                <Btn ch="Copy" v="ghost" sm onClick={()=>{navigator.clipboard?.writeText((window.location.origin.replace("5173","4002"))+"/api/sms/status");showT("Status URL copied","success");}}/>
+              </div>
+            </div>
+          </div>
+          <div style={{marginTop:12,display:"flex",gap:8,alignItems:"center"}}>
+            <input id="smsTestTo" placeholder="+919944505400" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t1,outline:"none",fontFamily:FB}}/>
+            <Btn ch={cfg.sendingTest?"Sending…":"Send Test SMS"} v="primary" onClick={async()=>{
+              const toEl=document.getElementById("smsTestTo") as HTMLInputElement;
+              const to=toEl?.value?.trim();
+              if(!to){showT("Enter a phone number to send test SMS","error");return;}
+              cfgFld("sendingTest",true);
+              try{
+                const r=await api.post("/sms/send-test",{inboxId:edit.id,to,text:"Hello from SupportDesk! Your SMS integration is working."});
+                cfgFld("sendingTest",false);
+                if(r?.success){showT("Test SMS sent! SID: "+r.sid,"success");}
+                else{showT(r?.error||"Failed to send test SMS","error");}
+              }catch(e:any){cfgFld("sendingTest",false);showT("Send failed: "+(e?.message||"unknown"),"error");}
+            }}/>
           </div>
         </div>}
 
