@@ -292,6 +292,44 @@ function mergeCampaignText(text, recipient) {
   ));
 }
 
+/**
+ * Extract positional variable values ({{1}}, {{2}}, ...) from a WA template body.
+ * Maps numbered placeholders to contact fields in order:
+ * {{1}} → first_name, {{2}} → last_name, {{3}} → email, {{4}} → company, etc.
+ */
+function extractTemplateVars(templateText, recipient) {
+  const matches = templateText.match(/\{\{(\d+)\}\}/g) || [];
+  if (!matches.length) return [];
+
+  const fullName = String(recipient?.name || '').trim();
+  const nameParts = fullName.split(/\s+/).filter(Boolean);
+  const customRaw = typeof recipient?.custom_fields === 'object' && recipient.custom_fields
+    ? recipient.custom_fields
+    : parseJson(recipient?.custom_fields, {});
+  const custom = customRaw && typeof customRaw === 'object' ? customRaw : {};
+
+  // Ordered list of values to fill {{1}}, {{2}}, {{3}}...
+  const orderedValues = [
+    nameParts[0] || fullName || normalizeEmail(recipient?.email).split('@')[0] || 'Customer',
+    nameParts.slice(1).join(' ') || '',
+    recipient?.email || '',
+    recipient?.company || custom.company || '',
+    custom.amount || '',
+    custom.code || '',
+    custom.link || '',
+    custom.product || '',
+    custom.order_id || custom.orderId || '',
+    custom.date || '',
+  ];
+
+  const maxIndex = Math.max(...matches.map(m => parseInt(m.replace(/[{}]/g, ''), 10)));
+  const result = [];
+  for (let i = 1; i <= maxIndex; i++) {
+    result.push(orderedValues[i - 1] || '');
+  }
+  return result;
+}
+
 async function getLaunchableEmailInbox(agentId) {
   const inboxes = await db.prepare(
     'SELECT * FROM inboxes WHERE agent_id=? AND type=? AND active=1 ORDER BY created_at ASC, name ASC'
@@ -500,6 +538,18 @@ async function launchCampaign(campaignRow, agentId) {
       throw marketingError('No active WhatsApp inbox with API configured', 422, { campaign });
     }
 
+    // Check if this campaign uses an approved Meta template
+    let waTpl = null;
+    if (campaignRow.wa_template_id) {
+      waTpl = await db.prepare(
+        'SELECT * FROM whatsapp_meta_templates WHERE id=? AND agent_id=?'
+      ).get(campaignRow.wa_template_id, agentId);
+      if (!waTpl) throw marketingError('Linked WA template not found', 404, { campaign });
+      if (waTpl.status !== 'approved') {
+        throw marketingError(`WA template "${waTpl.name}" is not approved (status: ${waTpl.status}). Only approved templates can be used.`, 422, { campaign });
+      }
+    }
+
     const recipients = audience.filter(contact => {
       const phone = normalizePhone(contact.phone);
       return phone.length >= 10;
@@ -515,17 +565,31 @@ async function launchCampaign(campaignRow, agentId) {
     for (let i = 0; i < recipients.length; i++) {
       const recipient = recipients[i];
       const phone = normalizePhone(recipient.phone);
-      const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
 
       try {
-        if (whatsappSvc?.sendWhatsAppMessage && inbox) {
-          await whatsappSvc.sendWhatsAppMessage({
-            inboxId: inbox.id,
-            to: phone,
-            text: mergedBody || campaign.name || 'Campaign message',
-          });
+        if (whatsappSvc && inbox) {
+          if (waTpl) {
+            // Send using approved Meta template
+            const bodyVars = extractTemplateVars(waTpl.body || '', recipient);
+            const headerVars = waTpl.header_type === 'TEXT' ? extractTemplateVars(waTpl.header_text || '', recipient) : [];
+            await whatsappSvc.sendWhatsAppTemplate({
+              inboxId: inbox.id,
+              to: phone,
+              templateName: waTpl.name,
+              language: waTpl.language || 'en_US',
+              bodyParams: bodyVars,
+              headerParams: headerVars,
+            });
+          } else {
+            // Send as plain text (only works within 24-hour window)
+            const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+            await whatsappSvc.sendWhatsAppMessage({
+              inboxId: inbox.id,
+              to: phone,
+              text: mergedBody || campaign.name || 'Campaign message',
+            });
+          }
         }
-        // If no WhatsApp service, still log as sent (simulated)
 
         sent += 1;
         results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent' });
@@ -563,7 +627,7 @@ async function launchCampaign(campaignRow, agentId) {
       throw marketingError(firstError, 422, { campaign: updated, summary: { sent: 0, failed, totalRecipients: recipients.length, channel: 'whatsapp' }, results });
     }
 
-    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'whatsapp', simulated: !inbox }, results };
+    return { campaign: updated, summary: { sent, failed, totalRecipients: recipients.length, channel: 'whatsapp', templateUsed: waTpl?.name || null, simulated: !inbox }, results };
   }
 
   // ── FACEBOOK CAMPAIGN ──────────────────────────────────────────
@@ -837,6 +901,7 @@ router.post('/campaigns', auth, async (req, res) => {
       selected_contacts = [],
       scheduled_at,
       ab_test = false,
+      wa_template_id,
     } = req.body;
 
     const launchNow = !!req.body.launch_now || status === 'active' || status === 'sent';
@@ -844,7 +909,7 @@ router.post('/campaigns', auth, async (req, res) => {
 
     const id = uid();
     await db.prepare(
-      'INSERT INTO campaigns (id,name,type,goal,status,subject,body,segment_id,audience_mode,selected_contacts,scheduled_at,ab_test,stats,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO campaigns (id,name,type,goal,status,subject,body,segment_id,audience_mode,selected_contacts,scheduled_at,ab_test,stats,wa_template_id,agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     ).run(
       id,
       name,
@@ -859,6 +924,7 @@ router.post('/campaigns', auth, async (req, res) => {
       scheduled_at || null,
       ab_test ? 1 : 0,
       '{}',
+      wa_template_id || null,
       req.agent.id
     );
 
@@ -886,7 +952,7 @@ router.patch('/campaigns/:id', auth, async (req, res) => {
     if (!current) return res.status(404).json({ error: 'Not found' });
 
     const launchNow = !!req.body.launch_now || req.body.status === 'sent';
-    const fields = ['name', 'type', 'goal', 'subject', 'body', 'segment_id', 'scheduled_at', 'ab_test', 'audience_mode'];
+    const fields = ['name', 'type', 'goal', 'subject', 'body', 'segment_id', 'scheduled_at', 'ab_test', 'audience_mode', 'wa_template_id'];
     const updates = {};
 
     for (const field of fields) {
@@ -1276,6 +1342,19 @@ router.get('/campaigns/:id/log', auth, async (req, res) => {
     res.json({ logs });
   } catch (e) {
     console.error('❌ GET /api/marketing/campaigns/:id/log error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Approved WA templates for campaign template selector
+router.get('/wa-templates-approved', auth, async (req, res) => {
+  try {
+    const templates = await db.prepare(
+      "SELECT id, name, category, language, body, header_text, footer FROM whatsapp_meta_templates WHERE agent_id=? AND status='approved' ORDER BY name ASC"
+    ).all(req.agent.id);
+    res.json({ templates });
+  } catch (e) {
+    console.error('❌ GET /api/marketing/wa-templates-approved error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

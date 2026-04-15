@@ -1130,6 +1130,8 @@ app.use('/api/email', require('./routes/email'));
 app.use('/api/facebook', require('./routes/facebook'));
 // WhatsApp Cloud API webhook (GET = Meta verification challenge, no auth required)
 app.use('/api/whatsapp', require('./routes/whatsapp'));
+// WhatsApp Meta-approved message templates (requires auth)
+app.use('/api/wa-templates', require('./routes/whatsappTemplates'));
 // Instagram Messaging webhook (GET = Meta verification challenge, no auth required)
 app.use('/api/instagram', require('./routes/instagram'));
 

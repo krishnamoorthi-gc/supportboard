@@ -195,4 +195,61 @@ function mimeTypeToExt(mime) {
   return map[mime] || '';
 }
 
-module.exports = { sendWhatsAppMessage, downloadInboundMedia, getInboxConfig, getAccessToken };
+// ── send template ─────────────────────────────────────────────────────────────
+
+/**
+ * Send an approved WhatsApp message template.
+ *
+ * @param {object} opts
+ * @param {string}   opts.inboxId        - Internal inbox id
+ * @param {string}   opts.to             - Recipient phone number (E.164, no +)
+ * @param {string}   opts.templateName   - Approved Meta template name
+ * @param {string}   opts.language       - Language code, e.g. 'en_US'
+ * @param {Array}    [opts.bodyParams]   - Array of string values for {{1}}, {{2}} ... body variables
+ * @param {Array}    [opts.headerParams] - Array of string values for {{1}} ... header variables
+ * @returns {object}  Meta API response
+ */
+async function sendWhatsAppTemplate({ inboxId, to, templateName, language = 'en_US', bodyParams = [], headerParams = [] }) {
+  const phoneNumberId = await getPhoneNumberId(inboxId);
+  const accessToken   = await getAccessToken(inboxId);
+
+  if (!phoneNumberId) throw new Error('WhatsApp phoneNumberId not configured for inbox ' + inboxId);
+  if (!accessToken)   throw new Error('WhatsApp access token not configured for inbox ' + inboxId);
+
+  const components = [];
+
+  if (headerParams.length) {
+    components.push({
+      type: 'header',
+      parameters: headerParams.map(v => ({ type: 'text', text: String(v) })),
+    });
+  }
+
+  if (bodyParams.length) {
+    components.push({
+      type: 'body',
+      parameters: bodyParams.map(v => ({ type: 'text', text: String(v) })),
+    });
+  }
+
+  const body = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: language },
+      ...(components.length ? { components } : {}),
+    },
+  };
+
+  const url     = `${GRAPH_BASE}/${phoneNumberId}/messages`;
+  const headers = {
+    'Content-Type':  'application/json',
+    'Authorization': `Bearer ${accessToken}`,
+  };
+
+  return graphPost(url, headers, body);
+}
+
+module.exports = { sendWhatsAppMessage, sendWhatsAppTemplate, downloadInboundMedia, getInboxConfig, getAccessToken };

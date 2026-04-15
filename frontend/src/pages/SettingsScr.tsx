@@ -516,6 +516,7 @@ function InboxSet({inboxes,setInboxes}){
     whatsapp:[
       {k:"phoneNumberId",l:"Phone Number ID",ph:"101419598765432"},
       {k:"phoneNumber",l:"Display Phone Number",ph:"+91 98765 43210"},
+      {k:"wabaId",l:"WhatsApp Business Account ID (WABA)",ph:"102345678901234"},
       {k:"apiKey",l:"WhatsApp Access Token",ph:"EAAxxxxxxx"},
       {k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"},
       {k:"webhookUrl",l:"Webhook Callback URL (set in Meta)",ph:"https://api.yoursite.com/api/whatsapp/webhook"},

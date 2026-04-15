@@ -488,6 +488,28 @@ CREATE TABLE IF NOT EXISTS contact_group_members (
   added_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- WhatsApp Meta-approved message templates
+CREATE TABLE IF NOT EXISTS whatsapp_meta_templates (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(50) NOT NULL,
+  language VARCHAR(20) DEFAULT 'en_US',
+  status VARCHAR(50) DEFAULT 'pending',
+  header_type VARCHAR(20) DEFAULT 'NONE',
+  header_text TEXT,
+  header_media_url TEXT,
+  body TEXT NOT NULL,
+  footer TEXT,
+  buttons TEXT,
+  components TEXT,
+  meta_template_id VARCHAR(255),
+  inbox_id VARCHAR(255) NOT NULL,
+  rejection_reason TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 -- Campaign send log for real-time tracking
 CREATE TABLE IF NOT EXISTS campaign_send_log (
   id VARCHAR(255) PRIMARY KEY,
@@ -1047,6 +1069,10 @@ async function ensureSchemaColumns() {
         await run('ALTER TABLE campaigns ADD COLUMN selected_contacts LONGTEXT');
         console.log('✅ Added selected_contacts to campaigns');
       }
+      if (!campCols.has('wa_template_id')) {
+        await run('ALTER TABLE campaigns ADD COLUMN wa_template_id VARCHAR(255) DEFAULT NULL');
+        console.log('✅ Added wa_template_id to campaigns');
+      }
     } catch (e) { console.error('campaigns columns:', e.message); }
 
     // ── campaign_templates: category + description columns ───────────────
@@ -1237,6 +1263,34 @@ async function ensureSchemaColumns() {
         console.log('✅ Converted chat_messages to utf8mb4_general_ci');
       }
     } catch (e) { console.error('chat_messages schema update:', e.message); }
+
+    // ── whatsapp_meta_templates: ensure table exists ───────────────────
+    try {
+      const [wmtTables] = await db.query("SHOW TABLES LIKE 'whatsapp_meta_templates'");
+      if (wmtTables.length === 0) {
+        await run(`CREATE TABLE IF NOT EXISTS whatsapp_meta_templates (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          category VARCHAR(50) NOT NULL,
+          language VARCHAR(20) DEFAULT 'en_US',
+          status VARCHAR(50) DEFAULT 'pending',
+          header_type VARCHAR(20) DEFAULT 'NONE',
+          header_text TEXT,
+          header_media_url TEXT,
+          body TEXT NOT NULL,
+          footer TEXT,
+          buttons TEXT,
+          components TEXT,
+          meta_template_id VARCHAR(255),
+          inbox_id VARCHAR(255) NOT NULL,
+          rejection_reason TEXT,
+          agent_id VARCHAR(255),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )`);
+        console.log('✅ Created whatsapp_meta_templates table');
+      }
+    } catch (e) { console.error('whatsapp_meta_templates table:', e.message); }
 
     // ── chat_channels: add topic column ────────────────────────────────
     try {

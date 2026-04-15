@@ -106,6 +106,19 @@ export default function MarketingScr({contacts,pushNotification}){
         console.log('✅ Groups loaded from DB:', r.groups.length);
       }
     }).catch(e=>console.error('❌ Failed to load groups:', e));
+
+    // Load WA Meta templates
+    api.get("/wa-templates").then(r=>{
+      if(r?.templates){setWaTpls(r.templates);console.log('✅ WA templates loaded:', r.templates.length);}
+    }).catch(e=>console.error('❌ Failed to load WA templates:', e));
+
+    // Load WA inboxes for template submission
+    api.get("/settings/inboxes").then(r=>{
+      if(r?.inboxes){
+        const waIbs=r.inboxes.filter((ib:any)=>ib.type==="whatsapp"&&ib.active);
+        setWaInboxes(waIbs);
+      }
+    }).catch(e=>console.error('❌ Failed to load WA inboxes:', e));
   },[]);
 
   // WebSocket listener for campaign progress
@@ -141,6 +154,73 @@ export default function MarketingScr({contacts,pushNotification}){
   const [editTpl,setEditTpl]=useState(null);
   const [tplName,setTplName]=useState("");const [tplDesc,setTplDesc]=useState("");const [tplCh,setTplCh]=useState("email");const [tplCat,setTplCat]=useState("Promotion");const [tplSubj,setTplSubj]=useState("");const [tplBody,setTplBody]=useState("");
   const [tplAiLoad,setTplAiLoad]=useState(false);
+  // ── WhatsApp Meta Templates ──────────────────────────────────────────────────
+  const [waTpls,setWaTpls]=useState<any[]>([]);
+  const [waTplLoading,setWaTplLoading]=useState(false);
+  const [waTplSyncing,setWaTplSyncing]=useState(false);
+  const [showWaTplModal,setShowWaTplModal]=useState(false);
+  const [waTplName,setWaTplName]=useState("");
+  const [waTplCategory,setWaTplCategory]=useState("MARKETING");
+  const [waTplLanguage,setWaTplLanguage]=useState("en_US");
+  const [waTplHeaderType,setWaTplHeaderType]=useState("NONE");
+  const [waTplHeaderText,setWaTplHeaderText]=useState("");
+  const [waTplBody,setWaTplBody]=useState("");
+  const [waTplFooter,setWaTplFooter]=useState("");
+  const [waTplButtons,setWaTplButtons]=useState<any[]>([]);
+  const [waTplInboxId,setWaTplInboxId]=useState("");
+  const [waInboxes,setWaInboxes]=useState<any[]>([]);
+  const [waTplSubmitting,setWaTplSubmitting]=useState(false);
+  const waTplStatusC=(s:string)=>({approved:C.g,rejected:C.r,pending:C.y,submit_failed:C.r,paused:C.t3}[s]||C.t3);
+  const waTplStatusL=(s:string)=>({approved:"Approved",rejected:"Rejected",pending:"Pending Approval",submit_failed:"Submit Failed",paused:"Paused"}[s]||s);
+  const WA_LANGS=[{v:"en_US",l:"English (US)"},{v:"en_GB",l:"English (UK)"},{v:"hi",l:"Hindi"},{v:"ta",l:"Tamil"},{v:"te",l:"Telugu"},{v:"mr",l:"Marathi"},{v:"ar",l:"Arabic"},{v:"fr",l:"French"},{v:"es",l:"Spanish"},{v:"pt_BR",l:"Portuguese (BR)"},{v:"de",l:"German"},{v:"id",l:"Indonesian"},{v:"ja",l:"Japanese"},{v:"ko",l:"Korean"},{v:"zh_CN",l:"Chinese (Simplified)"}];
+  const openNewWaTpl=()=>{setWaTplName("");setWaTplCategory("MARKETING");setWaTplLanguage("en_US");setWaTplHeaderType("NONE");setWaTplHeaderText("");setWaTplBody("");setWaTplFooter("");setWaTplButtons([]);setWaTplInboxId(waInboxes[0]?.id||"");setShowWaTplModal(true);};
+  const addWaTplButton=(type:string)=>{
+    if(type==="QUICK_REPLY")setWaTplButtons(p=>[...p,{type:"QUICK_REPLY",text:""}]);
+    if(type==="URL")setWaTplButtons(p=>[...p,{type:"URL",text:"",url:""}]);
+    if(type==="PHONE_NUMBER")setWaTplButtons(p=>[...p,{type:"PHONE_NUMBER",text:"",phone_number:""}]);
+  };
+  const submitWaTpl=async()=>{
+    if(!waTplName.trim())return showT("Template name required","error");
+    if(!/^[a-z0-9_]+$/.test(waTplName))return showT("Name must be lowercase letters, numbers, underscores only","error");
+    if(!waTplBody.trim())return showT("Body text required","error");
+    if(!waTplInboxId)return showT("Select a WhatsApp inbox","error");
+    setWaTplSubmitting(true);
+    try{
+      const r=await api.post("/wa-templates",{name:waTplName,category:waTplCategory,language:waTplLanguage,header_type:waTplHeaderType,header_text:waTplHeaderText,body:waTplBody,footer:waTplFooter,buttons:waTplButtons,inbox_id:waTplInboxId});
+      if(r?.template){
+        setWaTpls(p=>[r.template,...p]);
+        if(r.submitted)showT("Template submitted to Meta for approval!","success");
+        else showT(r.submitError||"Saved locally (Meta submission failed)","warn");
+        setShowWaTplModal(false);
+      }
+    }catch(e:any){showT(e.message||"Failed to submit template","error");}
+    setWaTplSubmitting(false);
+  };
+  const syncWaTpl=async(id:string)=>{
+    setWaTplSyncing(true);
+    try{
+      const r=await api.get(`/wa-templates/${id}/sync`);
+      if(r?.template)setWaTpls(p=>p.map(t=>t.id===id?r.template:t));
+      showT("Status synced from Meta","success");
+    }catch(e:any){showT(e.message||"Sync failed","error");}
+    setWaTplSyncing(false);
+  };
+  const syncAllWaTpls=async()=>{
+    setWaTplSyncing(true);
+    try{
+      const r=await api.post("/wa-templates/sync-all",{});
+      if(r?.templates)setWaTpls(r.templates);
+      showT(`Synced ${r?.synced||0} templates from Meta`,"success");
+    }catch(e:any){showT(e.message||"Sync failed","error");}
+    setWaTplSyncing(false);
+  };
+  const delWaTpl=async(id:string)=>{
+    try{
+      await api.del(`/wa-templates/${id}`);
+      setWaTpls(p=>p.filter(t=>t.id!==id));
+      showT("Template deleted","success");
+    }catch(e:any){showT(e.message||"Delete failed","error");}
+  };
   // Automation CRUD
   const [showAutoModal,setShowAutoModal]=useState(false);const [editAuto,setEditAuto]=useState(null);
   const [autoName,setAutoName]=useState("");const [autoTrigger,setAutoTrigger]=useState("Contact Created");const [autoCh,setAutoCh]=useState("email");const [autoSteps,setAutoSteps]=useState([{type:"send",text:"Send welcome email"},{type:"wait",text:"Wait 2 days"},{type:"send",text:"Send follow-up"}]);
@@ -322,7 +402,7 @@ export default function MarketingScr({contacts,pushNotification}){
 
     {/* Tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${C.b1}`,background:C.s1,padding:"0 24px"}}>
-      {[["overview","reports","Overview"],["whatsapp",null,"WhatsApp"],["facebook",null,"Facebook"],["instagram",null,"Instagram"],["email",null,"Email"],["sms",null,"SMS"],["push",null,"Push"],["groups","contacts","Groups"],["automations","automations","Automations"],["ai_studio","aibot","AI Studio"],["segments","contacts","Segments"],["templates","knowledgebase","Templates"],["analytics","reports","Analytics"]].map(([id,navId,lbl])=>(
+      {[["overview","reports","Overview"],["whatsapp",null,"WhatsApp"],["facebook",null,"Facebook"],["instagram",null,"Instagram"],["email",null,"Email"],["sms",null,"SMS"],["push",null,"Push"],["wa_templates","knowledgebase","WA Templates"],["groups","contacts","Groups"],["automations","automations","Automations"],["ai_studio","aibot","AI Studio"],["segments","contacts","Segments"],["templates","knowledgebase","Templates"],["analytics","reports","Analytics"]].map(([id,navId,lbl])=>(
         <button key={id} onClick={()=>{setMtab(id);setFilter("all");}} style={{padding:"11px 14px",fontSize:10.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.3px",color:mtab===id?C.a:C.t3,borderBottom:`2px solid ${mtab===id?C.a:"transparent"}`,background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>{navId?<NavIcon id={navId} s={13} col={mtab===id?C.a:C.t3}/>:<ChIcon t={id} s={13}/>} {lbl}</button>
       ))}
     </div>
@@ -1015,6 +1095,188 @@ export default function MarketingScr({contacts,pushNotification}){
         </div>
       </>}
 
+      {/* ═══ WA TEMPLATES (Meta Approval) ═══ */}
+      {mtab==="wa_templates"&&<>
+        {/* Header bar */}
+        <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:800,color:C.t1,fontFamily:FD}}>WhatsApp Message Templates</div>
+            <div style={{fontSize:11,color:C.t3,marginTop:2}}>Create templates and submit for Meta approval. Only approved templates can be used in WhatsApp campaigns.</div>
+          </div>
+          <button onClick={syncAllWaTpls} disabled={waTplSyncing} style={{padding:"7px 14px",borderRadius:8,fontSize:11,fontWeight:700,fontFamily:FM,cursor:"pointer",background:C.s3,color:C.t2,border:`1px solid ${C.b1}`}}>{waTplSyncing?"Syncing…":"🔄 Sync All Status"}</button>
+          <Btn ch="+ New WA Template" v="primary" onClick={openNewWaTpl}/>
+        </div>
+
+        {/* Status summary */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
+          {[["Total",waTpls.length,C.a],["Approved",waTpls.filter(t=>t.status==="approved").length,"#22c55e"],["Pending",waTpls.filter(t=>t.status==="pending").length,"#eab308"],["Rejected",waTpls.filter(t=>t.status==="rejected"||t.status==="submit_failed").length,"#ef4444"]].map(([lbl,cnt,clr])=>(
+            <div key={lbl as string} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"14px 16px"}}>
+              <div style={{fontSize:10,color:C.t3,fontFamily:FM,letterSpacing:"0.3px",marginBottom:4}}>{lbl}</div>
+              <div style={{fontSize:22,fontWeight:800,fontFamily:FM,color:clr as string}}>{cnt as number}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Template list */}
+        {waTpls.length===0&&<EmptyState icon="📋" title="No WA Templates Yet" desc="Create your first WhatsApp message template and submit it to Meta for approval."/>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          {/* Create card */}
+          <div onClick={openNewWaTpl} style={{background:C.bg,border:`2px dashed #25d36655`,borderRadius:12,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 16px",cursor:"pointer",transition:"all .15s",minHeight:160}} className="hov">
+            <div style={{width:44,height:44,borderRadius:14,background:"#25d36618",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:10}}><ChIcon t="whatsapp" s={22}/></div>
+            <div style={{fontSize:13,fontWeight:700,color:"#25d366",fontFamily:FD}}>Create WA Template</div>
+            <div style={{fontSize:10,color:C.t3,textAlign:"center",marginTop:4}}>Submit a new template to Meta for approval</div>
+          </div>
+          {waTpls.map(t=>(
+            <div key={t.id} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden",transition:"all .15s"}}>
+              {/* Template header */}
+              <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.b1}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <ChIcon t="whatsapp" s={16}/>
+                  <span style={{fontSize:13,fontWeight:700,color:C.t1,fontFamily:FD,flex:1,fontVariant:"none"}}>{t.name}</span>
+                  <span style={{padding:"3px 10px",borderRadius:20,fontSize:9,fontWeight:800,fontFamily:FM,letterSpacing:"0.3px",color:waTplStatusC(t.status),background:waTplStatusC(t.status)+"18",border:`1px solid ${waTplStatusC(t.status)}44`}}>{waTplStatusL(t.status)}</span>
+                </div>
+                <div style={{display:"flex",gap:6,marginBottom:8}}>
+                  <Tag text={t.category} color={t.category==="MARKETING"?C.a:t.category==="UTILITY"?C.cy:C.p}/>
+                  <Tag text={WA_LANGS.find(l=>l.v===t.language)?.l||t.language} color={C.t3}/>
+                </div>
+                {t.rejection_reason&&<div style={{fontSize:10,color:C.r,background:C.rd,borderRadius:6,padding:"6px 10px",marginBottom:6}}>Rejected: {t.rejection_reason}</div>}
+              </div>
+              {/* Template body preview */}
+              <div style={{padding:"12px 16px",background:C.bg,borderBottom:`1px solid ${C.b1}`}}>
+                {t.header_type!=="NONE"&&t.header_text&&<div style={{fontSize:12,fontWeight:700,color:C.t1,marginBottom:6}}>{t.header_text}</div>}
+                <div style={{fontSize:11.5,color:C.t2,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{t.body}</div>
+                {t.footer&&<div style={{fontSize:10,color:C.t3,marginTop:6,fontStyle:"italic"}}>{t.footer}</div>}
+                {Array.isArray(t.buttons)&&t.buttons.length>0&&<div style={{display:"flex",gap:6,marginTop:8}}>
+                  {t.buttons.map((b:any,i:number)=>(
+                    <span key={i} style={{padding:"4px 12px",borderRadius:6,fontSize:10,fontWeight:600,color:"#25d366",background:"#25d36612",border:"1px solid #25d36633"}}>{b.text||b.type}</span>
+                  ))}
+                </div>}
+              </div>
+              {/* Actions */}
+              <div style={{padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:10,color:C.t3}}>{t.created_at?.split("T")[0]||""}</div>
+                <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>syncWaTpl(t.id)} disabled={waTplSyncing} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:700,color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`,cursor:"pointer",fontFamily:FM}}>🔄 Sync</button>
+                  <button onClick={()=>delWaTpl(t.id)} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:700,color:C.r,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer",fontFamily:FM}}>✕ Delete</button>
+                  {t.status==="approved"&&<button onClick={()=>{showT("Use this template in a WhatsApp campaign","success");setMtab("whatsapp");}} style={{padding:"4px 10px",borderRadius:6,fontSize:9,fontWeight:700,color:"#25d366",background:"#25d36614",border:"1px solid #25d36644",cursor:"pointer",fontFamily:FM}}>📤 Use in Campaign</button>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </>}
+
+      {/* ═══ WA TEMPLATE CREATE MODAL ═══ */}
+      {showWaTplModal&&<Mdl title="Create WhatsApp Template" onClose={()=>setShowWaTplModal(false)} w={620}>
+        <div style={{fontSize:11,color:C.t3,marginBottom:12,lineHeight:1.5}}>
+          This template will be submitted to Meta for approval. Only approved templates can be used for campaign messages outside the 24-hour customer service window.
+        </div>
+
+        {/* Inbox selector */}
+        <Fld label="WhatsApp Account (Inbox)">
+          {waInboxes.length===0?<div style={{fontSize:11,color:C.r}}>No active WhatsApp inboxes found. Add one in Settings first.</div>:
+          <select value={waTplInboxId} onChange={e=>setWaTplInboxId(e.target.value)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB}}>
+            <option value="">Select inbox…</option>
+            {waInboxes.map(ib=><option key={ib.id} value={ib.id}>{ib.name}</option>)}
+          </select>}
+        </Fld>
+
+        <div style={{display:"flex",gap:12}}>
+          <div style={{flex:1.5}}>
+            <Fld label="Template Name">
+              <Inp val={waTplName} set={setWaTplName} ph="e.g. order_confirmation"/>
+              <div style={{fontSize:9,color:C.t3,marginTop:3}}>Lowercase letters, numbers, underscores only</div>
+            </Fld>
+          </div>
+          <div style={{flex:1}}>
+            <Fld label="Category">
+              <select value={waTplCategory} onChange={e=>setWaTplCategory(e.target.value)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB}}>
+                <option value="MARKETING">Marketing</option>
+                <option value="UTILITY">Utility</option>
+                <option value="AUTHENTICATION">Authentication</option>
+              </select>
+            </Fld>
+          </div>
+          <div style={{flex:1}}>
+            <Fld label="Language">
+              <select value={waTplLanguage} onChange={e=>setWaTplLanguage(e.target.value)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB}}>
+                {WA_LANGS.map(l=><option key={l.v} value={l.v}>{l.l}</option>)}
+              </select>
+            </Fld>
+          </div>
+        </div>
+
+        {/* Header */}
+        <Fld label="Header (Optional)">
+          <div style={{display:"flex",gap:4,marginBottom:8}}>
+            {["NONE","TEXT","IMAGE","VIDEO","DOCUMENT"].map(ht=>(
+              <button key={ht} onClick={()=>setWaTplHeaderType(ht)} style={{flex:1,padding:"6px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:FM,background:waTplHeaderType===ht?"#25d36618":"transparent",color:waTplHeaderType===ht?"#25d366":C.t3,border:`1.5px solid ${waTplHeaderType===ht?"#25d36655":C.b1}`}}>{ht}</button>
+            ))}
+          </div>
+          {waTplHeaderType==="TEXT"&&<Inp val={waTplHeaderText} set={setWaTplHeaderText} ph="Header text (can include {{1}} variable)"/>}
+          {(waTplHeaderType==="IMAGE"||waTplHeaderType==="VIDEO"||waTplHeaderType==="DOCUMENT")&&<div style={{fontSize:10,color:C.t3,padding:"8px",background:C.s2,borderRadius:6}}>Media header: provide a sample media URL. Meta uses it as an example during review.</div>}
+        </Fld>
+
+        {/* Body */}
+        <Fld label="Body Text *">
+          <textarea value={waTplBody} onChange={e=>setWaTplBody(e.target.value)} rows={5} placeholder={"Hello {{1}}!\n\nYour order {{2}} has been confirmed.\nEstimated delivery: {{3}}\n\nThank you for shopping with us!"} style={{width:"100%",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"10px 12px",fontSize:13,color:C.t1,fontFamily:FB,resize:"vertical",outline:"none",lineHeight:1.6,boxSizing:"border-box"}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
+            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+              {["{{1}}","{{2}}","{{3}}","{{4}}","{{5}}"].map(v=>(
+                <button key={v} onClick={()=>setWaTplBody(p=>p+v)} style={{padding:"2px 8px",borderRadius:4,fontSize:9,fontFamily:FM,color:"#25d366",background:"#25d36612",border:"1px solid #25d36644",cursor:"pointer"}}>{v}</button>
+              ))}
+            </div>
+            <span style={{fontSize:10,color:waTplBody.length>1024?C.r:C.t3,fontFamily:FM}}>{waTplBody.length}/1024</span>
+          </div>
+        </Fld>
+
+        {/* Footer */}
+        <Fld label="Footer (Optional)">
+          <Inp val={waTplFooter} set={setWaTplFooter} ph="e.g. Reply STOP to unsubscribe"/>
+          <div style={{fontSize:9,color:C.t3,marginTop:3}}>Max 60 characters. No variables allowed.</div>
+        </Fld>
+
+        {/* Buttons */}
+        <Fld label="Buttons (Optional)">
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <button onClick={()=>addWaTplButton("QUICK_REPLY")} style={{padding:"5px 12px",borderRadius:7,fontSize:10,fontWeight:600,cursor:"pointer",color:C.a,background:C.ad,border:`1px solid ${C.a}44`}}>+ Quick Reply</button>
+            <button onClick={()=>addWaTplButton("URL")} style={{padding:"5px 12px",borderRadius:7,fontSize:10,fontWeight:600,cursor:"pointer",color:C.cy,background:C.cy+"14",border:`1px solid ${C.cy}44`}}>+ URL Button</button>
+            <button onClick={()=>addWaTplButton("PHONE_NUMBER")} style={{padding:"5px 12px",borderRadius:7,fontSize:10,fontWeight:600,cursor:"pointer",color:C.p,background:C.pd,border:`1px solid ${C.p}44`}}>+ Call Button</button>
+          </div>
+          {waTplButtons.map((btn,i)=>(
+            <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:9,fontWeight:700,fontFamily:FM,color:C.t3,minWidth:70}}>{btn.type==="QUICK_REPLY"?"Quick Reply":btn.type==="URL"?"URL":"Phone"}</span>
+              <input value={btn.text} onChange={e=>{const nb=[...waTplButtons];nb[i]={...nb[i],text:e.target.value};setWaTplButtons(nb);}} placeholder="Button label" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:11,fontFamily:FB,outline:"none"}}/>
+              {btn.type==="URL"&&<input value={btn.url||""} onChange={e=>{const nb=[...waTplButtons];nb[i]={...nb[i],url:e.target.value};setWaTplButtons(nb);}} placeholder="https://example.com/{{1}}" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:11,fontFamily:FB,outline:"none"}}/>}
+              {btn.type==="PHONE_NUMBER"&&<input value={btn.phone_number||""} onChange={e=>{const nb=[...waTplButtons];nb[i]={...nb[i],phone_number:e.target.value};setWaTplButtons(nb);}} placeholder="+1234567890" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:11,fontFamily:FB,outline:"none"}}/>}
+              <button onClick={()=>setWaTplButtons(p=>p.filter((_,j)=>j!==i))} style={{padding:"4px 8px",borderRadius:5,fontSize:10,color:C.r,background:C.rd,border:`1px solid ${C.r}44`,cursor:"pointer"}}>✕</button>
+            </div>
+          ))}
+          {waTplButtons.length>=3&&<div style={{fontSize:9,color:C.y}}>Maximum 3 buttons allowed by Meta</div>}
+        </Fld>
+
+        {/* Live preview */}
+        {waTplBody&&<div style={{background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10,padding:"12px",marginBottom:12}}>
+          <div style={{fontSize:9,color:C.t3,fontFamily:FM,letterSpacing:"0.4px",marginBottom:8}}>TEMPLATE PREVIEW</div>
+          <div style={{display:"flex",gap:8}}>
+            <div style={{width:28,height:28,borderRadius:14,background:"#25d36622",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t="whatsapp" s={16}/></div>
+            <div style={{borderRadius:"3px 12px 12px 12px",background:"#25d36612",border:"1px solid #25d36633",maxWidth:"85%",overflow:"hidden"}}>
+              {waTplHeaderType==="TEXT"&&waTplHeaderText&&<div style={{padding:"9px 12px 4px",fontSize:12,fontWeight:700,color:C.t1}}>{waTplHeaderText}</div>}
+              <div style={{padding:waTplHeaderType==="TEXT"&&waTplHeaderText?"4px 12px 6px":"9px 12px 6px",fontSize:12,color:C.t2,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{waTplBody}</div>
+              {waTplFooter&&<div style={{padding:"2px 12px 8px",fontSize:10,color:C.t3,fontStyle:"italic"}}>{waTplFooter}</div>}
+              {waTplButtons.length>0&&<div style={{borderTop:"1px solid #25d36622",display:"flex",flexDirection:"column",gap:1}}>
+                {waTplButtons.map((b,i)=><div key={i} style={{padding:"8px",textAlign:"center",fontSize:11,fontWeight:600,color:"#25d366",cursor:"default"}}>{b.text||b.type}</div>)}
+              </div>}
+            </div>
+          </div>
+        </div>}
+
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+          <Btn ch="Cancel" v="ghost" onClick={()=>setShowWaTplModal(false)}/>
+          <button onClick={submitWaTpl} disabled={waTplSubmitting} style={{padding:"9px 24px",borderRadius:9,fontSize:12,fontWeight:700,fontFamily:FM,cursor:"pointer",background:"#25d366",color:"#fff",border:"none"}}>{waTplSubmitting?"Submitting to Meta…":"Submit for Approval"}</button>
+        </div>
+      </Mdl>}
+
       {/* ═══ TEMPLATES ═══ */}
       {mtab==="templates"&&<>
         <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
@@ -1134,7 +1396,7 @@ export default function MarketingScr({contacts,pushNotification}){
 
     {/* ═══ CREATE/EDIT MODAL ═══ */}
     {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} contacts={contacts} groups={groups} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
-      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.audMode==="segments"?camp.segmentId||null:null,audience_mode:camp.audMode||"segments",selected_contacts:camp.selectedContacts||[],scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0,launch_now:camp.status==="active"};
+      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.audMode==="segments"?camp.segmentId||null:null,audience_mode:camp.audMode||"segments",selected_contacts:camp.selectedContacts||[],scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0,launch_now:camp.status==="active",wa_template_id:camp.wa_template_id||null};
       if(editCamp){
         setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));
         if(!api.isConnected())showT("Campaign updated","success");
@@ -1204,6 +1466,10 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   const [subject,setSubject]=useState(editCamp?.subject||"");
   const [body,setBody]=useState(editCamp?.body||editCamp?.template||"");
   const [segment,setSegment]=useState(editCamp?.segmentId||segments[0]?.id||"");
+  // WA Template selection for WhatsApp campaigns
+  const [waTemplateId,setWaTemplateId]=useState(editCamp?.wa_template_id||"");
+  const [approvedWaTpls,setApprovedWaTpls]=useState<any[]>([]);
+  useEffect(()=>{if(ch==="whatsapp"){api.get("/marketing/wa-templates-approved").then(r=>{if(r?.templates)setApprovedWaTpls(r.templates);}).catch(()=>{});}},  [ch]);
   const [ab,setAb]=useState(editCamp?.ab||false);
   const [aiLoading,setAiLoading]=useState(false);
   const [audMode,setAudMode]=useState<"segments"|"individual"|"groups">(editCamp?.audMode||"segments");
@@ -1301,7 +1567,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
     const v=validate();
     if(v.errs.length>0&&asStatus!=="draft"){showT("Fix "+v.errs.length+" error"+(v.errs.length>1?"s":"")+" before sending","error");return;}
     if(v.warns.length>0&&asStatus==="active"&&!window.confirm(v.warns.length+" warning"+(v.warns.length>1?"s":"")+": "+v.warns[0]+(v.warns.length>1?" (+more)":"")+"\n\nSend anyway?"))return;
-    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:[],audMode});
+    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:[],audMode,wa_template_id:ch==="whatsapp"&&waTemplateId?waTemplateId:null});
   };
 
   return <Mdl title={editCamp?"Edit Campaign":"New Campaign"} onClose={onClose} w={600}>
@@ -1353,6 +1619,15 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
             </button>
           ))}
         </div>
+      </Fld>}
+      {/* WA Approved Template Selector (for WhatsApp campaigns) */}
+      {ch==="whatsapp"&&<Fld label="Meta-Approved Template (Recommended)">
+        <select value={waTemplateId} onChange={e=>{setWaTemplateId(e.target.value);const sel=approvedWaTpls.find(t=>t.id===e.target.value);if(sel)setBody(sel.body||"");}} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB}}>
+          <option value="">None (plain text — only works within 24h window)</option>
+          {approvedWaTpls.map(t=><option key={t.id} value={t.id}>{t.name} ({t.category} · {t.language})</option>)}
+        </select>
+        {waTemplateId&&<div style={{marginTop:6,padding:"8px 10px",background:"#25d36610",border:"1px solid #25d36633",borderRadius:7,fontSize:10,color:"#25d366",lineHeight:1.5}}>Using approved template — message variables will be auto-filled per contact. Body below is for preview only.</div>}
+        {!waTemplateId&&<div style={{marginTop:4,fontSize:9,color:C.y,lineHeight:1.4}}>Without an approved template, WhatsApp only allows messages within 24h of the last customer message. Use a Meta-approved template for broadcast campaigns.</div>}
       </Fld>}
       {ch==="email"&&<Fld label="Subject Line">
         <Inp val={subject} set={setSubject} ph="Your email subject…"/>
