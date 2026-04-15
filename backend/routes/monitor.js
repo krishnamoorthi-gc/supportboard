@@ -1,10 +1,11 @@
 const router = require('express').Router();
 const db = require('../db');
+const auth = require('../middleware/auth');
 const { uid } = require('../utils/helpers');
 const { broadcastToAll } = require('../ws');
 
 // GET /api/monitor/visitors — list visitors active in the last 3 minutes
-router.get('/visitors', async (req, res) => {
+router.get('/visitors', auth, async (req, res) => {
   try {
     const cutoff = new Date(Date.now() - 3 * 60 * 1000)
       .toISOString().slice(0, 19).replace('T', ' ');
@@ -18,7 +19,7 @@ router.get('/visitors', async (req, res) => {
 });
 
 // PATCH /api/monitor/visitors/:id/status — set chatStatus (browsing/invited/chatting)
-router.patch('/visitors/:id/status', async (req, res) => {
+router.patch('/visitors/:id/status', auth, async (req, res) => {
   try {
     const { status } = req.body;
     if (!['browsing', 'invited', 'chatting'].includes(status))
@@ -33,7 +34,7 @@ router.patch('/visitors/:id/status', async (req, res) => {
 });
 
 // DELETE /api/monitor/visitors/:id — remove a session
-router.delete('/visitors/:id', async (req, res) => {
+router.delete('/visitors/:id', auth, async (req, res) => {
   try {
     await db.prepare('DELETE FROM visitor_sessions WHERE id=?').run(req.params.id);
     broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: req.params.id });
@@ -44,9 +45,9 @@ router.delete('/visitors/:id', async (req, res) => {
 });
 
 // DELETE /api/monitor/sessions — clear ALL active sessions (admin reset)
-router.delete('/sessions', async (req, res) => {
+router.delete('/sessions', auth, async (req, res) => {
   try {
-    await db.run('DELETE FROM visitor_sessions');
+    await db.prepare('DELETE FROM visitor_sessions').run();
     broadcastToAll({ type: 'visitor_update', action: 'clear' });
     res.json({ success: true });
   } catch (e) {
@@ -54,7 +55,7 @@ router.delete('/sessions', async (req, res) => {
   }
 });
 
-// GET /api/monitor/snippet — embed code for websites
+// GET /api/monitor/snippet — embed code for websites (public, no auth needed)
 router.get('/snippet', async (req, res) => {
   const backendUrl = process.env.PUBLIC_URL || process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4002}`;
   const snippet = `<!-- SupportDesk Live Visitor Tracking -->\n<script src="${backendUrl}/tracker.js" async></script>`;

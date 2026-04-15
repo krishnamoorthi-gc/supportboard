@@ -20,9 +20,9 @@ router.get('/', auth, wrap(async (req, res) => {
 }));
 
 router.get('/:id', auth, wrap(async (req, res) => {
-  const c = await db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
+  const c = await db.prepare('SELECT * FROM companies WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
-  const contacts = await db.prepare('SELECT * FROM contacts WHERE company=?').all(c.name);
+  const contacts = await db.prepare('SELECT * FROM contacts WHERE company=? AND agent_id=?').all(c.name, req.agent.id);
   res.json({ company: c, contacts });
 }));
 
@@ -38,20 +38,22 @@ router.post('/', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/:id', auth, wrap(async (req, res) => {
-  const c = await db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
+  const c = await db.prepare('SELECT * FROM companies WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','domain','industry','size','revenue','website','phone','address','notes'];
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const updates = { updated_at: now };
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE companies SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updatedCompany = await db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE companies SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updatedCompany = await db.prepare('SELECT * FROM companies WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   res.json({ company: updatedCompany });
 }));
 
 router.delete('/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM companies WHERE id=?').run(req.params.id);
+  const c = await db.prepare('SELECT id FROM companies WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  await db.prepare('DELETE FROM companies WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 

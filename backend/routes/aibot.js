@@ -84,7 +84,7 @@ router.post('/faqs', auth, async (req, res) => {
     await db.prepare(
       'INSERT INTO aibot_faqs (id, agent_id, question, answer, created_at, updated_at) VALUES (?,?,?,?,?,?)'
     ).run(id, req.agent.id, question, answer, ts, ts);
-    const faq = await db.prepare('SELECT * FROM aibot_faqs WHERE id = ?').get(id);
+    const faq = await db.prepare('SELECT * FROM aibot_faqs WHERE id = ? AND agent_id = ?').get(id, req.agent.id);
     res.status(201).json({ faq });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create FAQ' });
@@ -99,7 +99,7 @@ router.patch('/faqs/:id', auth, async (req, res) => {
     if (answer !== undefined) updates.answer = answer;
     const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
     await db.prepare(`UPDATE aibot_faqs SET ${sets} WHERE id = ? AND agent_id = ?`).run(...Object.values(updates), req.params.id, req.agent.id);
-    const faq = await db.prepare('SELECT * FROM aibot_faqs WHERE id = ?').get(req.params.id);
+    const faq = await db.prepare('SELECT * FROM aibot_faqs WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     res.json({ faq });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update FAQ' });
@@ -134,7 +134,7 @@ router.post('/docs', auth, async (req, res) => {
     await db.prepare(
       'INSERT INTO aibot_docs (id, agent_id, name, size_label, file_path, status, created_at) VALUES (?,?,?,?,?,?,?)'
     ).run(id, req.agent.id, name, size_label || '', file_path || '', 'trained', ts);
-    const doc = await db.prepare('SELECT * FROM aibot_docs WHERE id = ?').get(id);
+    const doc = await db.prepare('SELECT * FROM aibot_docs WHERE id = ? AND agent_id = ?').get(id, req.agent.id);
     res.status(201).json({ doc });
   } catch (err) {
     res.status(500).json({ error: 'Failed to add doc' });
@@ -174,7 +174,7 @@ router.post('/urls', auth, async (req, res) => {
     setTimeout(async () => {
       try { await db.prepare("UPDATE aibot_urls SET status='trained' WHERE id=?").run(id); } catch {}
     }, 3000);
-    const row = await db.prepare('SELECT * FROM aibot_urls WHERE id = ?').get(id);
+    const row = await db.prepare('SELECT * FROM aibot_urls WHERE id = ? AND agent_id = ?').get(id, req.agent.id);
     res.status(201).json({ url: row });
   } catch (err) {
     res.status(500).json({ error: 'Failed to add URL' });

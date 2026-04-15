@@ -117,8 +117,8 @@ router.get('/:id', auth, async (req, res) => {
     LEFT JOIN contacts ct ON c.contact_id = ct.id
     LEFT JOIN inboxes i ON c.inbox_id = i.id
     LEFT JOIN agents a ON c.assignee_id = a.id
-    WHERE c.id=?
-  `).get(req.params.id);
+    WHERE c.id=? AND c.agent_id=?
+  `).get(req.params.id, req.agent.id);
   if (!cv) return res.status(404).json({ error: 'Not found' });
   try { cv.labels = JSON.parse(cv.labels || '[]'); } catch { cv.labels = []; }
   res.json({ conversation: cv });
@@ -166,7 +166,7 @@ router.post('/', auth, async (req, res) => {
 // PATCH /api/conversations/:id
 router.patch('/:id', auth, async (req, res) => {
   const { status, priority, assignee_id, team_id, labels, subject, snoozed_until, csat_score, csat_comment } = req.body;
-  const cv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(req.params.id);
+  const cv = await db.prepare('SELECT * FROM conversations WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!cv) return res.status(404).json({ error: 'Not found' });
 
   const updates = {};
@@ -182,7 +182,7 @@ router.patch('/:id', auth, async (req, res) => {
   updates.updated_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE conversations SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  await db.prepare(`UPDATE conversations SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
 
   const updated = await db.prepare(`
     SELECT c.*, ct.name as contact_name, ct.email as contact_email, ct.avatar as contact_avatar, ct.color as contact_color,
@@ -192,8 +192,8 @@ router.patch('/:id', auth, async (req, res) => {
     LEFT JOIN contacts ct ON c.contact_id=ct.id
     LEFT JOIN inboxes ib ON c.inbox_id=ib.id
     LEFT JOIN agents a ON c.assignee_id=a.id
-    WHERE c.id=?
-  `).get(req.params.id);
+    WHERE c.id=? AND c.agent_id=?
+  `).get(req.params.id, req.agent.id);
   try { updated.labels = JSON.parse(updated.labels || '[]'); } catch { updated.labels = []; }
 
   // Broadcast to all agents for real-time sync
@@ -215,13 +215,17 @@ router.patch('/:id', auth, async (req, res) => {
 
 // DELETE /api/conversations/:id
 router.delete('/:id', auth, async (req, res) => {
+  const cv = await db.prepare('SELECT id FROM conversations WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!cv) return res.status(404).json({ error: 'Not found' });
   await db.prepare('DELETE FROM messages WHERE conversation_id=?').run(req.params.id);
-  await db.prepare('DELETE FROM conversations WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM conversations WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 });
 
 // GET /api/conversations/:id/messages
 router.get('/:id/messages', auth, async (req, res) => {
+  const cvCheck = await db.prepare('SELECT id FROM conversations WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!cvCheck) return res.status(404).json({ error: 'Not found' });
   await db.prepare("UPDATE messages SET is_read=1 WHERE conversation_id=? AND role='customer'").run(req.params.id);
   const msgs = await db.prepare(`
     SELECT m.*, a.name as agent_name, a.avatar as agent_avatar, a.color as agent_color
@@ -254,8 +258,8 @@ router.post('/:id/messages', auth, async (req, res) => {
     FROM conversations c
     LEFT JOIN contacts ct ON c.contact_id = ct.id
     LEFT JOIN inboxes i ON c.inbox_id = i.id
-    WHERE c.id = ?
-  `).get(req.params.id);
+    WHERE c.id = ? AND c.agent_id = ?
+  `).get(req.params.id, req.agent.id);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
   let smtpResult    = null;
@@ -516,8 +520,12 @@ router.post('/:id/messages', auth, async (req, res) => {
 router.post('/:id/merge', auth, async (req, res) => {
   const { target_id } = req.body;
   if (!target_id) return res.status(400).json({ error: 'target_id required' });
+  const src = await db.prepare('SELECT id FROM conversations WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!src) return res.status(404).json({ error: 'Not found' });
+  const tgt = await db.prepare('SELECT id FROM conversations WHERE id=? AND agent_id=?').get(target_id, req.agent.id);
+  if (!tgt) return res.status(404).json({ error: 'Target conversation not found' });
   await db.prepare('UPDATE messages SET conversation_id=? WHERE conversation_id=?').run(target_id, req.params.id);
-  await db.prepare('DELETE FROM conversations WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM conversations WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true, merged_into: target_id });
 });
 

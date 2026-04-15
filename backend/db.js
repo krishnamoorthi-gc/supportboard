@@ -1151,6 +1151,24 @@ async function ensureSchemaColumns() {
       for (const [col, sql] of mtAdds) { if (!mtCols.has(col)) await run(sql); }
     } catch (e) { console.error('meetings columns:', e.message); }
 
+    // ── crm_activities: missing columns ─────────────────────────────
+    try {
+      const actCols = new Set((await query('SHOW COLUMNS FROM crm_activities')).map(c => c.Field));
+      const actAdds = [
+        ['entity_type', "ALTER TABLE crm_activities ADD COLUMN entity_type VARCHAR(100)"],
+        ['entity_id',   "ALTER TABLE crm_activities ADD COLUMN entity_id VARCHAR(255)"],
+        ['performer_id',"ALTER TABLE crm_activities ADD COLUMN performer_id VARCHAR(255)"],
+        ['metadata',    "ALTER TABLE crm_activities ADD COLUMN metadata TEXT"],
+        ['agent_id',    "ALTER TABLE crm_activities ADD COLUMN agent_id VARCHAR(255)"],
+      ];
+      for (const [col, sql] of actAdds) {
+        if (!actCols.has(col)) {
+          await run(sql);
+          console.log(`✅ Added ${col} to crm_activities`);
+        }
+      }
+    } catch (e) { console.error('crm_activities columns:', e.message); }
+
     // ── calendar_events: meeting_link column ────────────────────────
     try {
       const calCols = new Set((await query('SHOW COLUMNS FROM calendar_events')).map(c => c.Field));
@@ -1176,7 +1194,8 @@ async function ensureSchemaColumns() {
       'contacts', 'conversations', 'canned_responses',
       'automations', 'labels', 'teams',
       'custom_fields', 'companies', 'deals', 'leads', 'campaigns', 'segments',
-      'campaign_templates'
+      'campaign_templates', 'booking_pages', 'calendar_events', 'kb_categories', 'kb_articles',
+      'forms', 'signatures', 'webhooks', 'api_keys', 'sla_policies', 'brands'
     ];
     for (const tbl of agentIdTables) {
       try {

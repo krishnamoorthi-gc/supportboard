@@ -108,13 +108,13 @@ router.get('/leads', auth, async (req, res) => {
 });
 
 router.get('/leads/:id', auth, async (req, res) => {
-  const l = await db.prepare('SELECT l.*, a.name as owner_name FROM leads l LEFT JOIN agents a ON l.owner_id=a.id WHERE l.id=?').get(req.params.id);
+  const l = await db.prepare('SELECT l.*, a.name as owner_name FROM leads l LEFT JOIN agents a ON l.owner_id=a.id WHERE l.id=? AND l.agent_id=?').get(req.params.id, req.agent.id);
   if (!l) return res.status(404).json({ error: 'Not found' });
   l.tags = parseJson(l.tags, []); l.custom_fields = parseJson(l.custom_fields, {});
-  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC LIMIT 50').all('lead', l.id);
+  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 50').all('lead', l.id, req.agent.id);
   for (const a of activities) a.metadata = parseJson(a.metadata, {});
-  const tasks = await db.prepare('SELECT * FROM tasks WHERE related_type=? AND related_id=? ORDER BY due_date ASC').all('lead', l.id);
-  const meetings = await db.prepare('SELECT * FROM meetings WHERE related_type=? AND related_id=? ORDER BY start_time DESC').all('lead', l.id);
+  const tasks = await db.prepare('SELECT * FROM tasks WHERE related_type=? AND related_id=? AND agent_id=? ORDER BY due_date ASC').all('lead', l.id, req.agent.id);
+  const meetings = await db.prepare('SELECT * FROM meetings WHERE related_type=? AND related_id=? AND agent_id=? ORDER BY start_time DESC').all('lead', l.id, req.agent.id);
   for (const m of meetings) m.attendees = parseJson(m.attendees, []);
   res.json({ lead: l, activities, tasks, meetings });
 });
@@ -139,7 +139,7 @@ router.post('/leads', auth, async (req, res) => {
 });
 
 router.patch('/leads/:id', auth, async (req, res) => {
-  const l = await db.prepare('SELECT * FROM leads WHERE id=?').get(req.params.id);
+  const l = await db.prepare('SELECT * FROM leads WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!l) return res.status(404).json({ error: 'Not found' });
   const fields = ['name', 'email', 'phone', 'company', 'designation', 'source', 'campaign', 'industry', 'status', 'priority', 'score', 'value', 'owner_id', 'team_id', 'next_followup_date', 'remarks', 'notes'];
   const updates = { updated_at: now() };
@@ -147,8 +147,8 @@ router.patch('/leads/:id', auth, async (req, res) => {
   if (req.body.tags !== undefined) updates.tags = JSON.stringify(req.body.tags);
   if (req.body.custom_fields !== undefined) updates.custom_fields = JSON.stringify(req.body.custom_fields);
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  await db.prepare(`UPDATE leads SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updated = await db.prepare('SELECT * FROM leads WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE leads SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updated = await db.prepare('SELECT * FROM leads WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   updated.tags = parseJson(updated.tags, []);
   // Log stage change
   if (req.body.status && req.body.status !== l.status) {
@@ -164,9 +164,9 @@ router.patch('/leads/:id', auth, async (req, res) => {
 });
 
 router.delete('/leads/:id', auth, async (req, res) => {
-  const l = await db.prepare('SELECT * FROM leads WHERE id=?').get(req.params.id);
+  const l = await db.prepare('SELECT * FROM leads WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!l) return res.status(404).json({ error: 'Not found' });
-  await db.prepare('DELETE FROM leads WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM leads WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   await logActivity('lead_deleted', `Lead "${l.name}" deleted`, 'lead', l.id, req.agent.id, req.agent.id);
   crmBroadcast('lead_deleted', { id: req.params.id });
   res.json({ success: true });
@@ -174,7 +174,7 @@ router.delete('/leads/:id', auth, async (req, res) => {
 
 // ── Lead conversion: lead → contact + deal ──
 router.post('/leads/:id/convert', auth, async (req, res) => {
-  const l = await db.prepare('SELECT * FROM leads WHERE id=?').get(req.params.id);
+  const l = await db.prepare('SELECT * FROM leads WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!l) return res.status(404).json({ error: 'Lead not found' });
   if (l.status === 'Converted') return res.status(400).json({ error: 'Already converted' });
 
@@ -230,9 +230,9 @@ router.post('/leads/bulk', auth, async (req, res) => {
     for (const id of ids) await db.prepare('UPDATE leads SET status=?, updated_at=? WHERE id=? AND agent_id=?').run(data.status, ts, id, req.agent.id);
   } else if (action === 'transfer' && data?.to_user_id) {
     for (const id of ids) {
-      const lead = await db.prepare('SELECT * FROM leads WHERE id=?').get(id);
+      const lead = await db.prepare('SELECT * FROM leads WHERE id=? AND agent_id=?').get(id, req.agent.id);
       if (lead) {
-        await db.prepare('UPDATE leads SET owner_id=?, updated_at=? WHERE id=?').run(data.to_user_id, ts, id);
+        await db.prepare('UPDATE leads SET owner_id=?, updated_at=? WHERE id=? AND agent_id=?').run(data.to_user_id, ts, id, req.agent.id);
         await db.prepare('INSERT INTO crm_transfers (id,entity_type,entity_id,from_user_id,to_user_id,reason,notes,performed_by,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
           uid(), 'lead', id, lead.owner_id, data.to_user_id, data.reason || null, data.notes || null, req.agent.id, req.agent.id, ts
         );
@@ -274,14 +274,14 @@ router.get('/deals/:id', auth, async (req, res) => {
   const d = await db.prepare(`
     SELECT d.*, c.name as contact_name, a.name as owner_name, co.name as company_name
     FROM deals d LEFT JOIN contacts c ON d.contact_id=c.id LEFT JOIN agents a ON d.owner_id=a.id LEFT JOIN companies co ON d.company_id=co.id
-    WHERE d.id=?
-  `).get(req.params.id);
+    WHERE d.id=? AND d.agent_id=?
+  `).get(req.params.id, req.agent.id);
   if (!d) return res.status(404).json({ error: 'Not found' });
   d.custom_fields = parseJson(d.custom_fields, {});
-  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC LIMIT 50').all('deal', d.id);
+  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 50').all('deal', d.id, req.agent.id);
   for (const a of activities) a.metadata = parseJson(a.metadata, {});
-  const tasks = await db.prepare('SELECT * FROM tasks WHERE related_type=? AND related_id=? ORDER BY due_date ASC').all('deal', d.id);
-  const meetings = await db.prepare('SELECT * FROM meetings WHERE related_type=? AND related_id=? ORDER BY start_time DESC').all('deal', d.id);
+  const tasks = await db.prepare('SELECT * FROM tasks WHERE related_type=? AND related_id=? AND agent_id=? ORDER BY due_date ASC').all('deal', d.id, req.agent.id);
+  const meetings = await db.prepare('SELECT * FROM meetings WHERE related_type=? AND related_id=? AND agent_id=? ORDER BY start_time DESC').all('deal', d.id, req.agent.id);
   for (const m of meetings) m.attendees = parseJson(m.attendees, []);
   res.json({ deal: d, activities, tasks, meetings });
 });
@@ -305,7 +305,7 @@ router.post('/deals', auth, async (req, res) => {
 });
 
 router.patch('/deals/:id', auth, async (req, res) => {
-  const d = await db.prepare('SELECT * FROM deals WHERE id=?').get(req.params.id);
+  const d = await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!d) return res.status(404).json({ error: 'Not found' });
   const fields = ['title', 'value', 'currency', 'stage', 'probability', 'contact_id', 'company_id', 'owner_id', 'team_id', 'lead_id', 'product', 'expected_close', 'proposal_date', 'win_reason', 'lost_reason', 'notes'];
   const updates = { updated_at: now() };
@@ -316,8 +316,8 @@ router.patch('/deals/:id', auth, async (req, res) => {
   const prob = updates.probability !== undefined ? updates.probability : d.probability;
   updates.weighted_value = val * (prob / 100);
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  await db.prepare(`UPDATE deals SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updated = await db.prepare('SELECT * FROM deals WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE deals SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updated = await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   // Log stage change
   if (req.body.stage && req.body.stage !== d.stage) {
     await logActivity('deal_stage_changed', `Deal "${d.title}" moved to ${req.body.stage}`, 'deal', d.id, req.agent.id, req.agent.id, { from: d.stage, to: req.body.stage });
@@ -339,9 +339,9 @@ router.patch('/deals/:id', auth, async (req, res) => {
 });
 
 router.delete('/deals/:id', auth, async (req, res) => {
-  const d = await db.prepare('SELECT * FROM deals WHERE id=?').get(req.params.id);
+  const d = await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!d) return res.status(404).json({ error: 'Not found' });
-  await db.prepare('DELETE FROM deals WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM deals WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   await logActivity('deal_deleted', `Deal "${d.title}" deleted`, 'deal', d.id, req.agent.id, req.agent.id);
   crmBroadcast('deal_deleted', { id: req.params.id });
   res.json({ success: true });
@@ -349,11 +349,11 @@ router.delete('/deals/:id', auth, async (req, res) => {
 
 // ── Deal: convert won deal to customer ──
 router.post('/deals/:id/convert-customer', auth, async (req, res) => {
-  const d = await db.prepare('SELECT * FROM deals WHERE id=?').get(req.params.id);
+  const d = await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!d) return res.status(404).json({ error: 'Deal not found' });
   const ts = now();
   const custId = uid();
-  const contact = d.contact_id ? await db.prepare('SELECT * FROM contacts WHERE id=?').get(d.contact_id) : null;
+  const contact = d.contact_id ? await db.prepare('SELECT * FROM contacts WHERE id=? AND agent_id=?').get(d.contact_id, req.agent.id) : null;
   await db.prepare('INSERT INTO crm_customers (id,name,email,phone,company,company_id,contact_id,deal_id,lead_id,owner_id,team_id,status,type,contract_value,notes,agent_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
     custId, contact?.name || d.title, contact?.email, contact?.phone, contact?.company, d.company_id, d.contact_id, d.id, d.lead_id, d.owner_id, d.team_id, 'active', 'customer', d.value, d.notes, req.agent.id, ts, ts
   );
@@ -379,9 +379,9 @@ router.post('/deals/bulk', auth, async (req, res) => {
     for (const id of ids) await db.prepare('UPDATE deals SET stage=?, updated_at=? WHERE id=? AND agent_id=?').run(data.stage, ts, id, req.agent.id);
   } else if (action === 'transfer' && data?.to_user_id) {
     for (const id of ids) {
-      const deal = await db.prepare('SELECT * FROM deals WHERE id=?').get(id);
+      const deal = await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(id, req.agent.id);
       if (deal) {
-        await db.prepare('UPDATE deals SET owner_id=?, updated_at=? WHERE id=?').run(data.to_user_id, ts, id);
+        await db.prepare('UPDATE deals SET owner_id=?, updated_at=? WHERE id=? AND agent_id=?').run(data.to_user_id, ts, id, req.agent.id);
         await db.prepare('INSERT INTO crm_transfers (id,entity_type,entity_id,from_user_id,to_user_id,reason,notes,performed_by,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
           uid(), 'deal', id, deal.owner_id, data.to_user_id, data.reason || null, data.notes || null, req.agent.id, req.agent.id, ts
         );
@@ -418,9 +418,9 @@ router.get('/tasks', auth, async (req, res) => {
 });
 
 router.get('/tasks/:id', auth, async (req, res) => {
-  const t = await db.prepare('SELECT t.*, a.name as assignee_name FROM tasks t LEFT JOIN agents a ON t.assignee_id=a.id WHERE t.id=?').get(req.params.id);
+  const t = await db.prepare('SELECT t.*, a.name as assignee_name FROM tasks t LEFT JOIN agents a ON t.assignee_id=a.id WHERE t.id=? AND t.agent_id=?').get(req.params.id, req.agent.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC LIMIT 20').all('task', t.id);
+  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 20').all('task', t.id, req.agent.id);
   for (const a of activities) a.metadata = parseJson(a.metadata, {});
   res.json({ task: t, activities });
 });
@@ -443,14 +443,14 @@ router.post('/tasks', auth, async (req, res) => {
 });
 
 router.patch('/tasks/:id', auth, async (req, res) => {
-  const t = await db.prepare('SELECT * FROM tasks WHERE id=?').get(req.params.id);
+  const t = await db.prepare('SELECT * FROM tasks WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   const fields = ['title', 'description', 'type', 'due_date', 'priority', 'status', 'assignee_id', 'contact_id', 'related_type', 'related_id', 'recurring'];
   const updates = { updated_at: now() };
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  await db.prepare(`UPDATE tasks SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updated = await db.prepare('SELECT * FROM tasks WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE tasks SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updated = await db.prepare('SELECT * FROM tasks WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (req.body.status && req.body.status !== t.status) {
     await logActivity('task_status_changed', `Task "${t.title}" → ${req.body.status}`, 'task', t.id, req.agent.id, req.agent.id, { from: t.status, to: req.body.status });
   }
@@ -462,9 +462,9 @@ router.patch('/tasks/:id', auth, async (req, res) => {
 });
 
 router.delete('/tasks/:id', auth, async (req, res) => {
-  const t = await db.prepare('SELECT * FROM tasks WHERE id=?').get(req.params.id);
+  const t = await db.prepare('SELECT * FROM tasks WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  await db.prepare('DELETE FROM tasks WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM tasks WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   await logActivity('task_deleted', `Task "${t.title}" deleted`, 'task', t.id, req.agent.id, req.agent.id);
   crmBroadcast('task_deleted', { id: req.params.id });
   res.json({ success: true });
@@ -510,10 +510,10 @@ router.get('/meetings', auth, async (req, res) => {
 });
 
 router.get('/meetings/:id', auth, async (req, res) => {
-  const m = await db.prepare('SELECT m.*, h.name as host_name, ct.name as contact_name FROM meetings m LEFT JOIN agents h ON m.host_id=h.id LEFT JOIN contacts ct ON m.contact_id=ct.id WHERE m.id=?').get(req.params.id);
+  const m = await db.prepare('SELECT m.*, h.name as host_name, ct.name as contact_name FROM meetings m LEFT JOIN agents h ON m.host_id=h.id LEFT JOIN contacts ct ON m.contact_id=ct.id WHERE m.id=? AND m.agent_id=?').get(req.params.id, req.agent.id);
   if (!m) return res.status(404).json({ error: 'Not found' });
   m.attendees = parseJson(m.attendees, []);
-  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC LIMIT 20').all('meeting', m.id);
+  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 20').all('meeting', m.id, req.agent.id);
   for (const a of activities) a.metadata = parseJson(a.metadata, {});
   res.json({ meeting: m, activities });
 });
@@ -539,7 +539,7 @@ router.post('/meetings', auth, async (req, res) => {
 });
 
 router.patch('/meetings/:id', auth, async (req, res) => {
-  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!m) return res.status(404).json({ error: 'Not found' });
   const fields = ['title', 'type', 'description', 'start_time', 'end_time', 'location', 'meeting_link', 'host_id', 'agenda', 'outcome', 'status', 'contact_id', 'company_id', 'related_type', 'related_id'];
   const updates = {};
@@ -547,8 +547,8 @@ router.patch('/meetings/:id', auth, async (req, res) => {
   if (req.body.attendees !== undefined) updates.attendees = JSON.stringify(req.body.attendees);
   if (!Object.keys(updates).length) { m.attendees = parseJson(m.attendees, []); return res.json({ meeting: m }); }
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  await db.prepare(`UPDATE meetings SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updated = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE meetings SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updated = await db.prepare('SELECT * FROM meetings WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (updated) updated.attendees = parseJson(updated.attendees, []);
   if (req.body.outcome) {
     await logActivity('meeting_completed', `Meeting "${m.title}" completed`, 'meeting', m.id, req.agent.id, req.agent.id, { outcome: req.body.outcome });
@@ -558,9 +558,9 @@ router.patch('/meetings/:id', auth, async (req, res) => {
 });
 
 router.delete('/meetings/:id', auth, async (req, res) => {
-  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!m) return res.status(404).json({ error: 'Not found' });
-  await db.prepare('DELETE FROM meetings WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM meetings WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   await logActivity('meeting_deleted', `Meeting "${m.title}" deleted`, 'meeting', m.id, req.agent.id, req.agent.id);
   crmBroadcast('meeting_deleted', { id: req.params.id });
   res.json({ success: true });
@@ -588,12 +588,12 @@ router.get('/customers', auth, async (req, res) => {
 });
 
 router.get('/customers/:id', auth, async (req, res) => {
-  const cu = await db.prepare('SELECT cu.*, a.name as owner_name FROM crm_customers cu LEFT JOIN agents a ON cu.owner_id=a.id WHERE cu.id=?').get(req.params.id);
+  const cu = await db.prepare('SELECT cu.*, a.name as owner_name FROM crm_customers cu LEFT JOIN agents a ON cu.owner_id=a.id WHERE cu.id=? AND cu.agent_id=?').get(req.params.id, req.agent.id);
   if (!cu) return res.status(404).json({ error: 'Not found' });
   cu.tags = parseJson(cu.tags, []); cu.custom_fields = parseJson(cu.custom_fields, {});
-  const deals = cu.deal_id ? [await db.prepare('SELECT * FROM deals WHERE id=?').get(cu.deal_id)] : await db.prepare('SELECT * FROM deals WHERE contact_id=? ORDER BY updated_at DESC').all(cu.contact_id);
-  const tasks = await db.prepare('SELECT * FROM tasks WHERE related_type=? AND related_id=? ORDER BY due_date ASC').all('customer', cu.id);
-  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC LIMIT 50').all('customer', cu.id);
+  const deals = cu.deal_id ? [await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(cu.deal_id, req.agent.id)] : await db.prepare('SELECT * FROM deals WHERE contact_id=? AND agent_id=? ORDER BY updated_at DESC').all(cu.contact_id, req.agent.id);
+  const tasks = await db.prepare('SELECT * FROM tasks WHERE related_type=? AND related_id=? AND agent_id=? ORDER BY due_date ASC').all('customer', cu.id, req.agent.id);
+  const activities = await db.prepare('SELECT * FROM crm_activities WHERE entity_type=? AND entity_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 50').all('customer', cu.id, req.agent.id);
   for (const a of activities) a.metadata = parseJson(a.metadata, {});
   res.json({ customer: cu, deals: deals.filter(Boolean), tasks, activities });
 });
@@ -614,7 +614,7 @@ router.post('/customers', auth, async (req, res) => {
 });
 
 router.patch('/customers/:id', auth, async (req, res) => {
-  const cu = await db.prepare('SELECT * FROM crm_customers WHERE id=?').get(req.params.id);
+  const cu = await db.prepare('SELECT * FROM crm_customers WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!cu) return res.status(404).json({ error: 'Not found' });
   const fields = ['name', 'email', 'phone', 'company', 'company_id', 'contact_id', 'owner_id', 'team_id', 'status', 'type', 'renewal_date', 'contract_value', 'notes'];
   const updates = { updated_at: now() };
@@ -622,8 +622,8 @@ router.patch('/customers/:id', auth, async (req, res) => {
   if (req.body.tags !== undefined) updates.tags = JSON.stringify(req.body.tags);
   if (req.body.custom_fields !== undefined) updates.custom_fields = JSON.stringify(req.body.custom_fields);
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  await db.prepare(`UPDATE crm_customers SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updated = await db.prepare('SELECT * FROM crm_customers WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE crm_customers SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updated = await db.prepare('SELECT * FROM crm_customers WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   updated.tags = parseJson(updated.tags, []);
   if (req.body.owner_id && req.body.owner_id !== cu.owner_id) {
     await db.prepare('INSERT INTO crm_transfers (id,entity_type,entity_id,from_user_id,to_user_id,reason,performed_by,agent_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
@@ -636,7 +636,7 @@ router.patch('/customers/:id', auth, async (req, res) => {
 });
 
 router.delete('/customers/:id', auth, async (req, res) => {
-  await db.prepare('DELETE FROM crm_customers WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM crm_customers WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   crmBroadcast('customer_deleted', { id: req.params.id });
   res.json({ success: true });
 });
@@ -704,20 +704,20 @@ router.post('/reminders', auth, async (req, res) => {
 });
 
 router.patch('/reminders/:id', auth, async (req, res) => {
-  const r = await db.prepare('SELECT * FROM crm_reminders WHERE id=?').get(req.params.id);
+  const r = await db.prepare('SELECT * FROM crm_reminders WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
   const fields = ['title', 'description', 'remind_at', 'channel', 'entity_type', 'entity_id', 'assignee_id', 'recurring', 'status'];
   const updates = {};
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   if (!Object.keys(updates).length) return res.json({ reminder: r });
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  await db.prepare(`UPDATE crm_reminders SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const updated = await db.prepare('SELECT * FROM crm_reminders WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE crm_reminders SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const updated = await db.prepare('SELECT * FROM crm_reminders WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   res.json({ reminder: updated });
 });
 
 router.delete('/reminders/:id', auth, async (req, res) => {
-  await db.prepare('DELETE FROM crm_reminders WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM crm_reminders WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 });
 
@@ -752,7 +752,7 @@ router.post('/transfers', auth, async (req, res) => {
 
   // Lookup and update the entity
   if (entity_type === 'lead') {
-    const e = await db.prepare('SELECT * FROM leads WHERE id=?').get(entity_id);
+    const e = await db.prepare('SELECT * FROM leads WHERE id=? AND agent_id=?').get(entity_id, req.agent.id);
     if (!e) return res.status(404).json({ error: 'Lead not found' });
     fromUserId = e.owner_id; fromTeamId = e.team_id; entityName = e.name;
     const upd = {};
@@ -760,9 +760,9 @@ router.post('/transfers', auth, async (req, res) => {
     if (to_team_id) upd.team_id = to_team_id;
     upd.updated_at = ts;
     const sets = Object.keys(upd).map(k => `${k}=?`).join(',');
-    await db.prepare(`UPDATE leads SET ${sets} WHERE id=?`).run(...Object.values(upd), entity_id);
+    await db.prepare(`UPDATE leads SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(upd), entity_id, req.agent.id);
   } else if (entity_type === 'deal') {
-    const e = await db.prepare('SELECT * FROM deals WHERE id=?').get(entity_id);
+    const e = await db.prepare('SELECT * FROM deals WHERE id=? AND agent_id=?').get(entity_id, req.agent.id);
     if (!e) return res.status(404).json({ error: 'Deal not found' });
     fromUserId = e.owner_id; fromTeamId = e.team_id; entityName = e.title;
     const upd = {};
@@ -770,9 +770,9 @@ router.post('/transfers', auth, async (req, res) => {
     if (to_team_id) upd.team_id = to_team_id;
     upd.updated_at = ts;
     const sets = Object.keys(upd).map(k => `${k}=?`).join(',');
-    await db.prepare(`UPDATE deals SET ${sets} WHERE id=?`).run(...Object.values(upd), entity_id);
+    await db.prepare(`UPDATE deals SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(upd), entity_id, req.agent.id);
   } else if (entity_type === 'customer') {
-    const e = await db.prepare('SELECT * FROM crm_customers WHERE id=?').get(entity_id);
+    const e = await db.prepare('SELECT * FROM crm_customers WHERE id=? AND agent_id=?').get(entity_id, req.agent.id);
     if (!e) return res.status(404).json({ error: 'Customer not found' });
     fromUserId = e.owner_id; fromTeamId = e.team_id; entityName = e.name;
     const upd = {};
@@ -780,12 +780,12 @@ router.post('/transfers', auth, async (req, res) => {
     if (to_team_id) upd.team_id = to_team_id;
     upd.updated_at = ts;
     const sets = Object.keys(upd).map(k => `${k}=?`).join(',');
-    await db.prepare(`UPDATE crm_customers SET ${sets} WHERE id=?`).run(...Object.values(upd), entity_id);
+    await db.prepare(`UPDATE crm_customers SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(upd), entity_id, req.agent.id);
   } else if (entity_type === 'task') {
-    const e = await db.prepare('SELECT * FROM tasks WHERE id=?').get(entity_id);
+    const e = await db.prepare('SELECT * FROM tasks WHERE id=? AND agent_id=?').get(entity_id, req.agent.id);
     if (!e) return res.status(404).json({ error: 'Task not found' });
     fromUserId = e.assignee_id; entityName = e.title;
-    if (to_user_id) await db.prepare('UPDATE tasks SET assignee_id=?, updated_at=? WHERE id=?').run(to_user_id, ts, entity_id);
+    if (to_user_id) await db.prepare('UPDATE tasks SET assignee_id=?, updated_at=? WHERE id=? AND agent_id=?').run(to_user_id, ts, entity_id, req.agent.id);
   }
 
   // Log the transfer
@@ -877,7 +877,7 @@ router.get('/schedule/channels', auth, async (req, res) => {
 
 // POST send meeting invitation via selected channels
 router.post('/meetings/:id/invite', auth, async (req, res) => {
-  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!m) return res.status(404).json({ error: 'Meeting not found' });
 
   const { channels, recipient_name, recipient_email, recipient_phone, custom_message } = req.body;
@@ -983,7 +983,7 @@ router.post('/meetings/:id/invite', auth, async (req, res) => {
 
 // POST send meeting reminder via channels
 router.post('/meetings/:id/remind', auth, async (req, res) => {
-  const m = await db.prepare('SELECT * FROM meetings WHERE id=?').get(req.params.id);
+  const m = await db.prepare('SELECT * FROM meetings WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!m) return res.status(404).json({ error: 'Meeting not found' });
   if (m.status !== 'scheduled') return res.status(400).json({ error: 'Meeting is not scheduled' });
 

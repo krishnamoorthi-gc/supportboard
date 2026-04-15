@@ -24,11 +24,11 @@ router.get('/', auth, async (req, res) => {
 });
 
 router.get('/:id', auth, async (req, res) => {
-  const c = await db.prepare('SELECT * FROM contacts WHERE id=?').get(req.params.id);
+  const c = await db.prepare('SELECT * FROM contacts WHERE id=? AND (agent_id=? OR tags LIKE ?)').get(req.params.id, req.agent.id, '%bot-visitor%');
   if (!c) return res.status(404).json({ error: 'Not found' });
   try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; }
   try { c.custom_fields = JSON.parse(c.custom_fields||'{}'); } catch { c.custom_fields={}; }
-  const convs = await db.prepare('SELECT * FROM conversations WHERE contact_id=? ORDER BY updated_at DESC LIMIT 10').all(req.params.id);
+  const convs = await db.prepare('SELECT * FROM conversations WHERE contact_id=? AND agent_id=? ORDER BY updated_at DESC LIMIT 10').all(req.params.id, req.agent.id);
   res.json({ contact: c, conversations: convs });
 });
 
@@ -44,7 +44,7 @@ router.post('/', auth, async (req, res) => {
 });
 
 router.patch('/:id', auth, async (req, res) => {
-  const c = await db.prepare('SELECT * FROM contacts WHERE id=?').get(req.params.id);
+  const c = await db.prepare('SELECT * FROM contacts WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','email','phone','company','avatar','color','notes','location','timezone'];
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -53,21 +53,23 @@ router.patch('/:id', auth, async (req, res) => {
   if (req.body.tags !== undefined) updates.tags = JSON.stringify(req.body.tags);
   if (req.body.custom_fields !== undefined) updates.custom_fields = JSON.stringify(req.body.custom_fields);
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE contacts SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  const contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(req.params.id);
+  await db.prepare(`UPDATE contacts SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  const contact = await db.prepare('SELECT * FROM contacts WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   res.json({ contact });
 });
 
 router.delete('/:id', auth, async (req, res) => {
-  await db.prepare('DELETE FROM contacts WHERE id=?').run(req.params.id);
+  const c = await db.prepare('SELECT id FROM contacts WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  await db.prepare('DELETE FROM contacts WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 });
 
 // POST /api/contacts/bulk
 router.post('/bulk', auth, async (req, res) => {
   const { action, ids } = req.body;
-  if (action === 'delete' && ids) { 
-    for (const id of ids) await db.prepare('DELETE FROM contacts WHERE id=?').run(id); 
+  if (action === 'delete' && ids) {
+    for (const id of ids) await db.prepare('DELETE FROM contacts WHERE id=? AND agent_id=?').run(id, req.agent.id);
   }
   res.json({ success: true, affected: ids?.length || 0 });
 });
