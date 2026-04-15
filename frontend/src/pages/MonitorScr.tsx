@@ -216,7 +216,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
     {/* Tabs */}
     <div style={{display:"flex",gap:0,padding:"0 24px",borderBottom:"1px solid "+C.b1,background:C.s1}}>
       {[["list","Visitor List"],["map","World Map"],["analytics","Analytics"]].map(([id,lbl])=>(
-        <button key={id} onClick={()=>setTab(id)} style={{padding:"11px 18px",fontSize:11.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.4px",textTransform:"uppercase",color:tab===id?C.a:C.t3,borderBottom:"2px solid "+(tab===id?C.a:"transparent"),background:"transparent",border:"none",cursor:"pointer"}}>{lbl}</button>
+        <button key={id} onClick={()=>setTab(id)} style={{padding:"11px 18px",fontSize:11.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.4px",textTransform:"uppercase",color:tab===id?C.a:C.t3,borderTop:"none",borderLeft:"none",borderRight:"none",borderBottom:"2px solid "+(tab===id?C.a:"transparent"),background:"transparent",cursor:"pointer"}}>{lbl}</button>
       ))}
       <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0"}}>
