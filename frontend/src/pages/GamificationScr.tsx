@@ -20,7 +20,7 @@ export default function GamificationScr({agents}){
         <span style={{fontSize:18,fontWeight:800,width:28,textAlign:"center",color:i===0?C.y:i===1?"#aaa":i===2?"#cd7f32":C.t3}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":i+1}</span>
         <Av i={a.av} c={a.color} s={36} dot={a.status==="online"}/>
         <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{a.name}</div><div style={{fontSize:10.5,color:C.t3,fontFamily:FM}}>Level {a.level} · {a.xp} XP · {a.resolved} resolved</div></div>
-        <div style={{display:"flex",gap:1}}>{a.badges.split("").map((b,j)=><span key={j} title="Badge" style={{fontSize:14}}>{b}</span>)}</div>
+        <div style={{display:"flex",gap:1}}>{(Array.isArray(a.badges)?a.badges:String(a.badges||"").split("")).map((b,j)=><span key={j} title="Badge" style={{fontSize:14}}>{b}</span>)}</div>
         <span style={{fontSize:10,color:C.g,fontFamily:FM,fontWeight:700}}>{a.streak}d streak</span>
       </div>)}
     </div>}

@@ -478,6 +478,8 @@ export default function App(){
       return [];
     }
   };
+  // ═══ Live visitor monitoring state ═══
+  const [liveVisitors,setLiveVisitors]=useState<any[]>([]);
   // ═══ WEBSOCKET — real-time messages, typing, presence ═══
   const wsRef=useRef(null);
   const wsConnect=useCallback(()=>{
@@ -624,6 +626,11 @@ export default function App(){
           const convId=cv?.id||m.conversation_id;
           const convSubject=cv?.subject||m.subject||"";
           if(convId&&convSubject){(async()=>{try{const d=await api.post('/ai/chat',{max_tokens:60,system:"Classify this support ticket into ONE category: Bug, Billing, Feature Request, Onboarding, Urgent, General. Reply with just the category name.",messages:[{role:"user",content:convSubject}]});const tag=(d.content?.[0]?.text||"General").trim();setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,tag])]}:c));}catch{const autoTags:Record<string,string>={"payment":"Billing","invoice":"Billing","bug":"Bug","error":"Bug","crash":"Bug","feature":"Feature Request","integrate":"Feature Request","setup":"Onboarding","start":"Onboarding"};const sub=convSubject.toLowerCase();const matched=Object.entries(autoTags).find(([k])=>sub.includes(k));if(matched)setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,matched[1]])]}:c));}})();}
+        }
+        if(m.type==="visitor_update"){
+          if(m.action==="join"&&m.visitor)setLiveVisitors(p=>[...p.filter((v:any)=>v.id!==m.visitor.id),m.visitor]);
+          else if((m.action==="pagechange"||m.action==="status")&&m.visitor)setLiveVisitors(p=>p.map((v:any)=>v.id===m.visitor.id?m.visitor:v));
+          else if(m.action==="leave"&&m.visitorId)setLiveVisitors(p=>p.filter((v:any)=>v.id!==m.visitorId));
         }
       }catch{}};
       ws.onclose=()=>{wsRef.current=null;setTimeout(wsConnect,5000);}; // Auto-reconnect
@@ -1010,7 +1017,7 @@ export default function App(){
         <LazyMount active={scr==="crm"}><CrmScr contacts={contacts} setContacts={setContacts} convs={convs} comps={comps} setComps={setComps} customFields={customFields} getCfVal={getCfVal} setCfVal={setCfVal} inboxes={inboxes}/></LazyMount>
         <LazyMount active={scr==="contacts"}><ContactsScr {...sp}/></LazyMount>
         <LazyMount active={scr==="marketing"}><MarketingScr contacts={contacts} pushNotification={pushNotification}/></LazyMount>
-        <LazyMount active={scr==="monitor"}><MonitorScr contacts={contacts} inboxes={inboxes} setConvs={setConvs} setMsgs={setMsgs} setScr={navigate} setAid={setAid}/></LazyMount>
+        <LazyMount active={scr==="monitor"}><MonitorScr contacts={contacts} inboxes={inboxes} setConvs={setConvs} setMsgs={setMsgs} setScr={navigate} setAid={setAid} liveVisitors={liveVisitors} setLiveVisitors={setLiveVisitors}/></LazyMount>
         <LazyMount active={scr==="calendar"}><ScheduleScr/></LazyMount>
         <LazyMount active={scr==="integrations"}><IntegrationsScr/></LazyMount>
         <LazyMount active={scr==="knowledgebase"}><KnowledgeBaseScr/></LazyMount>
