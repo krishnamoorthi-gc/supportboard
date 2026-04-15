@@ -40,7 +40,7 @@ router.get('/', auth, async (req, res) => {
 
 router.get('/:id', auth, async (req, res) => {
   try {
-    const form = await db.prepare('SELECT * FROM forms WHERE id = ?').get(req.params.id);
+    const form = await db.prepare('SELECT * FROM forms WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!form) return res.status(404).json({ error: 'Form not found' });
     form.fields = parseJson(form.fields, []);
     form.settings = parseJson(form.settings, {});
@@ -62,7 +62,7 @@ router.post('/', auth, async (req, res) => {
     await db.prepare(
       'INSERT INTO forms (id, name, status, fields, settings, agent_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)'
     ).run(id, name, status, safeJson(fields), safeJson(settings), req.agent.id, ts, ts);
-    const form = await db.prepare('SELECT * FROM forms WHERE id = ?').get(id);
+    const form = await db.prepare('SELECT * FROM forms WHERE id = ? AND agent_id = ?').get(id, req.agent.id);
     form.fields = parseJson(form.fields, []);
     form.settings = parseJson(form.settings, {});
     form.submissions = 0;
@@ -75,7 +75,7 @@ router.post('/', auth, async (req, res) => {
 
 router.patch('/:id', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM forms WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM forms WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Form not found' });
     const updates = { updated_at: now() };
     if (req.body.name !== undefined) updates.name = req.body.name;
@@ -83,8 +83,8 @@ router.patch('/:id', auth, async (req, res) => {
     if (req.body.fields !== undefined) updates.fields = safeJson(req.body.fields);
     if (req.body.settings !== undefined) updates.settings = safeJson(req.body.settings);
     const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-    await db.prepare(`UPDATE forms SET ${sets} WHERE id = ?`).run(...Object.values(updates), req.params.id);
-    const form = await db.prepare('SELECT * FROM forms WHERE id = ?').get(req.params.id);
+    await db.prepare(`UPDATE forms SET ${sets} WHERE id = ? AND agent_id = ?`).run(...Object.values(updates), req.params.id, req.agent.id);
+    const form = await db.prepare('SELECT * FROM forms WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     form.fields = parseJson(form.fields, []);
     form.settings = parseJson(form.settings, {});
     const row = await db.prepare('SELECT COUNT(*) as c FROM form_submissions WHERE form_id = ?').get(form.id);
@@ -98,8 +98,10 @@ router.patch('/:id', auth, async (req, res) => {
 
 router.delete('/:id', auth, async (req, res) => {
   try {
+    const existing = await db.prepare('SELECT id FROM forms WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
+    if (!existing) return res.status(404).json({ error: 'Form not found' });
     await db.prepare('DELETE FROM form_submissions WHERE form_id = ?').run(req.params.id);
-    await db.prepare('DELETE FROM forms WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM forms WHERE id = ? AND agent_id = ?').run(req.params.id, req.agent.id);
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /forms/:id error:', err);
@@ -113,6 +115,8 @@ router.delete('/:id', auth, async (req, res) => {
 
 router.get('/:id/submissions', auth, async (req, res) => {
   try {
+    const formCheck = await db.prepare('SELECT id FROM forms WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
+    if (!formCheck) return res.status(404).json({ error: 'Form not found' });
     const { limit = 100, offset = 0 } = req.query;
     const submissions = await db.prepare(
       'SELECT * FROM form_submissions WHERE form_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
@@ -128,6 +132,8 @@ router.get('/:id/submissions', auth, async (req, res) => {
 
 router.delete('/:id/submissions/:subId', auth, async (req, res) => {
   try {
+    const formCheck = await db.prepare('SELECT id FROM forms WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
+    if (!formCheck) return res.status(404).json({ error: 'Form not found' });
     await db.prepare('DELETE FROM form_submissions WHERE id = ? AND form_id = ?').run(req.params.subId, req.params.id);
     res.json({ success: true });
   } catch (err) {

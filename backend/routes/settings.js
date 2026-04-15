@@ -73,24 +73,26 @@ router.post('/teams', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/teams/:id', auth, wrap(async (req, res) => {
-  const t = await db.prepare('SELECT * FROM teams WHERE id=?').get(req.params.id);
+  const t = await db.prepare('SELECT * FROM teams WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  if (req.body.name) await db.prepare('UPDATE teams SET name=? WHERE id=?').run(req.body.name, req.params.id);
-  if (req.body.description !== undefined) await db.prepare('UPDATE teams SET description=? WHERE id=?').run(req.body.description, req.params.id);
+  if (req.body.name) await db.prepare('UPDATE teams SET name=? WHERE id=? AND agent_id=?').run(req.body.name, req.params.id, req.agent.id);
+  if (req.body.description !== undefined) await db.prepare('UPDATE teams SET description=? WHERE id=? AND agent_id=?').run(req.body.description, req.params.id, req.agent.id);
   if (req.body.members) {
     await db.prepare('DELETE FROM team_members WHERE team_id=?').run(req.params.id);
     for (const m of req.body.members) {
       try { await db.prepare('INSERT INTO team_members (team_id,agent_id) VALUES (?,?)').run(req.params.id, m); } catch {}
     }
   }
-  const updated = await db.prepare('SELECT * FROM teams WHERE id=?').get(req.params.id);
+  const updated = await db.prepare('SELECT * FROM teams WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   updated.members = (await db.prepare('SELECT agent_id FROM team_members WHERE team_id=?').all(req.params.id)).map(r=>r.agent_id);
   res.json({ team: updated });
 }));
 
 router.delete('/teams/:id', auth, wrap(async (req, res) => {
+  const t = await db.prepare('SELECT id FROM teams WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
   await db.prepare('DELETE FROM team_members WHERE team_id=?').run(req.params.id);
-  await db.prepare('DELETE FROM teams WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM teams WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -108,18 +110,22 @@ router.post('/labels', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/labels/:id', auth, wrap(async (req, res) => {
+  const existing = await db.prepare('SELECT id FROM labels WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
   const { title, color } = req.body;
   const updates = {};
   if (title !== undefined) updates.title = title;
   if (color !== undefined) updates.color = color;
   if (!Object.keys(updates).length) return res.json({ success: true });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE labels SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ label: await db.prepare('SELECT * FROM labels WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE labels SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ label: await db.prepare('SELECT * FROM labels WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 
 router.delete('/labels/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM labels WHERE id=?').run(req.params.id);
+  const existing = await db.prepare('SELECT id FROM labels WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  await db.prepare('DELETE FROM labels WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -140,18 +146,20 @@ router.post('/canned', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/canned/:id', auth, wrap(async (req, res) => {
+  const existing = await db.prepare('SELECT id FROM canned_responses WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
   const { code, content } = req.body;
   const updates = {};
   if (code !== undefined) updates.code = code;
   if (content !== undefined) updates.content = content;
   if (!Object.keys(updates).length) return res.json({ success: true });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE canned_responses SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ canned: await db.prepare('SELECT * FROM canned_responses WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE canned_responses SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ canned: await db.prepare('SELECT * FROM canned_responses WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 
 router.delete('/canned/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM canned_responses WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM canned_responses WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -170,17 +178,19 @@ router.post('/canned-responses', auth, wrap(async (req, res) => {
   res.status(201).json({ canned: await db.prepare('SELECT * FROM canned_responses WHERE id=?').get(id) });
 }));
 router.patch('/canned-responses/:id', auth, wrap(async (req, res) => {
+  const existing = await db.prepare('SELECT id FROM canned_responses WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
   const { code, content } = req.body;
   const updates = {};
   if (code !== undefined) updates.code = code;
   if (content !== undefined) updates.content = content;
   if (!Object.keys(updates).length) return res.json({ success: true });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE canned_responses SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ canned: await db.prepare('SELECT * FROM canned_responses WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE canned_responses SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ canned: await db.prepare('SELECT * FROM canned_responses WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 router.delete('/canned-responses/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM canned_responses WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM canned_responses WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -200,7 +210,7 @@ router.post('/inboxes', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/inboxes/:id', auth, wrap(async (req, res) => {
-  const i = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(req.params.id);
+  const i = await db.prepare('SELECT * FROM inboxes WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!i) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','type','color','greeting','active'];
   const updates = {};
@@ -208,12 +218,14 @@ router.patch('/inboxes/:id', auth, wrap(async (req, res) => {
   if (req.body.config !== undefined) updates.config = JSON.stringify(req.body.config);
   if (!Object.keys(updates).length) return res.json({ inbox: i });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE inboxes SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ inbox: await db.prepare('SELECT * FROM inboxes WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE inboxes SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ inbox: await db.prepare('SELECT * FROM inboxes WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 
 router.delete('/inboxes/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM inboxes WHERE id=?').run(req.params.id);
+  const existing = await db.prepare('SELECT id FROM inboxes WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  await db.prepare('DELETE FROM inboxes WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -237,7 +249,7 @@ router.post('/custom-fields', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/custom-fields/:id', auth, wrap(async (req, res) => {
-  const f = await db.prepare('SELECT * FROM custom_fields WHERE id=?').get(req.params.id);
+  const f = await db.prepare('SELECT * FROM custom_fields WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!f) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','type','entity','required','description','group_name'];
   const updates = {};
@@ -246,12 +258,12 @@ router.patch('/custom-fields/:id', auth, wrap(async (req, res) => {
   if (req.body.options !== undefined) updates.options = JSON.stringify(req.body.options);
   if (!Object.keys(updates).length) return res.json({ field: f });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE custom_fields SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ field: await db.prepare('SELECT * FROM custom_fields WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE custom_fields SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ field: await db.prepare('SELECT * FROM custom_fields WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 
 router.delete('/custom-fields/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM custom_fields WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM custom_fields WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -276,7 +288,7 @@ router.post('/automations', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/automations/:id', auth, wrap(async (req, res) => {
-  const a = await db.prepare('SELECT * FROM automations WHERE id=?').get(req.params.id);
+  const a = await db.prepare('SELECT * FROM automations WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!a) return res.status(404).json({ error: 'Not found' });
   const updates = {};
   if (req.body.name !== undefined) updates.name = req.body.name;
@@ -286,12 +298,12 @@ router.patch('/automations/:id', auth, wrap(async (req, res) => {
   if (req.body.actions !== undefined) updates.actions = JSON.stringify(req.body.actions);
   if (!Object.keys(updates).length) return res.json({ automation: a });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE automations SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ automation: await db.prepare('SELECT * FROM automations WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE automations SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ automation: await db.prepare('SELECT * FROM automations WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 
 router.delete('/automations/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM automations WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM automations WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -450,7 +462,7 @@ router.post('/signatures', auth, wrap(async (req, res) => {
 }));
 
 router.patch('/signatures/:id', auth, wrap(async (req, res) => {
-  const s = await db.prepare('SELECT * FROM signatures WHERE id=?').get(req.params.id);
+  const s = await db.prepare('SELECT * FROM signatures WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','body','logo','is_default','active'];
   const updates = {};
@@ -458,12 +470,12 @@ router.patch('/signatures/:id', auth, wrap(async (req, res) => {
   if (req.body.socials !== undefined) updates.socials = JSON.stringify(req.body.socials);
   if (!Object.keys(updates).length) return res.json({ signature: s });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE signatures SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
-  res.json({ signature: await db.prepare('SELECT * FROM signatures WHERE id=?').get(req.params.id) });
+  await db.prepare(`UPDATE signatures SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
+  res.json({ signature: await db.prepare('SELECT * FROM signatures WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id) });
 }));
 
 router.delete('/signatures/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM signatures WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM signatures WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
@@ -473,8 +485,9 @@ router.get('/audit-log', auth, wrap(async (req, res) => {
   const logs = await db.prepare(`
     SELECT al.*, a.name as agent_name FROM audit_logs al
     LEFT JOIN agents a ON al.agent_id = a.id
+    WHERE al.agent_id=?
     ORDER BY al.created_at DESC LIMIT ?
-  `).all(parseInt(limit));
+  `).all(req.agent.id, parseInt(limit));
   for (const l of logs) { try { l.details = JSON.parse(l.details||'{}'); } catch { l.details={}; } }
   res.json({ logs });
 }));

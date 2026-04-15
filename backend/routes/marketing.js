@@ -1373,6 +1373,8 @@ router.post('/groups/:id/members/remove', auth, async (req, res) => {
 // Campaign send log
 router.get('/campaigns/:id/log', auth, async (req, res) => {
   try {
+    const campaign = await db.prepare('SELECT id FROM campaigns WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!campaign) return res.status(404).json({ error: 'Not found' });
     const logs = await db.prepare('SELECT * FROM campaign_send_log WHERE campaign_id=? ORDER BY created_at DESC').all(req.params.id);
     res.json({ logs });
   } catch (e) {
