@@ -295,6 +295,7 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const isWhatsAppCh=conv?.ch==="whatsapp";
   const isFacebookCh=conv?.ch==="facebook";
   const isInstagramCh=conv?.ch==="instagram";
+  const isSmsCh=conv?.ch==="sms";
   const isSocialCh=isFacebookCh||isInstagramCh; // true for any social channel needing real-API send
   const activeInbox=conv?inboxes.find((ib:any)=>ib.id===conv.iid):null;
   const activeInboxCfg=(activeInbox?.cfg||activeInbox?.config||{}) as Record<string,any>;
@@ -329,6 +330,17 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
   const instagramSendReady=!isInstagramCh||(!!instagramPageToken);
   const instagramMissingSendBits=[
     !instagramPageToken?"Page Access Token":"",
+  ].filter(Boolean);
+  // ── SMS (Twilio) config ──
+  const smsCfg=(activeInboxCfg) as Record<string,any>;
+  const smsAccountSid=String(smsCfg.accountSid||smsCfg.apiKey||"").trim();
+  const smsAuthToken=String(smsCfg.authToken||smsCfg.accessToken||"").trim();
+  const smsFromNumber=String(smsCfg.fromNumber||smsCfg.phoneNumber||"").trim();
+  const smsSendReady=!isSmsCh||(!!smsAccountSid&&!!smsAuthToken&&!!smsFromNumber);
+  const smsMissingSendBits=[
+    !smsAccountSid?"Account SID":"",
+    !smsAuthToken?"Auth Token":"",
+    !smsFromNumber?"From Number":"",
   ].filter(Boolean);
   const contactEmail=(contact?.email||conv?.contact_email||"").trim();
   const contactPhone=(contact?.phone||conv?.contact_phone||"").trim().replace(/^\+/,"");
@@ -604,7 +616,17 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
       showT(`Instagram inbox setup incomplete: ${instagramMissingSendBits.join(", ")}`,"error");
       return;
     }
-    if((isEmailCh||isWhatsAppCh||isFacebookCh||isInstagramCh)&&!isNote&&!api.isConnected()){
+    if(isSmsCh&&!isNote&&!contactPhone){
+      setInp(txt);
+      showT("Customer phone number missing for this SMS conversation","error");
+      return;
+    }
+    if(isSmsCh&&!isNote&&!smsSendReady){
+      setInp(txt);
+      showT(`SMS inbox setup incomplete: ${smsMissingSendBits.join(", ")}`,"error");
+      return;
+    }
+    if((isEmailCh||isWhatsAppCh||isFacebookCh||isInstagramCh||isSmsCh)&&!isNote&&!api.isConnected()){
       setInp(txt);
       showT("API disconnected — message not sent","error");
       return;
@@ -643,6 +665,9 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         // contact.phone is stored as 'ig:<ig_user_id>' — backend normalizes it
         payload.toInstagramId=String(contact?.phone||conv?.contact_phone||"").replace(/^ig:/i,"");
       }
+      if(isSmsCh&&!isNote){
+        payload.toPhone=contactPhone;
+      }
       try{
         const res=await api.post(`/conversations/${aid}/messages`,payload);
         const savedMsg=res?.message;
@@ -660,13 +685,13 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
         setInp(txt);
         setReplyTo(prevReplyTo);
         setAttachments(prevAttachments);
-        const chLabel=isEmailCh&&!isNote?"Email":isWhatsAppCh&&!isNote?"WhatsApp":isFacebookCh&&!isNote?"Facebook":isInstagramCh&&!isNote?"Instagram":"Message";
+        const chLabel=isEmailCh&&!isNote?"Email":isWhatsAppCh&&!isNote?"WhatsApp":isFacebookCh&&!isNote?"Facebook":isInstagramCh&&!isNote?"Instagram":isSmsCh&&!isNote?"SMS":"Message";
         showT(`${chLabel} not sent: ${(e as any)?.message||"Delivery failed"}`,"error");
         return;
       }
     }
     if(isNote)return; // Notes don't trigger replies
-    if(isEmailCh||isWhatsAppCh||isFacebookCh||isInstagramCh){
+    if(isEmailCh||isWhatsAppCh||isFacebookCh||isInstagramCh||isSmsCh){
       // For email: trigger IMAP poll shortly after to pick up sent copy & fast auto-replies
       if(isEmailCh&&conv?.iid){
         setTimeout(()=>api.post("/email/poll-now",{inboxId:conv.iid}).catch(()=>{}),2000);
@@ -1164,6 +1189,8 @@ export default function InboxScr({agents,labels,inboxes,teams,canned,contacts,co
                   {(m.t||m.created_at)&&<span style={{fontSize:9.5,color:isNt?"#8b7a2e":isAg?"rgba(255,255,255,.45)":C.t3,fontFamily:FM}}>{formatMsgTime(m)}{m.edited?" · edited":""}{m.html&&!isAg&&isEmailCh?" · 📧 HTML":""}</span>}
                   {isAg&&!isNt&&(isWhatsAppCh?(
                     <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.55)":C.t3}} title={m.whatsapp_message_id?"Sent to WhatsApp":"Pending send"}>{m.whatsapp_message_id?"✓":"..."}</span>
+                  ):isSmsCh?(
+                    <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.55)":C.t3}} title={m.sms_message_id?"Sent via SMS":"Pending send"}>{m.sms_message_id?"✓":"..."}</span>
                   ):(
                     <span style={{fontSize:9,fontFamily:FM,color:isAg?"rgba(255,255,255,.4)":C.t3}}>{m.read!==false?"✓✓":"✓"}</span>
                   ))}
