@@ -74,10 +74,19 @@ router.post('/webhook', async (req, res) => {
       for (const change of entry.changes || []) {
         if (change.field !== 'messages') continue;
         const val = change.value;
-        if (!val?.messages?.length) continue;
 
         const meta = val.metadata || {};
         const phoneNumberId = meta.phone_number_id;
+
+        // ── Process delivery/read/failed status updates from Meta ────────
+        if (val.statuses?.length) {
+          for (const status of val.statuses) {
+            await processStatusUpdate(status);
+          }
+        }
+
+        // ── Process incoming messages ────────────────────────────────────
+        if (!val.messages?.length) continue;
 
         // Find our inbox by phone_number_id stored in config
         const inbox = await findInboxByPhoneNumberId(phoneNumberId);
@@ -98,6 +107,102 @@ router.post('/webhook', async (req, res) => {
     console.error('[whatsapp] Webhook processing error:', err.message);
   }
 });
+
+// ── delivery status processor ─────────────────────────────────────────────────
+
+/**
+ * Process Meta delivery status webhooks.
+ * Meta sends: sent → delivered → read, or failed with error details.
+ * Updates campaign_send_log and campaign stats accordingly.
+ *
+ * Status payload shape:
+ *   { id: "wamid.xxx", status: "delivered"|"read"|"failed"|"sent",
+ *     timestamp: "...", recipient_id: "919...",
+ *     errors?: [{ code: 131047, title: "..." }] }
+ */
+async function processStatusUpdate(status) {
+  const waMessageId = status.id;        // wamid.xxx
+  const waStatus    = status.status;    // sent | delivered | read | failed
+  const recipientId = status.recipient_id;
+  const ts          = status.timestamp
+    ? new Date(Number(status.timestamp) * 1000).toISOString().slice(0, 19).replace('T', ' ')
+    : now();
+  const errorMsg    = status.errors?.map(e => `${e.code}: ${e.title}`).join('; ') || null;
+
+  console.log(`[whatsapp] 📨 Status: ${waStatus} for ${recipientId} (wamid: ${waMessageId})${errorMsg ? ' — Error: ' + errorMsg : ''}`);
+
+  if (!waMessageId) return;
+
+  try {
+    // Look up the campaign send log entry by Meta message ID
+    const logEntry = await db.prepare(
+      'SELECT * FROM campaign_send_log WHERE wa_message_id=?'
+    ).get(waMessageId);
+
+    if (!logEntry) return; // Not a campaign message, skip
+
+    if (waStatus === 'delivered') {
+      await db.prepare(
+        'UPDATE campaign_send_log SET status=?, delivered_at=? WHERE id=?'
+      ).run('delivered', ts, logEntry.id);
+
+      // Update campaign stats
+      await updateCampaignStat(logEntry.campaign_id, 'delivered', 1);
+      console.log(`[whatsapp] ✓ Campaign message delivered to ${recipientId}`);
+
+    } else if (waStatus === 'read') {
+      await db.prepare(
+        'UPDATE campaign_send_log SET status=?, read_at=? WHERE id=?'
+      ).run('read', ts, logEntry.id);
+
+      // Increment read count; also ensure delivered is counted
+      await updateCampaignStat(logEntry.campaign_id, 'read', 1);
+      if (!logEntry.delivered_at) {
+        await db.prepare(
+          'UPDATE campaign_send_log SET delivered_at=? WHERE id=? AND delivered_at IS NULL'
+        ).run(ts, logEntry.id);
+        await updateCampaignStat(logEntry.campaign_id, 'delivered', 1);
+      }
+      console.log(`[whatsapp] ✓ Campaign message read by ${recipientId}`);
+
+    } else if (waStatus === 'failed') {
+      await db.prepare(
+        'UPDATE campaign_send_log SET status=?, error_message=? WHERE id=?'
+      ).run('failed', errorMsg, logEntry.id);
+
+      // Move from sent → failed in campaign stats
+      await updateCampaignStat(logEntry.campaign_id, 'sent', -1);
+      await updateCampaignStat(logEntry.campaign_id, 'failed', 1);
+      console.log(`[whatsapp] ✗ Campaign message failed for ${recipientId}: ${errorMsg}`);
+    }
+
+    // Broadcast status update to dashboard
+    broadcastToAll({
+      type: 'campaign_status_update',
+      campaignId: logEntry.campaign_id,
+      waMessageId,
+      recipientPhone: recipientId,
+      status: waStatus,
+      error: errorMsg,
+    });
+  } catch (err) {
+    console.error('[whatsapp] Status update processing error:', err.message);
+  }
+}
+
+/** Increment/decrement a single stat field on the campaigns table */
+async function updateCampaignStat(campaignId, field, delta) {
+  try {
+    const camp = await db.prepare('SELECT stats FROM campaigns WHERE id=?').get(campaignId);
+    if (!camp) return;
+    const stats = JSON.parse(camp.stats || '{}');
+    stats[field] = (stats[field] || 0) + delta;
+    if (stats[field] < 0) stats[field] = 0;
+    await db.prepare('UPDATE campaigns SET stats=? WHERE id=?').run(JSON.stringify(stats), campaignId);
+  } catch (e) {
+    console.error('[whatsapp] updateCampaignStat error:', e.message);
+  }
+}
 
 // ── core processor ────────────────────────────────────────────────────────────
 

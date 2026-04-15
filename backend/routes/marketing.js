@@ -422,12 +422,17 @@ async function launchCampaign(campaignRow, agentId) {
   const campaign = normalizeCampaignRow(campaignRow);
   if (!campaign) throw marketingError('Campaign not found', 404);
 
-  // Prevent double-launch
+  // Prevent double-launch (but allow re-sending already-sent campaigns)
   if (sendingCampaigns.has(campaign.id)) {
     throw marketingError('Campaign is already being sent', 422, { campaign });
   }
+
+  // If re-sending a previously sent campaign, clear old send logs and reset stats
   if (campaign.status === 'sent') {
-    throw marketingError('Campaign has already been sent', 422, { campaign });
+    await db.prepare('DELETE FROM campaign_send_log WHERE campaign_id=?').run(campaign.id);
+    await db.prepare('UPDATE campaigns SET stats=?, sent_at=NULL WHERE id=? AND agent_id=?').run(
+      JSON.stringify({}), campaign.id, agentId
+    );
   }
 
   sendingCampaigns.add(campaign.id);
@@ -567,6 +572,7 @@ async function launchCampaign(campaignRow, agentId) {
       const phone = normalizePhone(recipient.phone);
 
       try {
+        let metaResponse = null;
         if (whatsappSvc && inbox) {
           if (waTpl) {
             // Send using approved Meta template
@@ -584,7 +590,7 @@ async function launchCampaign(campaignRow, agentId) {
               );
             }
 
-            await whatsappSvc.sendWhatsAppTemplate({
+            metaResponse = await whatsappSvc.sendWhatsAppTemplate({
               inboxId: inbox.id,
               to: phone,
               templateName: waTpl.name,
@@ -597,7 +603,7 @@ async function launchCampaign(campaignRow, agentId) {
           } else {
             // Send as plain text (only works within 24-hour window)
             const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
-            await whatsappSvc.sendWhatsAppMessage({
+            metaResponse = await whatsappSvc.sendWhatsAppMessage({
               inboxId: inbox.id,
               to: phone,
               text: mergedBody || campaign.name || 'Campaign message',
@@ -605,11 +611,14 @@ async function launchCampaign(campaignRow, agentId) {
           }
         }
 
-        sent += 1;
-        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent' });
+        // Extract Meta message ID (wamid) for delivery tracking via webhooks
+        const waMessageId = metaResponse?.messages?.[0]?.id || null;
 
-        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)').run(
-          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'whatsapp', 'sent', nowIso()
+        sent += 1;
+        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent', waMessageId });
+
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at,wa_message_id) VALUES (?,?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'whatsapp', 'sent', nowIso(), waMessageId
         );
       } catch (err) {
         failed += 1;
@@ -631,7 +640,8 @@ async function launchCampaign(campaignRow, agentId) {
       });
     }
 
-    const stats = { ...campaign.stats, sent, delivered: sent, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
+    // delivered starts at 0 — real delivery is tracked via Meta status webhooks
+    const stats = { ...campaign.stats, sent, delivered: 0, opens: 0, clicks: 0, failed, unsub: Number(campaign.stats?.unsub || 0) };
     const finalStatus = sent ? 'sent' : 'failed';
     const updated = await persistCampaignLaunch(campaign.id, agentId, { status: finalStatus, sentAt: sent ? nowIso() : null, stats });
     broadcastCampaignProgress(campaign.id, { status: sent ? 'completed' : 'failed', total: recipients.length, sent, failed, channel: 'whatsapp' });

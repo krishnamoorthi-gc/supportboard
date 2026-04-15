@@ -1238,6 +1238,17 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('campaign_send_log table:', e.message); }
 
+    // ── campaign_send_log: add wa_message_id for delivery tracking ──────
+    try {
+      const cslCols = await query('SHOW COLUMNS FROM campaign_send_log');
+      const cslColNames = new Set(cslCols.map(c => c.Field));
+      if (!cslColNames.has('wa_message_id')) {
+        await run('ALTER TABLE campaign_send_log ADD COLUMN wa_message_id VARCHAR(512) NULL');
+        await run('ALTER TABLE campaign_send_log ADD INDEX idx_csl_wa_msg_id (wa_message_id)');
+        console.log('✅ Added wa_message_id to campaign_send_log');
+      }
+    } catch (e) { console.error('campaign_send_log wa_message_id:', e.message); }
+
     // ── chat_messages: add seen_by + fix text charset ──────────────────
     try {
       const chatMsgCols = await query('SHOW COLUMNS FROM chat_messages');
