@@ -1318,6 +1318,8 @@ app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/wa-templates', require('./routes/whatsappTemplates'));
 // Instagram Messaging webhook (GET = Meta verification challenge, no auth required)
 app.use('/api/instagram', require('./routes/instagram'));
+// SMS (Twilio) inbound webhook + delivery status callbacks (public, no auth)
+app.use('/api/sms', require('./routes/sms'));
 
 // Live monitor - real visitor sessions
 app.use('/api/monitor', require('./middleware/auth'), require('./routes/monitor'));

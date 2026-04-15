@@ -525,7 +525,7 @@ function InboxSet({inboxes,setInboxes}){
     facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"appId",l:"App ID",ph:"933722449370118"},{k:"appSecret",l:"App Secret",ph:"abc123def456..."},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"}],
     instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_ig_verify_token"}],
     email:[{k:"imapHost",l:"IMAP Host",ph:"imap.gmail.com"},{k:"imapPort",l:"IMAP Port",ph:"993"},{k:"smtpHost",l:"SMTP Host",ph:"smtp.gmail.com"},{k:"smtpPort",l:"SMTP Port",ph:"587"},{k:"emailUser",l:"Email Address",ph:"support@yourcompany.com"},{k:"emailPass",l:"Password / App Password",ph:"••••••••"}],
-    sms:[{k:"phoneNumber",l:"Phone Number",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Auth Token",ph:"xxxxxxxxxx"}],
+    sms:[{k:"phoneNumber",l:"Twilio Phone Number (From)",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Twilio Auth Token",ph:"xxxxxxxxxx"},{k:"webhookUrl",l:"Inbound Webhook URL (set in Twilio)",ph:"https://yoursite.com/api/sms/webhook"}],
     viber:[{k:"botToken",l:"Bot Token",ph:"xxxx-xxxx-xxxx"},{k:"webhookUrl",l:"Webhook URL",ph:"https://..."}],
     line:[{k:"accessToken",l:"Channel Access Token",ph:"xxxx"},{k:"apiKey",l:"Channel Secret",ph:"xxxx"}],
     tiktok:[{k:"accessToken",l:"Access Token",ph:"act.xxxx"},{k:"apiKey",l:"App Secret",ph:"xxxx"}],

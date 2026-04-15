@@ -141,6 +141,26 @@ export default function MarketingScr({contacts,pushNotification}){
             setTimeout(()=>setCampProgress(null),5000);
           }
         }
+        // Real-time campaign delivery status updates (WhatsApp + SMS)
+        if(data?.type==="campaign_status_update"&&data.campaignId){
+          setCamps(p=>p.map(c=>{
+            if(c.id!==data.campaignId)return c;
+            const stats={...(c.stats||{})};
+            if(data.status==="delivered")stats.delivered=(stats.delivered||0)+1;
+            if(data.status==="read")stats.opens=(stats.opens||0)+1;
+            if(data.status==="failed"||data.status==="undelivered"){stats.failed=(stats.failed||0)+1;stats.sent=Math.max((stats.sent||0)-1,0);}
+            return{...c,stats};
+          }));
+        }
+        // Real-time SMS campaign reply
+        if(data?.type==="campaign_sms_reply"&&data.campaignId){
+          setCamps(p=>p.map(c=>{
+            if(c.id!==data.campaignId)return c;
+            const stats={...(c.stats||{})};
+            stats.replies=(stats.replies||0)+1;
+            return{...c,stats};
+          }));
+        }
       }catch{}
     };
     const ws=(window as any).__ws;

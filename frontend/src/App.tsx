@@ -567,8 +567,8 @@ export default function App(){
           // Sound + notification for customer messages
           if(msg.role==="customer"||msg.role==="contact"){
             const ch=m.conversation?.inbox_type||m.conversation?.channel||"";
-            const chIcon=ch==="whatsapp"?"💬":ch==="facebook"?"💬":ch==="instagram"?"📸":ch==="email"?"📧":"💬";
-            const chLabel=ch==="whatsapp"?"WhatsApp":ch==="facebook"?"Facebook":ch==="instagram"?"Instagram":ch==="email"?"Email":"";
+            const chIcon=ch==="whatsapp"?"💬":ch==="facebook"?"💬":ch==="instagram"?"📸":ch==="email"?"📧":ch==="sms"?"📱":"💬";
+            const chLabel=ch==="whatsapp"?"WhatsApp":ch==="facebook"?"Facebook":ch==="instagram"?"Instagram":ch==="email"?"Email":ch==="sms"?"SMS":"";
             const senderName=m.conversation?.contact_name||"Customer";
             const preview=msg.text?.slice(0,60)||(Array.isArray(msg.attachments)&&msg.attachments.length>0?"📷 Image":"New message");
             const notifText=chLabel?`${chIcon} ${chLabel} · ${senderName}: ${preview}`:`${chIcon} ${senderName}: ${preview}`;

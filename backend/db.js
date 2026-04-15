@@ -992,6 +992,12 @@ async function ensureSchemaColumns() {
         await run('ALTER TABLE messages ADD INDEX idx_wa_message_id (whatsapp_message_id)');
         console.log('✅ Added whatsapp_message_id to messages');
       }
+      // ── sms_message_id for Twilio SMS dedup/tracking ─────────────────
+      if (!msgCols.has('sms_message_id')) {
+        await run('ALTER TABLE messages ADD COLUMN sms_message_id VARCHAR(512) NULL');
+        await run('ALTER TABLE messages ADD INDEX idx_sms_message_id (sms_message_id)');
+        console.log('✅ Added sms_message_id to messages');
+      }
       // ── html column for original email HTML body ─────────────────────
       if (!msgCols.has('html')) {
         await run('ALTER TABLE messages ADD COLUMN html MEDIUMTEXT CHARACTER SET utf8mb4 NULL');
@@ -1247,7 +1253,12 @@ async function ensureSchemaColumns() {
         await run('ALTER TABLE campaign_send_log ADD INDEX idx_csl_wa_msg_id (wa_message_id)');
         console.log('✅ Added wa_message_id to campaign_send_log');
       }
-    } catch (e) { console.error('campaign_send_log wa_message_id:', e.message); }
+      if (!cslColNames.has('sms_message_id')) {
+        await run('ALTER TABLE campaign_send_log ADD COLUMN sms_message_id VARCHAR(512) NULL');
+        await run('ALTER TABLE campaign_send_log ADD INDEX idx_csl_sms_msg_id (sms_message_id)');
+        console.log('✅ Added sms_message_id to campaign_send_log');
+      }
+    } catch (e) { console.error('campaign_send_log wa_message_id/sms_message_id:', e.message); }
 
     // ── chat_messages: add seen_by + fix text charset ──────────────────
     try {

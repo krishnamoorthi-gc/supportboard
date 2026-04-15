@@ -6,6 +6,7 @@ const { sendEmail, extractVisibleEmailText } = require('../services/emailService
 const { sendFacebookMessage, normalizeFacebookRecipientId } = require('../services/facebookService');
 const { sendWhatsAppMessage } = require('../services/whatsappService');
 const { sendInstagramMessage, normalizeInstagramRecipientId } = require('../services/instagramService');
+const { sendSms: sendSmsMessage, normalizePhone: normalizeSmsPhone } = require('../services/smsService');
 const { broadcastToAll } = require('../ws');
 
 function parseAttachments(value) {
@@ -395,9 +396,33 @@ router.post('/:id/messages', auth, async (req, res) => {
     }
   }
 
+  // ── SMS send ─────────────────────────────────────────────────────────────
+  let smsResult = null;
+  if (role === 'agent' && conv.inbox_type === 'sms') {
+    const { toPhone } = req.body;
+    const recipientPhone = normalizeSmsPhone(toPhone || conv.contact_phone || '');
+    if (!recipientPhone || recipientPhone.replace(/\D/g, '').length < 10) {
+      return res.status(400).json({ error: 'Valid phone number missing for this SMS conversation' });
+    }
+    try {
+      const statusCallback = process.env.PUBLIC_URL
+        ? `${process.env.PUBLIC_URL}/api/sms/status`
+        : undefined;
+      smsResult = await sendSmsMessage({
+        inboxId:        conv.inbox_id_val,
+        to:             recipientPhone,
+        text:           text || '',
+        statusCallback,
+      });
+    } catch (smsErr) {
+      console.error('[conversations] SMS send failed:', smsErr.message);
+      return res.status(502).json({ error: `SMS delivery failed: ${smsErr.message}` });
+    }
+  }
+
   const id = uid();
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,whatsapp_message_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run(
+  await db.prepare('INSERT INTO messages (id,conversation_id,role,text,agent_id,attachments,email_message_id,whatsapp_message_id,sms_message_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
     id,
     req.params.id,
     role,
@@ -406,6 +431,7 @@ router.post('/:id/messages', auth, async (req, res) => {
     JSON.stringify(normalizedAttachments),
     smtpResult?.smtpMessageId || null,
     waResult?.messages?.[0]?.id || fbResult?.message_id || igResult?.message_id || null,
+    smsResult?.sid || null,
     createdAt
   );
 
@@ -477,6 +503,11 @@ router.post('/:id/messages', auth, async (req, res) => {
       delivered: true,
       messageId: igResult?.message_id,
       recipientId: igResult?.recipient_id,
+    } : null,
+    sms: smsResult ? {
+      delivered: true,
+      messageSid: smsResult?.sid,
+      status: smsResult?.status,
     } : null,
   });
 });

@@ -359,7 +359,10 @@ async function getLaunchableSmsInbox(agentId) {
 
   return inboxes.find(inbox => {
     const cfg = normalizeInboxConfig(inbox.config);
-    return !!(cfg.accountSid && cfg.authToken && cfg.fromNumber);
+    const hasSid = !!(cfg.accountSid || cfg.apiKey);
+    const hasToken = !!(cfg.authToken || cfg.accessToken);
+    const hasFrom = !!(cfg.fromNumber || cfg.phoneNumber);
+    return hasSid && hasToken && hasFrom;
   }) || null;
 }
 
@@ -828,20 +831,25 @@ async function launchCampaign(campaignRow, agentId) {
       const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
 
       try {
+        let twilioResult = null;
         if (smsSvc?.sendSms && inbox) {
-          await smsSvc.sendSms({
+          const statusCallback = process.env.PUBLIC_URL
+            ? `${process.env.PUBLIC_URL}/api/sms/status`
+            : undefined;
+          twilioResult = await smsSvc.sendSms({
             inboxId: inbox.id,
             to: phone,
             text: mergedBody || campaign.name || 'Campaign message',
+            statusCallback,
           });
         }
         // If no SMS service, still log as sent (simulated)
 
         sent += 1;
-        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent' });
+        results.push({ phone: recipient.phone, name: recipient.name || null, status: 'sent', sid: twilioResult?.sid || null });
 
-        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at) VALUES (?,?,?,?,?,?,?,?)').run(
-          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'sms', 'sent', nowIso()
+        await db.prepare('INSERT INTO campaign_send_log (id,campaign_id,contact_id,contact_name,contact_phone,channel,status,sent_at,sms_message_id) VALUES (?,?,?,?,?,?,?,?,?)').run(
+          uid(), campaign.id, recipient.id || null, recipient.name || null, recipient.phone, 'sms', 'sent', nowIso(), twilioResult?.sid || null
         );
       } catch (err) {
         failed += 1;
