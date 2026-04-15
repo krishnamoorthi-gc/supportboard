@@ -73,6 +73,7 @@ router.post('/login', async (req, res) => {
   );
 
   const { password_hash, two_fa_secret, ...safe } = agent;
+  safe.permissions = safe.permissions ? (typeof safe.permissions === 'string' ? JSON.parse(safe.permissions) : safe.permissions) : null;
   res.json({ token, agent: safe });
 });
 
@@ -88,12 +89,14 @@ router.post('/2fa', async (req, res) => {
 
   const token = jwt.sign({ id: agent.id, email: agent.email, role: agent.role }, SECRET(), { expiresIn: '30d' });
   const { password_hash, two_fa_secret, ...safe } = agent;
+  safe.permissions = safe.permissions ? (typeof safe.permissions === 'string' ? JSON.parse(safe.permissions) : safe.permissions) : null;
   res.json({ token, agent: safe });
 });
 
 // GET /api/auth/me
 router.get('/me', auth, (req, res) => {
   const { password_hash, two_fa_secret, ...safe } = req.agent;
+  safe.permissions = safe.permissions ? (typeof safe.permissions === 'string' ? JSON.parse(safe.permissions) : safe.permissions) : null;
   res.json({ agent: safe });
 });
 
