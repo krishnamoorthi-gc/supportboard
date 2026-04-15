@@ -206,10 +206,12 @@ function mimeTypeToExt(mime) {
  * @param {string}   opts.templateName   - Approved Meta template name
  * @param {string}   opts.language       - Language code, e.g. 'en_US'
  * @param {Array}    [opts.bodyParams]   - Array of string values for {{1}}, {{2}} ... body variables
- * @param {Array}    [opts.headerParams] - Array of string values for {{1}} ... header variables
+ * @param {Array}    [opts.headerParams] - Array of string values for {{1}} ... header text variables
+ * @param {string}   [opts.headerType]   - Header type: NONE, TEXT, IMAGE, VIDEO, DOCUMENT
+ * @param {string}   [opts.headerMediaUrl] - URL for IMAGE/VIDEO/DOCUMENT headers
  * @returns {object}  Meta API response
  */
-async function sendWhatsAppTemplate({ inboxId, to, templateName, language = 'en_US', bodyParams = [], headerParams = [] }) {
+async function sendWhatsAppTemplate({ inboxId, to, templateName, language = 'en_US', bodyParams = [], headerParams = [], headerType = 'NONE', headerMediaUrl = '' }) {
   const phoneNumberId = await getPhoneNumberId(inboxId);
   const accessToken   = await getAccessToken(inboxId);
 
@@ -218,10 +220,26 @@ async function sendWhatsAppTemplate({ inboxId, to, templateName, language = 'en_
 
   const components = [];
 
-  if (headerParams.length) {
+  // Header component — handle TEXT vars and IMAGE/VIDEO/DOCUMENT media
+  if (headerType === 'TEXT' && headerParams.length) {
     components.push({
       type: 'header',
       parameters: headerParams.map(v => ({ type: 'text', text: String(v) })),
+    });
+  } else if (headerType === 'IMAGE' && headerMediaUrl) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: 'image', image: { link: headerMediaUrl } }],
+    });
+  } else if (headerType === 'VIDEO' && headerMediaUrl) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: 'video', video: { link: headerMediaUrl } }],
+    });
+  } else if (headerType === 'DOCUMENT' && headerMediaUrl) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: 'document', document: { link: headerMediaUrl } }],
     });
   }
 

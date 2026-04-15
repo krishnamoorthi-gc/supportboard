@@ -184,6 +184,7 @@ export default function MarketingScr({contacts,pushNotification}){
     if(!/^[a-z0-9_]+$/.test(waTplName))return showT("Name must be lowercase letters, numbers, underscores only","error");
     if(!waTplBody.trim())return showT("Body text required","error");
     if(!waTplInboxId)return showT("Select a WhatsApp inbox","error");
+    if(waTplHeaderType==="TEXT"&&!waTplHeaderText.trim()){setWaTplHeaderType("NONE");} // auto-fix empty TEXT header
     setWaTplSubmitting(true);
     try{
       const r=await api.post("/wa-templates",{name:waTplName,category:waTplCategory,language:waTplLanguage,header_type:waTplHeaderType,header_text:waTplHeaderText,body:waTplBody,footer:waTplFooter,buttons:waTplButtons,inbox_id:waTplInboxId});
@@ -1139,7 +1140,15 @@ export default function MarketingScr({contacts,pushNotification}){
                   <Tag text={t.category} color={t.category==="MARKETING"?C.a:t.category==="UTILITY"?C.cy:C.p}/>
                   <Tag text={WA_LANGS.find(l=>l.v===t.language)?.l||t.language} color={C.t3}/>
                 </div>
-                {t.rejection_reason&&<div style={{fontSize:10,color:C.r,background:C.rd,borderRadius:6,padding:"6px 10px",marginBottom:6}}>Rejected: {t.rejection_reason}</div>}
+                {t.rejection_reason&&t.rejection_reason!=="NONE"&&<div style={{fontSize:10,color:C.r,background:C.rd,borderRadius:6,padding:"6px 10px",marginBottom:6}}>Rejected: {t.rejection_reason}</div>}
+                {["IMAGE","VIDEO","DOCUMENT"].includes(t.header_type)&&!t.header_media_url&&<div style={{fontSize:10,color:C.y,background:C.yd,borderRadius:6,padding:"6px 10px",marginBottom:6}}>
+                  {t.header_type} header needs a public media URL to send.
+                  <button onClick={()=>{const url=prompt("Enter public "+t.header_type.toLowerCase()+" URL (https://...):");if(url&&url.startsWith("http")){api.patch(`/wa-templates/${t.id}`,{header_media_url:url}).then(r=>{if(r?.template){setWaTpls(p=>p.map(x=>x.id===t.id?r.template:x));showT("Media URL saved","success");}}).catch(()=>showT("Failed to save","error"));}}} style={{marginLeft:6,fontSize:9,fontWeight:700,color:C.a,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Set URL</button>
+                </div>}
+                {["IMAGE","VIDEO","DOCUMENT"].includes(t.header_type)&&t.header_media_url&&<div style={{fontSize:9,color:C.g,marginBottom:4}}>
+                  {t.header_type} URL set
+                  <button onClick={()=>{const url=prompt("Update "+t.header_type.toLowerCase()+" URL:",t.header_media_url);if(url&&url.startsWith("http")){api.patch(`/wa-templates/${t.id}`,{header_media_url:url}).then(r=>{if(r?.template){setWaTpls(p=>p.map(x=>x.id===t.id?r.template:x));showT("Media URL updated","success");}}).catch(()=>showT("Failed","error"));}}} style={{marginLeft:4,fontSize:9,color:C.cy,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Edit</button>
+                </div>}
               </div>
               {/* Template body preview */}
               <div style={{padding:"12px 16px",background:C.bg,borderBottom:`1px solid ${C.b1}`}}>
@@ -1396,7 +1405,7 @@ export default function MarketingScr({contacts,pushNotification}){
 
     {/* ═══ CREATE/EDIT MODAL ═══ */}
     {showModal&&<MktModal2 editCamp={editCamp} defaultCh={modalCh} segments={segments} contacts={contacts} groups={groups} userTemplates={templates} onClose={()=>{setShowModal(false);setEditCamp(null);setModalCh(null);}} onSave={async(camp)=>{
-      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.audMode==="segments"?camp.segmentId||null:null,audience_mode:camp.audMode||"segments",selected_contacts:camp.selectedContacts||[],scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0,launch_now:camp.status==="active",wa_template_id:camp.wa_template_id||null};
+      const apiPayload={name:camp.name,type:camp.ch,goal:camp.goal,status:camp.status,subject:camp.subject||null,body:camp.template||null,segment_id:camp.audMode==="segments"?camp.segmentId||null:null,audience_mode:camp.audMode||"segments",selected_contacts:camp.selectedContacts||[],scheduled_at:camp.schedDate||null,ab_test:camp.ab?1:0,launch_now:camp.status==="active",wa_template_id:camp.wa_template_id||null,header_media_url:camp.header_media_url||null};
       if(editCamp){
         setCamps(p=>p.map(c=>c.id===editCamp.id?{...c,...camp}:c));
         if(!api.isConnected())showT("Campaign updated","success");
@@ -1469,7 +1478,10 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   // WA Template selection for WhatsApp campaigns
   const [waTemplateId,setWaTemplateId]=useState(editCamp?.wa_template_id||"");
   const [approvedWaTpls,setApprovedWaTpls]=useState<any[]>([]);
-  useEffect(()=>{if(ch==="whatsapp"){api.get("/marketing/wa-templates-approved").then(r=>{if(r?.templates)setApprovedWaTpls(r.templates);}).catch(()=>{});}},  [ch]);
+  const [waHeaderMediaUrl,setWaHeaderMediaUrl]=useState("");
+  useEffect(()=>{if(ch==="whatsapp"){api.get("/wa-templates").then(r=>{if(r?.templates)setApprovedWaTpls(r.templates.filter((t:any)=>t.status==="approved"));}).catch(()=>{});}}, [ch]);
+  const selectedWaTpl=approvedWaTpls.find(t=>t.id===waTemplateId);
+  const needsMediaUrl=selectedWaTpl&&["IMAGE","VIDEO","DOCUMENT"].includes(selectedWaTpl.header_type);
   const [ab,setAb]=useState(editCamp?.ab||false);
   const [aiLoading,setAiLoading]=useState(false);
   const [audMode,setAudMode]=useState<"segments"|"individual"|"groups">(editCamp?.audMode||"segments");
@@ -1567,7 +1579,8 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
     const v=validate();
     if(v.errs.length>0&&asStatus!=="draft"){showT("Fix "+v.errs.length+" error"+(v.errs.length>1?"s":"")+" before sending","error");return;}
     if(v.warns.length>0&&asStatus==="active"&&!window.confirm(v.warns.length+" warning"+(v.warns.length>1?"s":"")+": "+v.warns[0]+(v.warns.length>1?" (+more)":"")+"\n\nSend anyway?"))return;
-    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:[],audMode,wa_template_id:ch==="whatsapp"&&waTemplateId?waTemplateId:null});
+    if(needsMediaUrl&&!waHeaderMediaUrl&&asStatus!=="draft"){return showT("Image/media URL required for this template's header","error");}
+    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:[],audMode,wa_template_id:ch==="whatsapp"&&waTemplateId?waTemplateId:null,header_media_url:waHeaderMediaUrl||null});
   };
 
   return <Mdl title={editCamp?"Edit Campaign":"New Campaign"} onClose={onClose} w={600}>
@@ -1622,11 +1635,16 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
       </Fld>}
       {/* WA Approved Template Selector (for WhatsApp campaigns) */}
       {ch==="whatsapp"&&<Fld label="Meta-Approved Template (Recommended)">
-        <select value={waTemplateId} onChange={e=>{setWaTemplateId(e.target.value);const sel=approvedWaTpls.find(t=>t.id===e.target.value);if(sel)setBody(sel.body||"");}} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB}}>
+        <select value={waTemplateId} onChange={e=>{setWaTemplateId(e.target.value);setWaHeaderMediaUrl("");const sel=approvedWaTpls.find(t=>t.id===e.target.value);if(sel){setBody(sel.body||"");if(sel.header_media_url)setWaHeaderMediaUrl(sel.header_media_url);}}} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB}}>
           <option value="">None (plain text — only works within 24h window)</option>
-          {approvedWaTpls.map(t=><option key={t.id} value={t.id}>{t.name} ({t.category} · {t.language})</option>)}
+          {approvedWaTpls.map(t=><option key={t.id} value={t.id}>{t.name} ({t.category} · {t.language}){["IMAGE","VIDEO","DOCUMENT"].includes(t.header_type)?" ["+t.header_type+"]":""}</option>)}
         </select>
-        {waTemplateId&&<div style={{marginTop:6,padding:"8px 10px",background:"#25d36610",border:"1px solid #25d36633",borderRadius:7,fontSize:10,color:"#25d366",lineHeight:1.5}}>Using approved template — message variables will be auto-filled per contact. Body below is for preview only.</div>}
+        {waTemplateId&&!needsMediaUrl&&<div style={{marginTop:6,padding:"8px 10px",background:"#25d36610",border:"1px solid #25d36633",borderRadius:7,fontSize:10,color:"#25d366",lineHeight:1.5}}>Using approved template — message variables will be auto-filled per contact.</div>}
+        {needsMediaUrl&&<div style={{marginTop:8}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.t2,marginBottom:4}}>{selectedWaTpl.header_type} Header URL (required)</div>
+          <input value={waHeaderMediaUrl} onChange={e=>setWaHeaderMediaUrl(e.target.value)} placeholder={"https://example.com/image.jpg"} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${waHeaderMediaUrl?C.b1:C.r+"66"}`,background:C.bg,color:C.t1,fontSize:12,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+          {!waHeaderMediaUrl&&<div style={{fontSize:9,color:C.r,marginTop:3}}>This template requires a public {selectedWaTpl.header_type.toLowerCase()} URL. Upload your image to any hosting service and paste the URL here.</div>}
+        </div>}
         {!waTemplateId&&<div style={{marginTop:4,fontSize:9,color:C.y,lineHeight:1.4}}>Without an approved template, WhatsApp only allows messages within 24h of the last customer message. Use a Meta-approved template for broadcast campaigns.</div>}
       </Fld>}
       {ch==="email"&&<Fld label="Subject Line">
@@ -2072,9 +2090,23 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
   const [showDelConfirm,setShowDelConfirm]=useState(false);
   const [responses,setResponses]=useState([]);
   const [responsesLoaded,setResponsesLoaded]=useState(false);
+  // Send log state
+  const [sendLog,setSendLog]=useState<any[]>([]);
+  const [sendLogLoaded,setSendLogLoaded]=useState(false);
+  const [sendLogLoading,setSendLogLoading]=useState(false);
+  const loadSendLog=async()=>{
+    if(sendLogLoaded||sendLogLoading||!api.isConnected())return;
+    setSendLogLoading(true);
+    try{
+      const r=await api.get(`/marketing/campaigns/${camp.id}/log`);
+      if(r?.logs)setSendLog(r.logs);
+      setSendLogLoaded(true);
+    }catch(e:any){showT(e.message||"Failed to load send log","error");}
+    setSendLogLoading(false);
+  };
   const c=camp;
   const dr=mktPct(c.delivered,c.sent),rr=mktPct(c.read,c.delivered),cr=mktPct(c.clicked,c.read),fr=mktPct(c.failed,c.sent);
-  const tabs=[{id:"overview",l:"Overview"},{id:"content",l:"Content"},{id:"audience",l:"Audience"},{id:"responses",l:`Responses`}];
+  const tabs=[{id:"overview",l:"Overview"},{id:"content",l:"Content"},{id:"sendlog",l:"Send Log"},{id:"audience",l:"Audience"},{id:"responses",l:`Responses`}];
   if(c.ab)tabs.push({id:"abtest",l:"A/B Results"});
   tabs.push({id:"settings",l:"Settings"});
 
@@ -2181,6 +2213,43 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
             </div>
             <div style={{fontSize:10,color:C.t3,marginTop:6}}>Send a test version of this campaign to verify formatting and content before sending to your full audience.</div>
           </div>
+        </>}
+
+        {/* ── Send Log ── */}
+        {dtab==="sendlog"&&<>
+          {!sendLogLoaded&&<div style={{textAlign:"center",padding:20}}>
+            <Btn ch={sendLogLoading?"Loading…":"Load Send Log"} v="primary" onClick={loadSendLog}/>
+          </div>}
+          {sendLogLoaded&&sendLog.length===0&&<EmptyState icon="📋" title="No send log" desc="No messages have been sent for this campaign yet."/>}
+          {sendLogLoaded&&sendLog.length>0&&<>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+              {[{l:"Total Sent",v:sendLog.length,c2:C.a},{l:"Delivered",v:sendLog.filter(l=>l.status==="sent"||l.status==="delivered").length,c2:C.g},{l:"Failed",v:sendLog.filter(l=>l.status==="failed").length,c2:C.r},{l:"Read",v:sendLog.filter(l=>l.read_at).length,c2:C.p}].map(k=>(
+                <div key={k.l} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,padding:"12px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginBottom:4}}>{k.l}</div>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:k.c2}}>{k.v}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
+              <div style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 0.8fr 0.8fr 1.2fr",padding:"8px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>
+                {["Contact","Phone / Email","Channel","Status","Sent At"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.3px"}}>{h}</span>)}
+              </div>
+              {sendLog.map(log=>(
+                <div key={log.id} style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 0.8fr 0.8fr 1.2fr",padding:"10px 14px",borderBottom:`1px solid ${C.b1}11`,alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:C.t1}}>{log.contact_name||"Unknown"}</div>
+                  </div>
+                  <div style={{fontSize:11,color:C.t2,fontFamily:FM}}>{log.contact_phone||log.contact_email||"—"}</div>
+                  <Tag text={log.channel||"whatsapp"} color={mktChC(log.channel||"whatsapp")}/>
+                  <span style={{fontSize:10,fontWeight:700,fontFamily:FM,padding:"2px 8px",borderRadius:10,background:log.status==="sent"||log.status==="delivered"?C.g+"18":C.r+"18",color:log.status==="sent"||log.status==="delivered"?C.g:C.r}}>{log.status}</span>
+                  <div>
+                    <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{log.sent_at?new Date(log.sent_at).toLocaleString():"—"}</div>
+                    {log.error_message&&<div style={{fontSize:9,color:C.r,marginTop:2,lineHeight:1.3}}>{log.error_message.slice(0,80)}{log.error_message.length>80?"…":""}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>}
         </>}
 
         {/* ── Audience ── */}

@@ -65,31 +65,39 @@ async function resolveWabaId(cfg) {
 function buildComponents({ headerType, headerText, headerMediaUrl, body, footer, buttons }) {
   const components = [];
 
+  // Only add header if it has actual content
   if (headerType && headerType !== 'NONE') {
-    if (headerType === 'TEXT') {
-      components.push({ type: 'HEADER', format: 'TEXT', text: headerText || '' });
-    } else {
-      // IMAGE | VIDEO | DOCUMENT
+    if (headerType === 'TEXT' && headerText && headerText.trim()) {
+      const hdr = { type: 'HEADER', format: 'TEXT', text: headerText.trim() };
+      // If header has variables like {{1}}, add example
+      const hdrVars = headerText.match(/\{\{(\d+)\}\}/g) || [];
+      if (hdrVars.length) {
+        hdr.example = { header_text: hdrVars.map((_, i) => `Sample${i + 1}`) };
+      }
+      components.push(hdr);
+    } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && headerMediaUrl && headerMediaUrl.trim()) {
       components.push({
         type: 'HEADER',
         format: headerType,
-        example: { header_handle: [headerMediaUrl || ''] },
+        example: { header_handle: [headerMediaUrl.trim()] },
       });
     }
+    // Skip header entirely if TEXT but empty, or IMAGE/VIDEO/DOCUMENT but no URL
   }
 
   if (body) {
     const bodyComp = { type: 'BODY', text: body };
-    // Extract {{1}}, {{2}} ... placeholders as example values
+    // Extract {{1}}, {{2}} ... placeholders and provide realistic example values
     const vars = body.match(/\{\{(\d+)\}\}/g) || [];
     if (vars.length) {
-      bodyComp.example = { body_text: [vars.map((_, i) => `Value${i + 1}`)] };
+      const examples = ['John', 'Doe', 'john@email.com', 'Acme Corp', '$100', 'SAVE20', 'https://example.com', 'Pro Plan', 'ORD-1234', 'Mar 31'];
+      bodyComp.example = { body_text: [vars.map((_, i) => examples[i] || `Example${i + 1}`)] };
     }
     components.push(bodyComp);
   }
 
-  if (footer) {
-    components.push({ type: 'FOOTER', text: footer });
+  if (footer && footer.trim()) {
+    components.push({ type: 'FOOTER', text: footer.trim() });
   }
 
   const parsedButtons = safeJson(buttons, []);
@@ -125,7 +133,7 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
-    const {
+    let {
       name,
       category    = 'MARKETING',
       language    = 'en_US',
@@ -141,6 +149,11 @@ router.post('/', auth, async (req, res) => {
     if (!name)     return res.status(400).json({ error: 'name is required' });
     if (!body)     return res.status(400).json({ error: 'body is required' });
     if (!inbox_id) return res.status(400).json({ error: 'inbox_id is required' });
+
+    // Auto-fix: if header type is TEXT but no text provided, treat as NONE
+    if (header_type === 'TEXT' && !header_text?.trim()) header_type = 'NONE';
+    // Auto-fix: if header type is IMAGE/VIDEO/DOCUMENT but no URL, treat as NONE
+    if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(header_type) && !header_media_url?.trim()) header_type = 'NONE';
 
     // Validate template name — Meta requires lowercase alphanumeric + underscores only
     if (!/^[a-z0-9_]+$/.test(name)) {
@@ -236,6 +249,41 @@ router.post('/', auth, async (req, res) => {
     });
   } catch (e) {
     console.error('❌ POST /api/wa-templates:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── PATCH /api/wa-templates/:id — update template fields (media URL etc.) ──────
+
+router.patch('/:id', auth, async (req, res) => {
+  try {
+    const row = await db.prepare(
+      'SELECT * FROM whatsapp_meta_templates WHERE id=? AND agent_id=?'
+    ).get(req.params.id, req.agent.id);
+    if (!row) return res.status(404).json({ error: 'Template not found' });
+
+    const fields = ['header_media_url', 'header_text', 'footer'];
+    const updates = {};
+    for (const f of fields) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    if (!Object.keys(updates).length) {
+      return res.json({
+        template: { ...row, buttons: safeJson(row.buttons, []), components: safeJson(row.components, []) },
+      });
+    }
+
+    const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
+    await db.prepare(
+      `UPDATE whatsapp_meta_templates SET ${sets}, updated_at=NOW() WHERE id=? AND agent_id=?`
+    ).run(...Object.values(updates), req.params.id, req.agent.id);
+
+    const updated = await db.prepare('SELECT * FROM whatsapp_meta_templates WHERE id=?').get(req.params.id);
+    res.json({
+      template: { ...updated, buttons: safeJson(updated.buttons, []), components: safeJson(updated.components, []) },
+    });
+  } catch (e) {
+    console.error('❌ PATCH /api/wa-templates/:id:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

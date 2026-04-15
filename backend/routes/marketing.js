@@ -572,6 +572,18 @@ async function launchCampaign(campaignRow, agentId) {
             // Send using approved Meta template
             const bodyVars = extractTemplateVars(waTpl.body || '', recipient);
             const headerVars = waTpl.header_type === 'TEXT' ? extractTemplateVars(waTpl.header_text || '', recipient) : [];
+
+            // For IMAGE/VIDEO/DOCUMENT headers, Meta requires a valid public media URL
+            const hdrType = waTpl.header_type || 'NONE';
+            // Use campaign-level override, then template-level stored URL
+            const mediaUrl = campaignRow.header_media_url || waTpl.header_media_url || '';
+            if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(hdrType) && !mediaUrl) {
+              throw new Error(
+                `Template "${waTpl.name}" has a ${hdrType} header but no media URL is set. ` +
+                `Edit the template in WA Templates and add a public media URL.`
+              );
+            }
+
             await whatsappSvc.sendWhatsAppTemplate({
               inboxId: inbox.id,
               to: phone,
@@ -579,6 +591,8 @@ async function launchCampaign(campaignRow, agentId) {
               language: waTpl.language || 'en_US',
               bodyParams: bodyVars,
               headerParams: headerVars,
+              headerType: hdrType,
+              headerMediaUrl: mediaUrl,
             });
           } else {
             // Send as plain text (only works within 24-hour window)
@@ -930,6 +944,8 @@ router.post('/campaigns', auth, async (req, res) => {
 
     const campaign = await db.prepare('SELECT * FROM campaigns WHERE id=? AND agent_id=?').get(id, req.agent.id);
     if (launchNow) {
+      // Pass header_media_url as runtime override (not stored in DB)
+      if (req.body.header_media_url) campaign.header_media_url = req.body.header_media_url;
       const launched = await launchCampaign(campaign, req.agent.id);
       return res.status(201).json(launched);
     }
@@ -968,6 +984,7 @@ router.patch('/campaigns/:id', auth, async (req, res) => {
 
     const campaign = await db.prepare('SELECT * FROM campaigns WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
     if (launchNow) {
+      if (req.body.header_media_url) campaign.header_media_url = req.body.header_media_url;
       const launched = await launchCampaign(campaign, req.agent.id);
       return res.json(launched);
     }
