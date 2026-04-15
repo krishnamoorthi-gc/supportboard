@@ -722,108 +722,241 @@ export default function App(){
   // ═══ LOGIN SCREEN ═══
   if(isRestoring)return <div style={{height:"100vh",background:"linear-gradient(135deg,#f0f4ff,#e8f0fe)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,fontFamily:"'Nunito',sans-serif"}}><SDLogo s={48}/><div style={{width:36,height:36,border:"3px solid #2563eb33",borderTopColor:"#2563eb",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
 
-  if(!isLoggedIn)return <div style={{height:"100vh",background:"linear-gradient(135deg,#f0f4ff,#e8f0fe)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif"}}>
-    <style>{`@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Nunito:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');`}</style>
-    <div style={{width:420,background:"#fff",borderRadius:20,padding:"40px 36px",boxShadow:"0 20px 60px rgba(0,0,0,.08)",border:"1px solid #e5e7eb"}}>
-      <div style={{textAlign:"center",marginBottom:28}}>
-        <div style={{marginBottom:12}}><SDLogo s={52}/></div>
-        <h1 style={{fontSize:22,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 4px"}}>Welcome to SupportDesk</h1>
-        <p style={{fontSize:13,color:"#6b7280",margin:0}}>{login2FA?"Enter your verification code":"Sign in to your workspace"}</p>
+  if(!isLoggedIn){
+    const eyeOff=<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
+    const eyeOn=<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
+    const inp=(val,set,type,ph,err?)=><input value={val} onChange={e=>set(e.target.value)} type={type} placeholder={ph} style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1.5px solid ${err?"#ef4444":"#e5e7eb"}`,fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:err?"#fef2f2":"#fafafa",transition:"border-color .15s"}} onFocus={e=>{e.target.style.borderColor=err?"#ef4444":"#6366f1";e.target.style.background="#fff";}} onBlur={e=>{e.target.style.borderColor=err?"#ef4444":"#e5e7eb";e.target.style.background="#fafafa";}}/>;
+    return <div style={{height:"100vh",width:"100vw",display:"flex",fontFamily:"'Nunito',sans-serif",overflow:"hidden"}}>
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Nunito:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');
+      @keyframes spin{to{transform:rotate(360deg)}}
+      @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+      @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+      .auth-input:focus{border-color:#6366f1!important;background:#fff!important}
+      .auth-btn-primary:hover{opacity:.92;transform:translateY(-1px)}
+      .auth-btn-social:hover{background:#f3f4ff!important;border-color:#c7d2fe!important}
+      .auth-toggle:hover{color:#4f46e5!important}
+    `}</style>
+
+    {/* ── LEFT PANEL ── */}
+    <div style={{flex:"0 0 48%",background:"linear-gradient(145deg,#1e1b4b 0%,#312e81 40%,#4338ca 75%,#6366f1 100%)",display:"flex",flexDirection:"column",justifyContent:"space-between",padding:"48px 52px",position:"relative",overflow:"hidden"}}>
+      {/* decorative blobs */}
+      <div style={{position:"absolute",top:-80,right:-80,width:320,height:320,background:"rgba(99,102,241,.18)",borderRadius:"50%",filter:"blur(60px)"}}/>
+      <div style={{position:"absolute",bottom:-60,left:-60,width:260,height:260,background:"rgba(167,139,250,.14)",borderRadius:"50%",filter:"blur(50px)"}}/>
+      <div style={{position:"absolute",top:"40%",left:"60%",width:180,height:180,background:"rgba(139,92,246,.1)",borderRadius:"50%",filter:"blur(40px)"}}/>
+
+      {/* Logo */}
+      <div style={{display:"flex",alignItems:"center",gap:12,zIndex:1}}>
+        <div style={{width:42,height:42,background:"rgba(255,255,255,.15)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(10px)",border:"1px solid rgba(255,255,255,.2)"}}><SDLogo s={26}/></div>
+        <span style={{fontSize:20,fontWeight:800,color:"#fff",fontFamily:"'Outfit',sans-serif",letterSpacing:"-0.3px"}}>SupportDesk</span>
       </div>
-      {!login2FA ? (
-        !showRegister ? <>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Email</label>
-            <input value={loginEmail} onChange={e=>{setLoginEmail(e.target.value);if(loginError)setLoginError("");}} type="email" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+
+      {/* Hero text */}
+      <div style={{zIndex:1}}>
+        <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:100,padding:"6px 14px",marginBottom:24,backdropFilter:"blur(8px)"}}>
+          <span style={{width:7,height:7,borderRadius:"50%",background:"#4ade80",display:"inline-block",animation:"pulse 2s ease-in-out infinite"}}/>
+          <span style={{fontSize:12,color:"rgba(255,255,255,.9)",fontWeight:600}}>All-in-one support platform</span>
+        </div>
+        <h1 style={{fontSize:42,fontWeight:900,color:"#fff",fontFamily:"'Outfit',sans-serif",margin:"0 0 16px",lineHeight:1.15,letterSpacing:"-1px"}}>
+          Support smarter,<br/>
+          <span style={{background:"linear-gradient(90deg,#a5b4fc,#c4b5fd)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>grow faster</span>
+        </h1>
+        <p style={{fontSize:16,color:"rgba(255,255,255,.7)",margin:"0 0 40px",lineHeight:1.6,maxWidth:380}}>
+          Manage every customer conversation, from live chat to email and WhatsApp — all in one beautiful workspace.
+        </p>
+
+        {/* Feature bullets */}
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {[
+            {icon:"💬",t:"Omnichannel inbox",s:"Live, email, WhatsApp, SMS in one place"},
+            {icon:"🤖",t:"AI-powered bot",s:"Auto-reply and smart handoff to agents"},
+            {icon:"📊",t:"Real-time analytics",s:"KPIs, CSAT, SLA tracking at a glance"},
+            {icon:"🗂️",t:"CRM built-in",s:"Contacts, leads, deals and pipeline"},
+          ].map(f=>(
+            <div key={f.t} style={{display:"flex",alignItems:"flex-start",gap:14}}>
+              <div style={{width:36,height:36,background:"rgba(255,255,255,.1)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0,backdropFilter:"blur(8px)",border:"1px solid rgba(255,255,255,.12)"}}>{f.icon}</div>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2}}>{f.t}</div>
+                <div style={{fontSize:12,color:"rgba(255,255,255,.55)"}}>{f.s}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Testimonial */}
+      <div style={{background:"rgba(255,255,255,.07)",border:"1px solid rgba(255,255,255,.12)",borderRadius:16,padding:"20px 24px",backdropFilter:"blur(12px)",zIndex:1}}>
+        <p style={{fontSize:13,color:"rgba(255,255,255,.85)",margin:"0 0 14px",lineHeight:1.6,fontStyle:"italic"}}>
+          "SupportDesk cut our response time by 60%. The AI bot handles tier-1 tickets automatically — our team loves it."
+        </p>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#a5b4fc,#c4b5fd)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#312e81"}}>S</div>
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>Sarah K.</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.5)"}}>Head of Support, TechCorp</div>
           </div>
-          <div style={{marginBottom:loginError?10:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><label style={{fontSize:12,fontWeight:700,color:"#374151"}}>Password</label><button style={{fontSize:11,color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Forgot?</button></div>
+          <div style={{marginLeft:"auto",display:"flex",gap:2}}>
+            {[1,2,3,4,5].map(i=><span key={i} style={{color:"#fbbf24",fontSize:13}}>★</span>)}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ── RIGHT PANEL ── */}
+    <div style={{flex:1,background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 32px",overflowY:"auto"}}>
+      <div style={{width:"100%",maxWidth:420,animation:"fadeUp .4s ease"}}>
+
+        {!login2FA ? (!showRegister ? <>
+          {/* ── SIGN IN FORM ── */}
+          <div style={{marginBottom:32}}>
+            <h2 style={{fontSize:28,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 6px",letterSpacing:"-0.5px"}}>Welcome back</h2>
+            <p style={{fontSize:14,color:"#6b7280",margin:0}}>Sign in to your SupportDesk workspace</p>
+          </div>
+
+          <div style={{marginBottom:16}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Email address</label>
+            <input value={loginEmail} onChange={e=>{setLoginEmail(e.target.value);if(loginError)setLoginError("");}} type="email" placeholder="you@company.com"
+              style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${loginError?"#ef4444":"#e5e7eb"}`,fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:"#fafafa",transition:"all .15s"}}
+              onKeyDown={e=>{if(e.key==="Enter")doLogin();}}
+              onFocus={e=>{e.target.style.borderColor="#6366f1";e.target.style.background="#fff";e.target.style.boxShadow="0 0 0 3px rgba(99,102,241,.1)";}}
+              onBlur={e=>{e.target.style.borderColor=loginError?"#ef4444":"#e5e7eb";e.target.style.background="#fafafa";e.target.style.boxShadow="none";}}/>
+          </div>
+
+          <div style={{marginBottom:loginError?12:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <label style={{fontSize:12,fontWeight:700,color:"#374151",textTransform:"uppercase",letterSpacing:"0.5px"}}>Password</label>
+              <button style={{fontSize:12,color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:0}} className="auth-toggle">Forgot password?</button>
+            </div>
             <div style={{position:"relative"}}>
-              <input value={loginPass} onChange={e=>{setLoginPass(e.target.value);if(loginError)setLoginError("");}} type={showLoginPass?"text":"password"} style={{width:"100%",padding:"10px 42px 10px 14px",borderRadius:10,border:`1.5px solid ${loginError?"#ef4444":"#d1d5db"}`,fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif",background:loginError?"#fef2f2":"#fff"}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} onFocus={e=>e.target.style.borderColor=loginError?"#ef4444":"#2563eb"} onBlur={e=>e.target.style.borderColor=loginError?"#ef4444":"#d1d5db"}/>
-              <button type="button" onClick={()=>setShowLoginPass(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:2,color:"#9ca3af",display:"flex",alignItems:"center"}} title={showLoginPass?"Hide password":"Show password"}>
-                {showLoginPass
-                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                }
-              </button>
+              <input value={loginPass} onChange={e=>{setLoginPass(e.target.value);if(loginError)setLoginError("");}} type={showLoginPass?"text":"password"} placeholder="Enter your password"
+                style={{width:"100%",padding:"13px 46px 13px 16px",borderRadius:12,border:`1.5px solid ${loginError?"#ef4444":"#e5e7eb"}`,fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:loginError?"#fef2f2":"#fafafa",transition:"all .15s"}}
+                onKeyDown={e=>{if(e.key==="Enter")doLogin();}}
+                onFocus={e=>{e.target.style.borderColor=loginError?"#ef4444":"#6366f1";e.target.style.background=loginError?"#fef2f2":"#fff";e.target.style.boxShadow=loginError?"none":"0 0 0 3px rgba(99,102,241,.1)";}}
+                onBlur={e=>{e.target.style.borderColor=loginError?"#ef4444":"#e5e7eb";e.target.style.background=loginError?"#fef2f2":"#fafafa";e.target.style.boxShadow="none";}}/>
+              <button type="button" onClick={()=>setShowLoginPass(p=>!p)} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center",padding:0}}>{showLoginPass?eyeOff:eyeOn}</button>
             </div>
           </div>
-          {loginError&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#dc2626",fontWeight:500}}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+
+          {loginError&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 14px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,marginBottom:16,fontSize:13,color:"#dc2626",fontWeight:500}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             {loginError}
           </div>}
-          <button onClick={doLogin} disabled={loginLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#2563eb,#4f46e5)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:loginLoading?"not-allowed":"pointer",fontFamily:"'Outfit',sans-serif",opacity:loginLoading?0.7:1,marginBottom:16}}>
-            {loginLoading?"Signing in…":"Sign In"}
+
+          <button onClick={doLogin} disabled={loginLoading} className="auth-btn-primary" style={{width:"100%",padding:"14px",borderRadius:12,background:"linear-gradient(135deg,#6366f1,#4f46e5)",color:"#fff",fontSize:15,fontWeight:700,border:"none",cursor:loginLoading?"not-allowed":"pointer",fontFamily:"'Outfit',sans-serif",opacity:loginLoading?0.75:1,marginBottom:20,transition:"all .15s",boxShadow:"0 4px 14px rgba(99,102,241,.35)"}}>
+            {loginLoading?<span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><span style={{width:16,height:16,border:"2.5px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Signing in…</span>:"Sign In"}
           </button>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><div style={{flex:1,height:1,background:"#e5e7eb"}}/><span style={{fontSize:11,color:"#9ca3af"}}>or continue with</span><div style={{flex:1,height:1,background:"#e5e7eb"}}/></div>
-          <div style={{display:"flex",gap:8}}>
-            {[{n:"Google",c:"#ea4335",i:"G"},{n:"Microsoft",c:"#00a4ef",i:"M"},{n:"SAML SSO",c:"#6b7280",i:"🔒"}].map(p=>(
-              <button key={p.n} onClick={()=>{setLoginLoading(true);setTimeout(()=>{setLoginLoading(false);setLogin2FA(true);},600);}} style={{flex:1,padding:"9px",borderRadius:9,background:"#f9fafb",border:"1.5px solid #e5e7eb",cursor:"pointer",fontSize:12,fontWeight:600,color:"#374151",display:"flex",alignItems:"center",justifyContent:"center",gap:5,fontFamily:"'Nunito',sans-serif"}}>
-                <span style={{color:p.c,fontWeight:800}}>{p.i}</span>{p.n}
+
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><div style={{flex:1,height:1,background:"#f3f4f6"}}/><span style={{fontSize:12,color:"#9ca3af",fontWeight:600}}>OR</span><div style={{flex:1,height:1,background:"#f3f4f6"}}/></div>
+
+          <div style={{display:"flex",gap:10,marginBottom:28}}>
+            {[{n:"Google",c:"#ea4335",i:"G"},{n:"Microsoft",c:"#00a4ef",i:"M"},{n:"SSO",c:"#6b7280",i:"🔒"}].map(p=>(
+              <button key={p.n} onClick={()=>{setLoginLoading(true);setTimeout(()=>{setLoginLoading(false);setLogin2FA(true);},600);}} className="auth-btn-social" style={{flex:1,padding:"11px 8px",borderRadius:11,background:"#f9fafb",border:"1.5px solid #e5e7eb",cursor:"pointer",fontSize:12,fontWeight:600,color:"#374151",display:"flex",alignItems:"center",justifyContent:"center",gap:5,fontFamily:"'Nunito',sans-serif",transition:"all .15s"}}>
+                <span style={{color:p.c,fontWeight:800,fontSize:13}}>{p.i}</span>{p.n}
               </button>
             ))}
           </div>
-          <div style={{textAlign:"center",marginTop:20,paddingTop:16,borderTop:"1px solid #e5e7eb"}}>
-            <p style={{fontSize:12,color:"#6b7280",margin:0}}>Don't have an account? <button onClick={()=>setShowRegister(true)} style={{color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Create Account</button></p>
+
+          <div style={{textAlign:"center",paddingTop:20,borderTop:"1px solid #f3f4f6"}}>
+            <p style={{fontSize:13,color:"#6b7280",margin:0}}>New to SupportDesk?{" "}
+              <button onClick={()=>setShowRegister(true)} className="auth-toggle" style={{color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,padding:0}}>Create a free account →</button>
+            </p>
           </div>
+
         </> : <>
-          <div style={{textAlign:"center",marginBottom:20}}>
-            <h2 style={{fontSize:18,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 4px"}}>Create Account</h2>
-            <p style={{fontSize:12,color:"#6b7280",margin:0}}>Join SupportDesk today</p>
+          {/* ── REGISTER FORM ── */}
+          <div style={{marginBottom:28}}>
+            <button onClick={()=>{setShowRegister(false);setRegError("");}} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",color:"#6b7280",fontSize:13,fontWeight:600,padding:0,marginBottom:20}} className="auth-toggle">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              Back to sign in
+            </button>
+            <h2 style={{fontSize:28,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 6px",letterSpacing:"-0.5px"}}>Create your account</h2>
+            <p style={{fontSize:14,color:"#6b7280",margin:0}}>Start your free SupportDesk workspace today</p>
           </div>
-          {regError&&<div style={{padding:"10px 12px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#dc2626"}}>{regError}</div>}
+
+          {regError&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 14px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,marginBottom:16,fontSize:13,color:"#dc2626",fontWeight:500}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            {regError}
+          </div>}
+
           <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Full Name</label>
-            <input value={regName} onChange={e=>setRegName(e.target.value)} type="text" placeholder="John Doe" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Full Name</label>
+            <input value={regName} onChange={e=>setRegName(e.target.value)} type="text" placeholder="Jane Smith"
+              style={{width:"100%",padding:"13px 16px",borderRadius:12,border:"1.5px solid #e5e7eb",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:"#fafafa",transition:"all .15s"}}
+              onFocus={e=>{e.target.style.borderColor="#6366f1";e.target.style.background="#fff";e.target.style.boxShadow="0 0 0 3px rgba(99,102,241,.1)";}}
+              onBlur={e=>{e.target.style.borderColor="#e5e7eb";e.target.style.background="#fafafa";e.target.style.boxShadow="none";}}/>
           </div>
+
           <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Email</label>
-            <input value={regEmail} onChange={e=>setRegEmail(e.target.value)} type="email" placeholder="john@company.com" style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Work Email</label>
+            <input value={regEmail} onChange={e=>setRegEmail(e.target.value)} type="email" placeholder="jane@company.com"
+              style={{width:"100%",padding:"13px 16px",borderRadius:12,border:"1.5px solid #e5e7eb",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:"#fafafa",transition:"all .15s"}}
+              onFocus={e=>{e.target.style.borderColor="#6366f1";e.target.style.background="#fff";e.target.style.boxShadow="0 0 0 3px rgba(99,102,241,.1)";}}
+              onBlur={e=>{e.target.style.borderColor="#e5e7eb";e.target.style.background="#fafafa";e.target.style.boxShadow="none";}}/>
           </div>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Password</label>
-            <div style={{position:"relative"}}>
-              <input value={regPass} onChange={e=>setRegPass(e.target.value)} type={showRegPass?"text":"password"} placeholder="Min 6 characters" style={{width:"100%",padding:"10px 42px 10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
-              <button type="button" onClick={()=>setShowRegPass(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:2,color:"#9ca3af",display:"flex",alignItems:"center"}} title={showRegPass?"Hide":"Show"}>
-                {showRegPass
-                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                }
-              </button>
+
+          <div style={{display:"flex",gap:12,marginBottom:14}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Password</label>
+              <div style={{position:"relative"}}>
+                <input value={regPass} onChange={e=>setRegPass(e.target.value)} type={showRegPass?"text":"password"} placeholder="Min 6 characters"
+                  style={{width:"100%",padding:"13px 46px 13px 16px",borderRadius:12,border:"1.5px solid #e5e7eb",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:"#fafafa",transition:"all .15s"}}
+                  onFocus={e=>{e.target.style.borderColor="#6366f1";e.target.style.background="#fff";e.target.style.boxShadow="0 0 0 3px rgba(99,102,241,.1)";}}
+                  onBlur={e=>{e.target.style.borderColor="#e5e7eb";e.target.style.background="#fafafa";e.target.style.boxShadow="none";}}/>
+                <button type="button" onClick={()=>setShowRegPass(p=>!p)} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center",padding:0}}>{showRegPass?eyeOff:eyeOn}</button>
+              </div>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Confirm</label>
+              <div style={{position:"relative"}}>
+                <input value={regConfirm} onChange={e=>setRegConfirm(e.target.value)} type={showRegConfirm?"text":"password"} placeholder="Re-enter"
+                  style={{width:"100%",padding:"13px 46px 13px 16px",borderRadius:12,border:"1.5px solid #e5e7eb",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box" as any,fontFamily:"'Nunito',sans-serif",background:"#fafafa",transition:"all .15s"}}
+                  onKeyDown={e=>{if(e.key==="Enter")doRegister();}}
+                  onFocus={e=>{e.target.style.borderColor="#6366f1";e.target.style.background="#fff";e.target.style.boxShadow="0 0 0 3px rgba(99,102,241,.1)";}}
+                  onBlur={e=>{e.target.style.borderColor="#e5e7eb";e.target.style.background="#fafafa";e.target.style.boxShadow="none";}}/>
+                <button type="button" onClick={()=>setShowRegConfirm(p=>!p)} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center",padding:0}}>{showRegConfirm?eyeOff:eyeOn}</button>
+              </div>
             </div>
           </div>
-          <div style={{marginBottom:16}}>
-            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Confirm Password</label>
-            <div style={{position:"relative"}}>
-              <input value={regConfirm} onChange={e=>setRegConfirm(e.target.value)} type={showRegConfirm?"text":"password"} placeholder="Re-enter password" style={{width:"100%",padding:"10px 42px 10px 14px",borderRadius:10,border:"1.5px solid #d1d5db",fontSize:14,color:"#111827",outline:"none",boxSizing:"border-box",fontFamily:"'Nunito',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter")doRegister();}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
-              <button type="button" onClick={()=>setShowRegConfirm(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:2,color:"#9ca3af",display:"flex",alignItems:"center"}} title={showRegConfirm?"Hide":"Show"}>
-                {showRegConfirm
-                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                }
-              </button>
-            </div>
-          </div>
-          <button onClick={doRegister} disabled={regLoading} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#10b981,#059669)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",opacity:regLoading?0.7:1,marginBottom:16}}>
-            {regLoading?"Creating Account…":"Create Account"}
+
+          <button onClick={doRegister} disabled={regLoading} className="auth-btn-primary" style={{width:"100%",padding:"14px",borderRadius:12,background:"linear-gradient(135deg,#6366f1,#4f46e5)",color:"#fff",fontSize:15,fontWeight:700,border:"none",cursor:regLoading?"not-allowed":"pointer",fontFamily:"'Outfit',sans-serif",opacity:regLoading?0.75:1,marginBottom:16,transition:"all .15s",boxShadow:"0 4px 14px rgba(99,102,241,.35)"}}>
+            {regLoading?<span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><span style={{width:16,height:16,border:"2.5px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Creating account…</span>:"Create Account"}
           </button>
-          <div style={{textAlign:"center"}}>
-            <p style={{fontSize:12,color:"#6b7280",margin:0}}>Already have an account? <button onClick={()=>{setShowRegister(false);setRegError("");}} style={{color:"#2563eb",background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Sign In</button></p>
+
+          <p style={{fontSize:11,color:"#9ca3af",textAlign:"center",margin:"0 0 16px",lineHeight:1.5}}>
+            By creating an account you agree to our{" "}
+            <span style={{color:"#6366f1",cursor:"pointer"}}>Terms of Service</span> and{" "}
+            <span style={{color:"#6366f1",cursor:"pointer"}}>Privacy Policy</span>
+          </p>
+
+          <div style={{textAlign:"center",paddingTop:16,borderTop:"1px solid #f3f4f6"}}>
+            <p style={{fontSize:13,color:"#6b7280",margin:0}}>Already have an account?{" "}
+              <button onClick={()=>{setShowRegister(false);setRegError("");}} className="auth-toggle" style={{color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,padding:0}}>Sign in →</button>
+            </p>
           </div>
-        </>
-      ) : <>
-        <div style={{textAlign:"center",marginBottom:16}}>
-          <div style={{fontSize:36,marginBottom:8}}>🔐</div>
-          <p style={{fontSize:12,color:"#6b7280"}}>We sent a code to {loginEmail}</p>
-        </div>
-        <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:16}}>
-          {[0,1,2,3,4,5].map(i=><input key={i} maxLength={1} value={tfaCode[i]||""} onChange={e=>{const v=tfaCode.split("");v[i]=e.target.value;setTfaCode(v.join(""));if(e.target.value&&e.target.nextSibling)e.target.nextSibling.focus();}} style={{width:40,height:48,borderRadius:10,border:"1.5px solid #d1d5db",textAlign:"center",fontSize:20,fontWeight:700,outline:"none",fontFamily:"'Fira Code',monospace",color:"#111827"}} onFocus={e=>e.target.style.borderColor="#2563eb"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>)}
-        </div>
-        <button onClick={verify2FA} style={{width:"100%",padding:"11px",borderRadius:10,background:"linear-gradient(135deg,#2563eb,#4f46e5)",color:"#fff",fontSize:14,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",marginBottom:10}}>Verify & Sign In</button>
-        <button onClick={()=>setLogin2FA(false)} style={{width:"100%",padding:"8px",background:"none",border:"none",color:"#6b7280",fontSize:12,cursor:"pointer"}}>← Back to login</button>
-      </>}
+        </>) : <>
+          {/* ── 2FA FORM ── */}
+          <div style={{textAlign:"center",marginBottom:28}}>
+            <div style={{width:64,height:64,background:"linear-gradient(135deg,#ede9fe,#ddd6fe)",borderRadius:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,margin:"0 auto 16px"}}>🔐</div>
+            <h2 style={{fontSize:24,fontWeight:800,fontFamily:"'Outfit',sans-serif",color:"#111827",margin:"0 0 6px"}}>Two-factor auth</h2>
+            <p style={{fontSize:14,color:"#6b7280",margin:0}}>Enter the 6-digit code sent to<br/><strong style={{color:"#374151"}}>{loginEmail}</strong></p>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:24}}>
+            {[0,1,2,3,4,5].map(i=>(
+              <input key={i} maxLength={1} value={tfaCode[i]||""} onChange={e=>{const v=tfaCode.split("");v[i]=e.target.value;setTfaCode(v.join(""));if(e.target.value&&e.target.nextSibling)(e.target.nextSibling as HTMLInputElement).focus();}}
+                style={{width:48,height:56,borderRadius:12,border:"1.5px solid #e5e7eb",textAlign:"center",fontSize:22,fontWeight:700,outline:"none",fontFamily:"'Fira Code',monospace",color:"#111827",background:"#fafafa",transition:"all .15s"}}
+                onFocus={e=>{e.target.style.borderColor="#6366f1";e.target.style.background="#fff";e.target.style.boxShadow="0 0 0 3px rgba(99,102,241,.1)";}}
+                onBlur={e=>{e.target.style.borderColor="#e5e7eb";e.target.style.background="#fafafa";e.target.style.boxShadow="none";}}/>
+            ))}
+          </div>
+          <button onClick={verify2FA} className="auth-btn-primary" style={{width:"100%",padding:"14px",borderRadius:12,background:"linear-gradient(135deg,#6366f1,#4f46e5)",color:"#fff",fontSize:15,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'Outfit',sans-serif",marginBottom:12,boxShadow:"0 4px 14px rgba(99,102,241,.35)",transition:"all .15s"}}>Verify & Sign In</button>
+          <button onClick={()=>setLogin2FA(false)} style={{width:"100%",padding:"10px",background:"none",border:"none",color:"#6b7280",fontSize:13,cursor:"pointer",fontWeight:600}}>← Back to login</button>
+        </>}
+
+      </div>
     </div>
   </div>;
+  }
 
   // ═══ MAIN APP ═══
   return <div id="sd-app" data-font={fontKey} data-theme={themeKey} style={{display:"flex",height:"100vh",background:C.bg,color:C.t1,fontFamily:FB,overflow:"hidden"}}>
