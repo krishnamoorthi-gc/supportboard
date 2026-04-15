@@ -10,9 +10,10 @@
 
 const router = require('express').Router();
 const db     = require('../db');
+const auth   = require('../middleware/auth');
 const { uid }              = require('../utils/helpers');
 const { broadcastToAll }   = require('../ws');
-const { findInboxByPhone, normalizePhone } = require('../services/smsService');
+const { findInboxByPhone, normalizePhone, sendSms, getInboxConfig, resolveCredentials } = require('../services/smsService');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,68 @@ function now() {
 function safeJson(v, fb) {
   try { return typeof v === 'string' ? JSON.parse(v) : v || fb; } catch { return fb; }
 }
+
+// ── POST /api/sms/test-connection  (verify Twilio credentials) ───────────────
+router.post('/test-connection', auth, async (req, res) => {
+  try {
+    const { inboxId } = req.body;
+    if (!inboxId) return res.status(400).json({ success: false, error: 'inboxId required' });
+
+    const ib = await getInboxConfig(inboxId);
+    if (!ib) return res.status(404).json({ success: false, error: 'Inbox not found' });
+
+    const { accountSid, authToken, fromNumber } = resolveCredentials(ib.cfg);
+    if (!accountSid || !authToken) {
+      return res.json({ success: false, error: 'Account SID and Auth Token are required' });
+    }
+
+    // Verify credentials by calling Twilio's Account API
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`;
+    const resp = await fetch(url, {
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+      },
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      return res.json({ success: false, error: data?.message || `Twilio API ${resp.status}` });
+    }
+
+    res.json({
+      success: true,
+      account: data.friendly_name || data.sid,
+      status: data.status,
+      fromNumber: fromNumber || 'Not configured',
+    });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// ── POST /api/sms/send-test  (send a real test SMS) ─────────────────────────
+router.post('/send-test', auth, async (req, res) => {
+  try {
+    const { inboxId, to, text } = req.body;
+    if (!inboxId || !to) return res.status(400).json({ success: false, error: 'inboxId and to are required' });
+
+    const result = await sendSms({
+      inboxId,
+      to,
+      text: text || 'Test SMS from SupportDesk',
+    });
+
+    res.json({
+      success: true,
+      sid: result.sid,
+      status: result.status,
+      to: result.to,
+      from: result.from,
+    });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
 
 // ── POST /api/sms/webhook  (Twilio inbound SMS) ─────────────────────────────
 //
