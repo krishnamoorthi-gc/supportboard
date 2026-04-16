@@ -67,6 +67,12 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
   // AI Visitor Intent
   const [monAi,setMonAi]=useState<string|null>(null);
   const [monAiLoad,setMonAiLoad]=useState(false);
+  // Sites tab state
+  const [sites,setSites]=useState<any[]>([]);
+  const [sitesLoading,setSitesLoading]=useState(false);
+  const [siteForm,setSiteForm]=useState<{id?:string,name:string,url:string}|null>(null);
+  const [siteSaving,setSiteSaving]=useState(false);
+  const [siteDeleting,setSiteDeleting]=useState<string|null>(null);
 
   // ── Fetch real visitors from API ─────────────────────────────────────────
   const fetchVisitors=useCallback(async()=>{
@@ -114,6 +120,45 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
       setMonAi("Click Refresh to predict visitor intent: likely buyers, support seekers, and proactive chat triggers.");
     }
     setMonAiLoad(false);
+  };
+
+  // ── Sites CRUD ───────────────────────────────────────────────────────────
+  const fetchSites=useCallback(async()=>{
+    setSitesLoading(true);
+    try{const d=await api.get('/monitor/sites');if(d?.sites)setSites(d.sites);}catch{}
+    setSitesLoading(false);
+  },[]);
+
+  useEffect(()=>{if(tab==="sites")fetchSites();},[tab,fetchSites]);
+
+  const saveSite=async()=>{
+    if(!siteForm)return;
+    const {id,name,url}=siteForm;
+    if(!name.trim()||!url.trim()){showT("Name and URL are required","error");return;}
+    setSiteSaving(true);
+    try{
+      if(id){
+        await api.patch('/monitor/sites/'+id,{name:name.trim(),url:url.trim()});
+        showT("Site updated","success");
+      }else{
+        await api.post('/monitor/sites',{name:name.trim(),url:url.trim()});
+        showT("Site added","success");
+      }
+      setSiteForm(null);fetchSites();
+    }catch(e:any){showT(e?.message||"Failed to save site","error");}
+    setSiteSaving(false);
+  };
+
+  const deleteSite=async(id:string)=>{
+    if(!window.confirm('Delete this site? This cannot be undone.'))return;
+    setSiteDeleting(id);
+    try{await api.del('/monitor/sites/'+id);showT("Site removed","success");fetchSites();}catch(e:any){showT(e?.message||"Failed to delete","error");}
+    setSiteDeleting(null);
+  };
+
+  const toggleSiteStatus=async(site:any)=>{
+    const newStatus=site.status==='active'?'paused':'active';
+    try{await api.patch('/monitor/sites/'+site.id,{status:newStatus});fetchSites();}catch{}
   };
 
   // ── Snippet — fetch from backend so it uses PUBLIC_URL (ngrok/domain) not localhost ───
@@ -215,7 +260,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
 
     {/* Tabs */}
     <div style={{display:"flex",gap:0,padding:"0 24px",borderBottom:"1px solid "+C.b1,background:C.s1}}>
-      {[["list","Visitor List"],["map","World Map"],["analytics","Analytics"]].map(([id,lbl])=>(
+      {[["list","Visitor List"],["map","World Map"],["analytics","Analytics"],["sites","Sites"]].map(([id,lbl])=>(
         <button key={id} onClick={()=>setTab(id)} style={{padding:"11px 18px",fontSize:11.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.4px",textTransform:"uppercase",color:tab===id?C.a:C.t3,borderTop:"none",borderLeft:"none",borderRight:"none",borderBottom:"2px solid "+(tab===id?C.a:"transparent"),background:"transparent",cursor:"pointer"}}>{lbl}</button>
       ))}
       <div style={{flex:1}}/>
@@ -534,6 +579,84 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
             })}
           </div>
         </div>
+      </div>}
+
+      {/* SITES TAB */}
+      {tab==="sites"&&<div style={{flex:1,overflowY:"auto",padding:"22px 28px"}}>
+        {/* Add / Edit Site Form */}
+        <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:12,padding:"20px",marginBottom:20}}>
+          <div style={{fontSize:14,fontWeight:700,fontFamily:FD,marginBottom:14}}>{siteForm?.id?"Edit Site":"Add New Site"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr auto",gap:12,alignItems:"end"}}>
+            <Fld label="Site Name">
+              <input value={siteForm?.name||""} onChange={e=>setSiteForm(f=>({...f||{name:"",url:""},name:e.target.value}))} placeholder="My Website" style={{width:"100%",background:C.bg,border:"1px solid "+C.b1,borderRadius:8,padding:"9px 12px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            </Fld>
+            <Fld label="Site URL">
+              <input value={siteForm?.url||""} onChange={e=>setSiteForm(f=>({...f||{name:"",url:""},url:e.target.value}))} placeholder="https://example.com" style={{width:"100%",background:C.bg,border:"1px solid "+C.b1,borderRadius:8,padding:"9px 12px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            </Fld>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveSite} disabled={siteSaving} style={{padding:"9px 18px",borderRadius:8,fontSize:12,fontWeight:700,fontFamily:FM,background:C.a,color:"#fff",border:"none",cursor:siteSaving?"not-allowed":"pointer",opacity:siteSaving?0.6:1,whiteSpace:"nowrap"}}>
+                {siteSaving?<Spin/>:siteForm?.id?"Update":"Add Site"}
+              </button>
+              {siteForm?.id&&<button onClick={()=>setSiteForm(null)} style={{padding:"9px 14px",borderRadius:8,fontSize:12,fontWeight:600,color:C.t3,background:"transparent",border:"1px solid "+C.b1,cursor:"pointer"}}>Cancel</button>}
+            </div>
+          </div>
+        </div>
+
+        {/* Sites List */}
+        <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:12,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 3fr 1fr 1fr 120px",padding:"10px 20px",borderBottom:"1px solid "+C.b1,background:C.s2}}>
+            {["Site Name","URL","Status","Visitors","Actions"].map(h=>(
+              <span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase"}}>{h}</span>
+            ))}
+          </div>
+
+          {sitesLoading&&<div style={{padding:"40px",textAlign:"center"}}><Spin/></div>}
+          {!sitesLoading&&sites.length===0&&<VEmpty icon="🌐" title="No sites added yet" desc="Add your website to start tracking visitors. You'll get the tracking snippet to embed on each site."/>}
+
+          {sites.map((site:any)=>{
+            const siteVisitors=visitors.filter(v=>{try{return new URL(v.page).hostname.replace(/^www\./,'')===new URL(site.url).hostname.replace(/^www\./,'');}catch{return false;}});
+            return <div key={site.id} style={{display:"grid",gridTemplateColumns:"2fr 3fr 1fr 1fr 120px",padding:"12px 20px",borderBottom:"1px solid "+C.b1,alignItems:"center",animation:"fadeUp .2s ease"}}>
+              {/* Name */}
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:8,background:C.ad,border:"1px solid "+C.a+"33",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🌐</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.t1}}>{site.name}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>Added {new Date(site.created_at).toLocaleDateString()}</div>
+                </div>
+              </div>
+              {/* URL */}
+              <div style={{fontSize:12,color:C.a,fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                <a href={site.url} target="_blank" rel="noreferrer" style={{color:C.a,textDecoration:"none"}}>{site.url}</a>
+              </div>
+              {/* Status */}
+              <div>
+                <button onClick={()=>toggleSiteStatus(site)} style={{background:"none",border:"none",cursor:"pointer",padding:0}}>
+                  <VTag text={site.status==='active'?"Active":"Paused"} color={site.status==='active'?C.g:C.t3}/>
+                </button>
+              </div>
+              {/* Visitors count */}
+              <div style={{fontSize:14,fontWeight:700,color:siteVisitors.length>0?C.g:C.t3,fontFamily:FM}}>
+                {siteVisitors.length} <span style={{fontSize:10,fontWeight:400,color:C.t3}}>live</span>
+              </div>
+              {/* Actions */}
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setSiteForm({id:site.id,name:site.name,url:site.url})} style={{padding:"5px 10px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,background:C.ad,color:C.a,border:"1px solid "+C.a+"44",cursor:"pointer"}}>Edit</button>
+                <button onClick={()=>deleteSite(site.id)} disabled={siteDeleting===site.id} style={{padding:"5px 10px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,background:"#ff444416",color:"#ff4444",border:"1px solid #ff444444",cursor:siteDeleting===site.id?"not-allowed":"pointer",opacity:siteDeleting===site.id?0.6:1}}>
+                  {siteDeleting===site.id?"...":"Delete"}
+                </button>
+              </div>
+            </div>;
+          })}
+        </div>
+
+        {/* Snippet info card */}
+        {sites.length>0&&<div style={{background:C.ad,border:"1px solid "+C.a+"33",borderRadius:12,padding:"16px 20px",marginTop:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.a,marginBottom:6}}>Tracking Setup</div>
+          <div style={{fontSize:12,color:C.t3,lineHeight:1.7}}>
+            For each site above, embed the tracking snippet in your website's <code style={{background:C.bg,padding:"1px 5px",borderRadius:4,fontSize:11}}>&lt;head&gt;</code> tag.
+            <button onClick={loadSnippet} style={{marginLeft:8,padding:"3px 10px",borderRadius:5,fontSize:11,fontWeight:700,fontFamily:FM,background:C.pd,color:C.p,border:"1px solid "+C.p+"44",cursor:"pointer"}}>{"</>"} Get Snippet</button>
+          </div>
+        </div>}
       </div>}
     </div>
 
