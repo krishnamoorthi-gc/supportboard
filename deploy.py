@@ -35,7 +35,7 @@ local('git push origin main')
 # ── Step 2: SSH + run everything in one chained command ───────────────────
 cmd = (
     'cd ~/supportboard && '
-    'git fetch origin && git checkout main && git pull origin main 2>&1 && '
+    'git checkout -- . 2>/dev/null; git fetch origin && git checkout main && git pull origin main 2>&1 && '
     'echo "--- backend npm install ---" && cd ~/supportboard/backend && npm install --production 2>&1 && '
     'echo "--- frontend npm install ---" && cd ~/supportboard/frontend && npm install 2>&1 && '
     'echo "--- frontend build ---" && npm run build 2>&1 && '
