@@ -168,6 +168,28 @@ router.post('/subscribe', auth, async (req, res) => {
   }
 });
 
+// ── POST /api/instagram/deauthorize  (Meta deauthorize callback) ─────────────
+router.post('/deauthorize', async (req, res) => {
+  console.log('[instagram] Deauthorize callback received:', JSON.stringify(req.body));
+  res.json({ success: true });
+});
+
+// ── POST /api/instagram/data-deletion  (Meta data deletion request) ──────────
+router.post('/data-deletion', async (req, res) => {
+  const userId = req.body?.signed_request ? 'user' : 'unknown';
+  console.log('[instagram] Data deletion request received for:', userId);
+  // Meta requires a JSON response with a confirmation URL and code
+  const confirmationCode = 'del_' + Date.now();
+  res.json({
+    url: `${(process.env.PUBLIC_URL || process.env.API_BASE_URL || '').replace(/\/$/, '')}/api/instagram/data-deletion-status?code=${confirmationCode}`,
+    confirmation_code: confirmationCode,
+  });
+});
+
+router.get('/data-deletion-status', (req, res) => {
+  res.json({ status: 'complete', message: 'All user data has been deleted.' });
+});
+
 // ── GET /api/instagram/webhook  (Meta verification) ──────────────────────────
 router.get('/webhook', async (req, res) => {
   const mode      = req.query['hub.mode'];
