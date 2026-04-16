@@ -295,6 +295,95 @@ router.post('/disconnect', auth, async (req, res) => {
   res.json({ success: true });
 });
 
+// ── POST /api/facebook/test  — Validate token + fetch page info (no webhook) ──
+router.post('/test', auth, async (req, res) => {
+  const { inboxId, pageId, accessToken, appId, appSecret } = req.body;
+
+  // Use provided fields directly, or read from saved inbox config
+  let cfg = { pageId, accessToken, appId, appSecret };
+  if (inboxId && (!pageId || !accessToken)) {
+    const inbox = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
+    if (inbox) {
+      const saved = safeJson(inbox.config, {});
+      cfg = { pageId: pageId || saved.pageId, accessToken: accessToken || saved.accessToken, appId: appId || saved.appId, appSecret: appSecret || saved.appSecret };
+    }
+  }
+
+  if (!cfg.accessToken) return res.status(400).json({ error: 'Page Access Token is required' });
+
+  try {
+    // 1. Validate token
+    let tokenInfo = null;
+    let tokenType = 'unknown';
+    let scopes = [];
+    if (cfg.appId && cfg.appSecret) {
+      tokenInfo = await debugFacebookToken({ inputToken: cfg.accessToken, appId: cfg.appId, appSecret: cfg.appSecret });
+      tokenType = tokenInfo?.type || 'unknown';
+      scopes = tokenInfo?.scopes || [];
+    }
+
+    // 2. Fetch page info using the token
+    let pageName = '', pageCategory = '', pagePicture = '', resolvedPageId = cfg.pageId || '';
+    try {
+      const meUrl = `${GRAPH_BASE}/me?fields=id,name,category,picture&access_token=${cfg.accessToken}`;
+      const meRes = await fetch(meUrl);
+      const meData = await meRes.json();
+      if (meData.error) throw new Error(meData.error.message);
+      pageName = meData.name || '';
+      pageCategory = meData.category || '';
+      pagePicture = meData.picture?.data?.url || '';
+      if (!resolvedPageId) resolvedPageId = meData.id || '';
+    } catch (e) {
+      // /me might fail for page tokens with missing permissions, try pageId directly
+      if (cfg.pageId) {
+        const pageInfo = await fetchPageInfo({ pageId: cfg.pageId, pageAccessToken: cfg.accessToken });
+        pageName = pageInfo?.pageName || '';
+        pageCategory = pageInfo?.pageCategory || '';
+        pagePicture = pageInfo?.pagePicture || '';
+      }
+    }
+
+    // 3. Check required permissions
+    const missingPermissions = scopes.length > 0
+      ? ['pages_messaging'].filter(s => !scopes.includes(s))
+      : [];
+
+    // 4. If we have an inboxId, save the validated info to config
+    if (inboxId && pageName) {
+      const inbox = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
+      if (inbox) {
+        const saved = safeJson(inbox.config, {});
+        const newCfg = {
+          ...saved,
+          ...cfg,
+          pageId: resolvedPageId || saved.pageId,
+          pageName,
+          pageCategory,
+          pagePicture,
+          connStatus: missingPermissions.length === 0 ? 'connected' : 'configured',
+          testedAt: now(),
+        };
+        await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify(newCfg), inboxId);
+      }
+    }
+
+    res.json({
+      success: true,
+      pageName,
+      pageId: resolvedPageId,
+      pageCategory,
+      pagePicture,
+      tokenType,
+      tokenScopes: scopes,
+      missingPermissions,
+      isValid: tokenInfo ? tokenInfo.isValid : (pageName ? true : false),
+    });
+  } catch (err) {
+    console.error('[facebook] Test endpoint error:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ── POST /api/facebook/subscribe  — Validate token + subscribe page ─────────
 router.post('/subscribe', auth, async (req, res) => {
   const { inboxId } = req.body;

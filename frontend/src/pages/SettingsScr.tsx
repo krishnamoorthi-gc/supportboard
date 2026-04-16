@@ -628,36 +628,41 @@ function InboxSet({inboxes,setInboxes}){
     }
     // Non-email channels (or unsaved email) — keep the simulated test
     if(form.type==="facebook"){
-      if(!inboxId){
-        cfgFld("connStatus","failed");
-        showT("Save this Facebook inbox first, then test the page connection","error");
-        return;
-      }
       const fbMissing=[];
-      if(!String(cfg.pageId||"").trim())fbMissing.push("Page ID");
       if(!String(cfg.accessToken||"").trim())fbMissing.push("Page Access Token");
       if(!String(cfg.appId||"").trim())fbMissing.push("App ID");
       if(!String(cfg.appSecret||"").trim())fbMissing.push("App Secret");
-      if(!String(cfg.verifyToken||"").trim())fbMissing.push("Webhook Verify Token");
       if(fbMissing.length){
         cfgFld("connStatus","failed");
         showT("Fill in: "+fbMissing.join(", "),"error");
         return;
       }
       cfgFld("connTesting",true);cfgFld("connStatus","");
-      showT("Validating Facebook page token + webhook subscription...","info");
+      showT("Validating Facebook token...","info");
       try{
-        await api.patch("/settings/inboxes/"+inboxId,{config:{...cfg}});
-        const r=await api.post("/facebook/subscribe",{inboxId});
+        // Save first if we have an inboxId
+        if(inboxId)await api.patch("/settings/inboxes/"+inboxId,{config:{...cfg}});
+        // Test token + fetch page info (no webhook subscription)
+        const r=await api.post("/facebook/test",{inboxId:inboxId||undefined,pageId:cfg.pageId||"",accessToken:cfg.accessToken,appId:cfg.appId,appSecret:cfg.appSecret});
         cfgFld("connTesting",false);
-        cfgFld("connStatus","connected");
-        if(r?.pageName){cfgFld("pageName",r.pageName);cfgFld("pagePicture",r.pagePicture||"");cfgFld("pageCategory",r.pageCategory||"");}
-        showT(r?.pageName?"Connected to "+r.pageName+" — ready for messaging":"Facebook page connected — ready for messaging","success");
+        if(r?.pageName){
+          cfgFld("connStatus","connected");
+          cfgFld("pageName",r.pageName);
+          cfgFld("pagePicture",r.pagePicture||"");
+          cfgFld("pageCategory",r.pageCategory||"");
+          if(r.pageId&&!cfg.pageId)cfgFld("pageId",r.pageId);
+          showT("Connected to "+r.pageName+" ("+r.tokenType+" token)","success");
+        }else{
+          cfgFld("connStatus","configured");
+          showT("Token is valid but could not fetch page name","info");
+        }
+        if(r?.missingPermissions?.length){
+          showT("Missing permissions: "+r.missingPermissions.join(", "),"warn");
+        }
       }catch(e:any){
         cfgFld("connTesting",false);
         cfgFld("connStatus","failed");
-        const missingPerms=e?.data?.missingPermissions?.length?" Missing permissions: "+e.data.missingPermissions.join(", "):"";
-        showT("Facebook connection failed: "+(e?.data?.error||e?.message||"unknown")+missingPerms,"error");
+        showT("Facebook test failed: "+(e?.data?.error||e?.message||"unknown"),"error");
       }
       return;
     }
