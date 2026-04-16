@@ -220,81 +220,115 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     localStreamRef.current?.getTracks().forEach(t=>t.stop());localStreamRef.current=null;
     if(localVideoRef.current)localVideoRef.current.srcObject=null;
     if(remoteVideoRef.current)remoteVideoRef.current.srcObject=null;
+    if(remoteAudioRef.current)remoteAudioRef.current.srcObject=null;
     callIdRef.current=null;callTargetRef.current=null;
     setActiveCall(null);setShowHuddle(false);setHuddleMic(true);setHuddleCam(false);setHuddleScreen(false);
     setCallType(null);setCallDuration(0);setRemoteHasVideo(false);
   };
 
+  const RTC_CONFIG:RTCConfiguration={iceServers:[
+    {urls:'stun:stun.l.google.com:19302'},
+    {urls:'stun:stun1.l.google.com:19302'},
+    {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+    {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+    {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
+  ],iceTransportPolicy:'all' as RTCIceTransportPolicy};
+  const AUDIO_CONSTRAINTS={audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}};
+
   const initCall=async(targetId:string,type:"voice"|"video"|"screen"="voice")=>{
     const callId='call'+uid();
     callIdRef.current=callId;callTargetRef.current=targetId;
     setCallType(type);
-    const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+    const pc=new RTCPeerConnection(RTC_CONFIG);
     peerRef.current=pc;
+
+    // Connection state monitoring
+    pc.onconnectionstatechange=()=>{
+      const s=pc.connectionState;
+      if(s==='failed'){showT('Call connection failed — check your network','error');endCall(true);}
+      if(s==='disconnected')showT('Call connection unstable…','info');
+    };
+    pc.oniceconnectionstatechange=()=>{
+      if(pc.iceConnectionState==='failed'){pc.restartIce();}
+    };
+
     try{
       let stream:MediaStream;
       if(type==="screen"){
         const screenStream=await(navigator.mediaDevices as any).getDisplayMedia({video:{cursor:"always"},audio:true}).catch(()=>null);
-        // Reuse existing mic track from preview if available
         const existingAudio=localStreamRef.current?.getAudioTracks()||[];
-        const micStream=existingAudio.length>0?null:await navigator.mediaDevices.getUserMedia({audio:true}).catch(()=>null);
+        const micStream=existingAudio.length>0?null:await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS).catch(()=>null);
         const tracks=[...(screenStream?.getTracks()||[]),...existingAudio,...(micStream?.getAudioTracks()||[])];
         stream=new MediaStream(tracks);
         setHuddleScreen(true);setHuddleCam(false);
         screenStream?.getVideoTracks()[0]?.addEventListener('ended',()=>endCall(true));
       }else{
-        // Reuse preview stream if it already has the right tracks (avoids double permission prompt)
         const preview=localStreamRef.current;
         const previewHasVideo=(preview?.getVideoTracks().filter(t=>t.readyState==="live").length||0)>0;
         const needsVideo=type==="video";
         if(preview&&(needsVideo===previewHasVideo)){
           stream=preview;
         }else{
-          stream=await navigator.mediaDevices.getUserMedia({audio:true,video:needsVideo});
+          stream=await navigator.mediaDevices.getUserMedia({...AUDIO_CONSTRAINTS,video:needsVideo});
         }
         setHuddleCam(needsVideo);setHuddleScreen(false);
       }
       localStreamRef.current=stream;
       if(localVideoRef.current)localVideoRef.current.srcObject=stream;
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
-    }catch{showT('Microphone/camera access required for calls','error');}
+    }catch(e){showT('Microphone/camera access required for calls','error');endCall(true);return;}
+
     pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId,callId,candidate:e.candidate});};
     pc.ontrack=(e)=>{
-      if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];
+      const s=e.streams[0];
+      if(remoteVideoRef.current){remoteVideoRef.current.srcObject=s;remoteVideoRef.current.play().catch(()=>{});}
+      if(remoteAudioRef.current){remoteAudioRef.current.srcObject=s;remoteAudioRef.current.play().catch(()=>{});}
       if(e.track.kind==="video")setRemoteHasVideo(true);
     };
-    const offer=await pc.createOffer();
+    const offer=await pc.createOffer({offerToReceiveAudio:true,offerToReceiveVideo:true});
     await pc.setLocalDescription(offer);
     const callerName=agents.find((a:any)=>a.id===myIdRef.current)?.name||'Team Member';
     sendWs({type:'tc_call_offer',targetId,callId,offer,callerName,channelId:activeCh,callType:type});
     setActiveCall({callId,targetId,type:'outgoing'});setShowHuddle(true);
     setCallDuration(0);callTimerRef.current=setInterval(()=>setCallDuration(p=>p+1),1000);
-    showT(type==="video"?"📹 Video call started…":type==="screen"?"🖥 Screen share started…":"📞 Voice call started…","info");
+    showT(type==="video"?"Video call started…":type==="screen"?"Screen share started…":"Voice call started…","info");
   };
 
   const acceptCall=async()=>{
     if(!incomingCall)return;
     const type=(incomingCall.callType||"voice") as "voice"|"video"|"screen";
+    const fromId=incomingCall.from;const cId=incomingCall.callId;
     setCallType(type);
-    const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
-    peerRef.current=pc;callIdRef.current=incomingCall.callId;callTargetRef.current=incomingCall.from;
+    const pc=new RTCPeerConnection(RTC_CONFIG);
+    peerRef.current=pc;callIdRef.current=cId;callTargetRef.current=fromId;
+
+    pc.onconnectionstatechange=()=>{
+      const s=pc.connectionState;
+      if(s==='failed'){showT('Call connection failed','error');endCall(true);}
+      if(s==='disconnected')showT('Call connection unstable…','info');
+    };
+    pc.oniceconnectionstatechange=()=>{if(pc.iceConnectionState==='failed')pc.restartIce();};
+
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:type==="video"});
+      const stream=await navigator.mediaDevices.getUserMedia({...AUDIO_CONSTRAINTS,video:type==="video"});
       localStreamRef.current=stream;
       if(localVideoRef.current)localVideoRef.current.srcObject=stream;
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
       setHuddleCam(type==="video");
-    }catch{}
-    pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId:incomingCall.from,callId:incomingCall.callId,candidate:e.candidate});};
+    }catch{showT('Microphone/camera access required','error');endCall(true);return;}
+
+    pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId:fromId,callId:cId,candidate:e.candidate});};
     pc.ontrack=(e)=>{
-      if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];
+      const s=e.streams[0];
+      if(remoteVideoRef.current){remoteVideoRef.current.srcObject=s;remoteVideoRef.current.play().catch(()=>{});}
+      if(remoteAudioRef.current){remoteAudioRef.current.srcObject=s;remoteAudioRef.current.play().catch(()=>{});}
       if(e.track.kind==="video")setRemoteHasVideo(true);
     };
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
     const answer=await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    sendWs({type:'tc_call_answer',targetId:incomingCall.from,callId:incomingCall.callId,answer});
-    setActiveCall({callId:incomingCall.callId,targetId:incomingCall.from,type:'incoming'});
+    sendWs({type:'tc_call_answer',targetId:fromId,callId:cId,answer});
+    setActiveCall({callId:cId,targetId:fromId,type:'incoming'});
     setIncomingCall(null);setShowHuddle(true);
     setCallDuration(0);callTimerRef.current=setInterval(()=>setCallDuration(p=>p+1),1000);
   };
@@ -351,6 +385,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const localStreamRef=useRef<MediaStream|null>(null);
   const localVideoRef=useRef<HTMLVideoElement|null>(null);
   const remoteVideoRef=useRef<HTMLVideoElement|null>(null);
+  const remoteAudioRef=useRef<HTMLAudioElement|null>(null);
   const callIdRef=useRef<string|null>(null);
   const callTargetRef=useRef<string|null>(null);
   const callTimerRef=useRef<any>(null);
@@ -1202,6 +1237,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
 
         {/* ── Full-screen remote video ── */}
         <video ref={remoteVideoRef} autoPlay playsInline style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:showVideo?"block":"none"}}/>
+        <audio ref={remoteAudioRef} autoPlay style={{display:"none"}}/>
 
         {/* ── Active voice call — big avatar + waveform ── */}
         {!showVideo&&activeCall&&peer&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:24,background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)"}}>
