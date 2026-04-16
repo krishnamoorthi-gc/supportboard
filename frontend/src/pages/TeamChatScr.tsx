@@ -22,7 +22,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       rxArr = Object.entries(raw).map(([emoji, users]) => ({ emoji, users }));
     } catch(e) {}
     const atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments || '[]') : (m.attachments || []);
-    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type } : null;
+    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type, url: atts[0].url } : null;
     const msgTime = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
     let seenBy:string[] = [];
     try { seenBy = Array.isArray(m.seen_by) ? m.seen_by : JSON.parse(m.seen_by || '[]'); } catch {}
@@ -760,11 +760,11 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
             })}{i<m.text.split("\n").length-1&&<br/>}</span>;
           })}
         </div>}
-        {m.file&&<div style={{display:"inline-flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:10,marginTop:5,cursor:"pointer"}} onClick={()=>showT("Opening "+m.file.name,"info")}>
+        {m.file&&(m.file.url&&(m.file.name?.startsWith("voice-")||/^(audio|webm|ogg|mp3|wav|m4a)$/i.test(m.file.type||""))?<div style={{marginTop:5}}><audio controls preload="metadata" style={{height:36,maxWidth:300}} src={m.file.url}/><div style={{fontSize:9,color:C.t3,marginTop:2}}>🎙 {m.file.name} · {m.file.size}</div></div>:<div style={{display:"inline-flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:10,marginTop:5,cursor:"pointer"}} onClick={()=>{if(m.file.url)window.open(m.file.url,"_blank");else showT("Opening "+m.file.name,"info");}}>
           <span style={{fontSize:22}}>{m.file.type==="pdf"?"📄":m.file.type==="img"?"🖼":"📁"}</span>
           <div><div style={{fontSize:14,fontWeight:600,color:C.t1}}>{m.file.name}</div><div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>{m.file.size}</div></div>
           <span style={{color:C.a,fontSize:13}}>↓</span>
-        </div>}
+        </div>)}
         {m.reactions?.length>0&&<div style={{display:"flex",gap:2,marginTop:3,flexWrap:"wrap"}}>
           {m.reactions.map((r:any)=><button key={r.emoji} onClick={()=>react(m.id,r.emoji)} title={(r.users||[]).map((u:string)=>ag[u]?.name||u).join(", ")} style={{display:"flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:10,fontSize:12,background:(r.users||[]).includes(myId)?C.ad:C.s3,border:`1px solid ${(r.users||[]).includes(myId)?C.a+"55":C.b1}`,cursor:"pointer"}}>{r.emoji}<span style={{fontSize:9.5,fontFamily:FM,color:(r.users||[]).includes(myId)?C.a:C.t3}}>{(r.users||[]).length}</span></button>)}
           <button onClick={()=>setShowReactions(showReactions===m.id?null:m.id)} style={{width:18,height:18,borderRadius:9,fontSize:9,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
@@ -1049,7 +1049,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
                 <span style={{fontSize:8.5,color:C.t3,fontFamily:FM}}>{m.t}</span>
               </div>
               <div style={{fontSize:12.5,color:C.t1,lineHeight:1.5,wordBreak:"break-word"}}>{m.text}</div>
-              {m.file&&<div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:6,marginTop:3,fontSize:10}}>📎 {m.file.name} <span style={{color:C.t3}}>{m.file.size}</span></div>}
+              {m.file&&(m.file.url&&(m.file.name?.startsWith("voice-")||/^(audio|webm|ogg|mp3|wav|m4a)$/i.test(m.file.type||""))?<div style={{marginTop:3}}><audio controls preload="metadata" style={{height:32,maxWidth:260}} src={m.file.url}/><div style={{fontSize:8,color:C.t3,marginTop:1}}>🎙 {m.file.name}</div></div>:<div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:6,marginTop:3,fontSize:10}}>{m.file.url?<a href={m.file.url} target="_blank" rel="noreferrer" style={{color:C.a,textDecoration:"none"}}>📎 {m.file.name}</a>:<>📎 {m.file.name}</>} <span style={{color:C.t3}}>{m.file.size}</span></div>)}
               {m.reactions?.length>0&&<div style={{display:"flex",gap:2,marginTop:2,flexWrap:"wrap"}}>{m.reactions.map((r,ri)=><span key={ri} style={{padding:"1px 5px",borderRadius:8,background:C.s3,border:`1px solid ${C.b1}`,fontSize:10,cursor:"pointer"}}>{r.emoji} {r.users.length}</span>)}</div>}
               {m.thread?.length>0&&<div style={{fontSize:9,color:C.a,fontFamily:FM,marginTop:2,cursor:"pointer"}} onClick={()=>{setActiveCh(pId);closePane(pId);setShowThread(m);}}>{m.thread.length} {m.thread.length===1?"reply":"replies"}</div>}
             </div>
@@ -1486,7 +1486,7 @@ export function MiniChatPanel({agents,onClose,onExpand}){
           <div style={{flex:1}}>
             <div style={{fontSize:9}}><strong style={{color:m.uid===myIdRef.current?C.a:C.t1}}>{a2.name||"?"}</strong> <span style={{color:C.t3,fontFamily:FM}}>{m.t}</span></div>
             <div style={{fontSize:10,color:C.t2,lineHeight:1.3}}>{m.text.slice(0,80)}{m.text.length>80?"…":""}</div>
-            {m.file&&<div style={{fontSize:8,color:C.a,marginTop:1}}>📎 {m.file.name}</div>}
+            {m.file&&(m.file.url&&(m.file.name?.startsWith("voice-")||/^(audio|webm|ogg|mp3|wav|m4a)$/i.test(m.file.type||""))?<div style={{marginTop:1}}><audio controls preload="metadata" style={{height:24,maxWidth:180}} src={m.file.url}/></div>:<div style={{fontSize:8,color:C.a,marginTop:1}}>📎 {m.file.name}</div>)}
             {m.reactions?.length>0&&<div style={{display:"flex",gap:1,marginTop:1}}>{m.reactions.map((r:any)=><span key={r.emoji} style={{fontSize:8,background:C.s3,borderRadius:5,padding:"0 2px"}}>{r.emoji}{r.users.length}</span>)}</div>}
           </div>
         </div>
