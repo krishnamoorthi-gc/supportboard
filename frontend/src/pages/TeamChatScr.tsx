@@ -15,6 +15,12 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // ═══ MULTI-PANE ═══
   const [panes,setPanes]=useState([]); // secondary pane channel/dm IDs (max 2)
   const [paneInputs,setPaneInputs]=useState({});
+  const _backendOrigin = API_BASE.replace(/\/api$/, '');
+  const _resolveUrl = (url:string|null|undefined) => {
+    if (!url) return null;
+    if (url.startsWith('blob:') || url.startsWith('http')) return url;
+    return _backendOrigin + (url.startsWith('/') ? '' : '/') + url;
+  };
   function parseApiMsg(m:any) {
     let rxArr:any[] = [];
     try {
@@ -22,7 +28,15 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       rxArr = Object.entries(raw).map(([emoji, users]) => ({ emoji, users }));
     } catch(e) {}
     const atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments || '[]') : (m.attachments || []);
-    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type, url: atts[0].url || null, contentType: atts[0].contentType || '' } : null;
+    const file = atts.length > 0 ? {
+      name: atts[0].name,
+      size: atts[0].size,
+      type: atts[0].type,
+      url: _resolveUrl(atts[0].url),
+      contentType: atts[0].contentType || '',
+      isVoice: !!(atts[0].isVoice),
+      duration: atts[0].duration || null,
+    } : null;
     const msgTime = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
     let seenBy:string[] = [];
     try { seenBy = Array.isArray(m.seen_by) ? m.seen_by : JSON.parse(m.seen_by || '[]'); } catch {}
@@ -459,7 +473,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
             const att={name:fname,size:(blob.size/1024).toFixed(0)+" KB",type:"webm",url,contentType:mimeType,isVoice:true,duration:dur};
             const res=await api.post(`/chat/channels/${activeCh}/messages`,{text:msgText,attachments:url?[att]:[]}).catch(()=>null);
             if(res?.message?.id){
-              setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===tempId?{...m,id:res.message.id,file:{...m.file,url:url||previewUrl}}:m)}));
+              setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===tempId?{...m,id:res.message.id,file:{...m.file,url:_resolveUrl(url)||previewUrl}}:m)}));
             }
           }catch{}
         }
@@ -976,11 +990,29 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           {channels.filter(c=>!tcSearch||c.name.includes(tcSearch)).map(ch=><ChBtn key={ch.id} ch={ch}/>)}
         </SideSection>
         <SideSection id="dms" name={"MEMBERS ("+(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).length+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
-          {(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase())).map((a:any)=>{const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);return(
-            <button key={a.id} onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}} onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}} className="hov" style={{width:"100%",padding:"5px 10px 5px 16px",display:"flex",alignItems:"center",gap:4,background:dm&&activeCh===dm.id?C.ad:dm&&panes.includes(dm.id)?C.pd+"44":"transparent",border:"none",cursor:"pointer",borderRadius:4,marginBottom:1}}>
-              <Av i={a.av} c={a.color} s={20} dot={a.status==="online"}/><span style={{fontSize:13,color:dm&&activeCh===dm.id?C.t1:C.t2,fontWeight:dm?.unread?700:500,flex:1,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
-              <span style={{fontSize:8,padding:"1px 4px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:a.role==="Member"?C.yd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:a.role==="Member"?C.y:C.t3,fontFamily:FM,fontWeight:700}}>{a.role}</span>
-              {dm&&dm.unread>0&&<span style={{background:C.r,color:"#fff",borderRadius:6,padding:"0 4px",fontSize:7.5,fontWeight:700}}>{dm.unread}</span>}
+          {(agents as any[])
+            .filter((a:any)=>a.id!==myIdRef.current)
+            .filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase()))
+            .sort((a:any,b:any)=>{
+              // Online first, then by name
+              if(a.status==="online"&&b.status!=="online")return -1;
+              if(a.status!=="online"&&b.status==="online")return 1;
+              return (a.name||"").localeCompare(b.name||"");
+            })
+            .map((a:any)=>{const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);const isOnline=a.status==="online";return(
+            <button key={a.id} onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}} onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}} className="hov" style={{width:"100%",padding:"5px 8px 5px 10px",display:"flex",alignItems:"center",gap:6,background:dm&&activeCh===dm.id?C.ad:dm&&panes.includes(dm.id)?C.pd+"44":"transparent",border:"none",cursor:"pointer",borderRadius:6,marginBottom:1}}>
+              {/* Avatar with online dot */}
+              <div style={{position:"relative",flexShrink:0}}>
+                <Av i={a.av} c={a.color} s={26}/>
+                <span style={{position:"absolute",bottom:0,right:0,width:9,height:9,borderRadius:"50%",background:isOnline?"#22c55e":C.t3,border:`2px solid ${C.s1}`,display:"block"}}/>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:13,color:dm&&activeCh===dm.id?C.t1:isOnline?C.t1:C.t2,fontWeight:dm?.unread?700:isOnline?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{a.name}</span>
+                  {dm&&dm.unread>0&&<span style={{background:C.r,color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:800,flexShrink:0,minWidth:18,textAlign:"center",lineHeight:"16px"}}>{dm.unread>9?"9+":dm.unread}</span>}
+                </div>
+                <div style={{fontSize:10,color:isOnline?C.g:C.t3,fontFamily:FM,fontWeight:isOnline?600:400}}>{isOnline?"● Online":"○ Offline"}</div>
+              </div>
             </button>
           );})}
         </SideSection>
