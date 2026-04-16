@@ -629,7 +629,7 @@ function InboxSet({inboxes,setInboxes}){
     // Non-email channels (or unsaved email) — keep the simulated test
     if(form.type==="facebook"){
       const fbMissing=[];
-      if(!String(cfg.accessToken||"").trim())fbMissing.push("Page Access Token");
+      if(!String(cfg.accessToken||"").trim()&&!String(cfg.userAccessToken||"").trim())fbMissing.push("Page Access Token or User Access Token");
       if(!String(cfg.appId||"").trim())fbMissing.push("App ID");
       if(!String(cfg.appSecret||"").trim())fbMissing.push("App Secret");
       if(fbMissing.length){
@@ -643,7 +643,7 @@ function InboxSet({inboxes,setInboxes}){
         // Save first if we have an inboxId
         if(inboxId)await api.patch("/settings/inboxes/"+inboxId,{config:{...cfg}});
         // Test token + fetch page info (no webhook subscription)
-        const r=await api.post("/facebook/test",{inboxId:inboxId||undefined,pageId:cfg.pageId||"",accessToken:cfg.accessToken,appId:cfg.appId,appSecret:cfg.appSecret});
+        const r=await api.post("/facebook/test",{inboxId:inboxId||undefined,pageId:cfg.pageId||"",accessToken:cfg.accessToken||"",userAccessToken:cfg.userAccessToken||"",appId:cfg.appId,appSecret:cfg.appSecret});
         cfgFld("connTesting",false);
         if(r?.pageName){
           cfgFld("connStatus","connected");
@@ -857,7 +857,7 @@ function InboxSet({inboxes,setInboxes}){
 
         {/* ── Facebook Settings ── */}
         {form.type==="facebook"&&<>
-          {[{k:"appId",l:"APP ID",ph:"933722449370118",type:"text"},{k:"appSecret",l:"APP SECRET",ph:"abc123def456...",type:"password"},{k:"pageId",l:"PAGE ID",ph:"123456789",type:"text"},{k:"accessToken",l:"PAGE ACCESS TOKEN",ph:"EAAxxxxxxx",type:"password"},{k:"verifyToken",l:"WEBHOOK VERIFY TOKEN",ph:"supportdesk_facebook_verify",type:"text"}].map(f=>(
+          {[{k:"appId",l:"APP ID",ph:"933722449370118",type:"text"},{k:"appSecret",l:"APP SECRET",ph:"abc123def456...",type:"password"},{k:"pageId",l:"PAGE ID (auto-detected if blank)",ph:"123456789",type:"text"},{k:"userAccessToken",l:"USER ACCESS TOKEN",ph:"EAAxxxxxxx (from Graph API Explorer)",type:"password"},{k:"accessToken",l:"PAGE ACCESS TOKEN (auto-resolved or paste manually)",ph:"EAAxxxxxxx",type:"password"},{k:"verifyToken",l:"WEBHOOK VERIFY TOKEN",ph:"supportdesk_facebook_verify",type:"text"}].map(f=>(
             <div key={f.k} style={{marginBottom:10}}>
               <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>{f.l}</div>
               <Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph} type={f.type}/>

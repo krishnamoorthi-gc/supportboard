@@ -297,21 +297,36 @@ router.post('/disconnect', auth, async (req, res) => {
 
 // ── POST /api/facebook/test  — Validate token + fetch page info (no webhook) ──
 router.post('/test', auth, async (req, res) => {
-  const { inboxId, pageId, accessToken, appId, appSecret } = req.body;
+  const { inboxId, pageId, accessToken, appId, appSecret, userAccessToken } = req.body;
 
   // Use provided fields directly, or read from saved inbox config
-  let cfg = { pageId, accessToken, appId, appSecret };
+  let cfg = { pageId, accessToken, appId, appSecret, userAccessToken };
   if (inboxId && (!pageId || !accessToken)) {
     const inbox = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
     if (inbox) {
       const saved = safeJson(inbox.config, {});
-      cfg = { pageId: pageId || saved.pageId, accessToken: accessToken || saved.accessToken, appId: appId || saved.appId, appSecret: appSecret || saved.appSecret };
+      cfg = { pageId: pageId || saved.pageId, accessToken: accessToken || saved.accessToken, appId: appId || saved.appId, appSecret: appSecret || saved.appSecret, userAccessToken: userAccessToken || saved.userAccessToken };
     }
   }
 
-  if (!cfg.accessToken) return res.status(400).json({ error: 'Page Access Token is required' });
+  if (!cfg.accessToken && !cfg.userAccessToken) return res.status(400).json({ error: 'Page Access Token or User Access Token is required' });
 
   try {
+    // 0. If only user token provided, resolve page token from /me/accounts
+    if (!cfg.accessToken && cfg.userAccessToken) {
+      try {
+        const acctUrl = `${GRAPH_BASE}/me/accounts?fields=id,name,access_token&access_token=${cfg.userAccessToken}`;
+        const acctRes = await fetch(acctUrl);
+        const acctData = await acctRes.json();
+        const pages = acctData.data || [];
+        if (pages.length > 0) {
+          const page = cfg.pageId ? pages.find(p => p.id === cfg.pageId) || pages[0] : pages[0];
+          cfg.accessToken = page.access_token;
+          if (!cfg.pageId) cfg.pageId = page.id;
+        }
+      } catch {}
+    }
+
     // 1. Validate token
     let tokenInfo = null;
     let tokenType = 'unknown';
@@ -324,23 +339,47 @@ router.post('/test', auth, async (req, res) => {
 
     // 2. Fetch page info using the token
     let pageName = '', pageCategory = '', pagePicture = '', resolvedPageId = cfg.pageId || '';
+
+    // Try user token first (/me/accounts returns page name, picture, category)
+    // Prefer userAccessToken since page tokens often lack pages_read_engagement
+    const tryToken = cfg.userAccessToken || cfg.accessToken;
     try {
-      const meUrl = `${GRAPH_BASE}/me?fields=id,name,category,picture&access_token=${cfg.accessToken}`;
-      const meRes = await fetch(meUrl);
-      const meData = await meRes.json();
-      if (meData.error) throw new Error(meData.error.message);
-      pageName = meData.name || '';
-      pageCategory = meData.category || '';
-      pagePicture = meData.picture?.data?.url || '';
-      if (!resolvedPageId) resolvedPageId = meData.id || '';
-    } catch (e) {
-      // /me might fail for page tokens with missing permissions, try pageId directly
-      if (cfg.pageId) {
+      const accountsUrl = `${GRAPH_BASE}/me/accounts?fields=id,name,category,picture&access_token=${tryToken}`;
+      const accountsRes = await fetch(accountsUrl);
+      const accountsData = await accountsRes.json();
+      const pages = accountsData.data || [];
+      if (pages.length > 0) {
+        const page = cfg.pageId ? pages.find(p => p.id === cfg.pageId) || pages[0] : pages[0];
+        pageName = page.name || '';
+        pageCategory = page.category || '';
+        pagePicture = page.picture?.data?.url || '';
+        if (!resolvedPageId) resolvedPageId = page.id || '';
+      }
+    } catch {}
+
+    // Fallback: try /me directly
+    if (!pageName) {
+      try {
+        const meUrl = `${GRAPH_BASE}/me?fields=id,name,category,picture&access_token=${cfg.accessToken}`;
+        const meRes = await fetch(meUrl);
+        const meData = await meRes.json();
+        if (!meData.error) {
+          pageName = meData.name || '';
+          pageCategory = meData.category || '';
+          pagePicture = meData.picture?.data?.url || '';
+          if (!resolvedPageId) resolvedPageId = meData.id || '';
+        }
+      } catch {}
+    }
+
+    // Fallback: try pageId directly via fetchPageInfo
+    if (!pageName && cfg.pageId) {
+      try {
         const pageInfo = await fetchPageInfo({ pageId: cfg.pageId, pageAccessToken: cfg.accessToken });
         pageName = pageInfo?.pageName || '';
         pageCategory = pageInfo?.pageCategory || '';
         pagePicture = pageInfo?.pagePicture || '';
-      }
+      } catch {}
     }
 
     // 3. Check required permissions
@@ -349,7 +388,7 @@ router.post('/test', auth, async (req, res) => {
       : [];
 
     // 4. If we have an inboxId, save the validated info to config
-    if (inboxId && pageName) {
+    if (inboxId && (pageName || cfg.accessToken)) {
       const inbox = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
       if (inbox) {
         const saved = safeJson(inbox.config, {});
@@ -357,9 +396,9 @@ router.post('/test', auth, async (req, res) => {
           ...saved,
           ...cfg,
           pageId: resolvedPageId || saved.pageId,
-          pageName,
-          pageCategory,
-          pagePicture,
+          pageName: pageName || saved.pageName,
+          pageCategory: pageCategory || saved.pageCategory,
+          pagePicture: pagePicture || saved.pagePicture,
           connStatus: missingPermissions.length === 0 ? 'connected' : 'configured',
           testedAt: now(),
         };
