@@ -1504,7 +1504,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   const needsMediaUrl=selectedWaTpl&&["IMAGE","VIDEO","DOCUMENT"].includes(selectedWaTpl.header_type);
   const [ab,setAb]=useState(editCamp?.ab||false);
   const [aiLoading,setAiLoading]=useState(false);
-  const [audMode,setAudMode]=useState<"segments"|"individual"|"groups">(editCamp?.audMode||"segments");
+  const [audMode,setAudMode]=useState<"segments"|"individual"|"groups"|"fb_users">(editCamp?.audMode||(defaultCh==="facebook"?"fb_users":"segments"));
   const [selContacts,setSelContacts]=useState<string[]>(editCamp?.selectedContacts||[]);
   const [selGroups,setSelGroups]=useState<string[]>(editCamp?.audMode==="groups"?editCamp?.selectedContacts||[]:[]);
   const [cSearch,setCSearch]=useState("");
@@ -1515,7 +1515,33 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   const [newCtEmail,setNewCtEmail]=useState("");
   const [newCtPhone,setNewCtPhone]=useState("");
   const toggleGroup=(id:string)=>setSelGroups(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
-  const audience=audMode==="segments"?(segments.find(s=>s.id===segment)?.count||0):audMode==="groups"?groups.filter(g=>selGroups.includes(g.id)).reduce((s,g)=>s+(g.contact_count||0),0):selContacts.length;
+  // Facebook Users
+  const [fbUsers,setFbUsers]=useState<any[]>([]);
+  const [fbLoading,setFbLoading]=useState(false);
+  const [fbSearch,setFbSearch]=useState("");
+  const [selFbUsers,setSelFbUsers]=useState<string[]>([]);
+  const [fbSyncing,setFbSyncing]=useState(false);
+  const loadFbUsers=async()=>{setFbLoading(true);try{const r=await api.get("/facebook/users");if(r?.users)setFbUsers(r.users);}catch(e:any){showT(e.message||"Failed to load Facebook users","error");}setFbLoading(false);};
+  useEffect(()=>{if((ch==="facebook"||ch==="instagram")&&audMode==="fb_users"&&fbUsers.length===0)loadFbUsers();},[ch,audMode]);
+  const toggleFbUser=(fbId:string)=>setSelFbUsers(p=>p.includes(fbId)?p.filter(x=>x!==fbId):[...p,fbId]);
+  const filteredFbUsers=fbUsers.filter(u=>{if(!fbSearch.trim())return true;const q=fbSearch.toLowerCase();return u.name?.toLowerCase().includes(q)||u.fbId?.includes(q);});
+  const syncAndSelectFbUsers=async()=>{
+    if(selFbUsers.length===0){showT("Select Facebook users first","warn");return;}
+    setFbSyncing(true);
+    const newIds:string[]=[];
+    for(const fbId of selFbUsers){
+      const u=fbUsers.find(x=>x.fbId===fbId);if(!u)continue;
+      if(u.isContact&&u.contactId){newIds.push(u.contactId);continue;}
+      try{
+        const r=await api.post("/facebook/users/add",{fbId:u.fbId,name:u.name});
+        if(r?.contact){newIds.push(r.contact.id);u.isContact=true;u.contactId=r.contact.id;}
+      }catch{newIds.push(fbId);}
+    }
+    setSelContacts(newIds);setAudMode("individual");
+    showT(`${newIds.length} Facebook user(s) synced & selected`,"success");
+    setFbSyncing(false);
+  };
+  const audience=audMode==="segments"?(segments.find(s=>s.id===segment)?.count||0):audMode==="groups"?groups.filter(g=>selGroups.includes(g.id)).reduce((s,g)=>s+(g.contact_count||0),0):audMode==="fb_users"?selFbUsers.length:selContacts.length;
   const templates=userTemplates.filter(t=>t.ch===ch).map(t=>({id:t.id,name:t.name,cat:t.cat||"General",text:t.body||"",subj:t.subj||""}));
 
   // ═══ CHANNEL VALIDATORS ═══
@@ -1600,7 +1626,7 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
     if(v.errs.length>0&&asStatus!=="draft"){showT("Fix "+v.errs.length+" error"+(v.errs.length>1?"s":"")+" before sending","error");return;}
     if(v.warns.length>0&&asStatus==="active"&&!window.confirm(v.warns.length+" warning"+(v.warns.length>1?"s":"")+": "+v.warns[0]+(v.warns.length>1?" (+more)":"")+"\n\nSend anyway?"))return;
     if(needsMediaUrl&&!waHeaderMediaUrl&&asStatus!=="draft"){return showT("Image/media URL required for this template's header","error");}
-    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:[],audMode,wa_template_id:ch==="whatsapp"&&waTemplateId?waTemplateId:null,header_media_url:waHeaderMediaUrl||null});
+    onSave({ch,name,goal,status:asStatus||status,audience,template:body,subject:ch==="email"?subject:undefined,schedDate,ab,segmentId:audMode==="segments"?segment:null,selectedContacts:audMode==="individual"?selContacts:audMode==="groups"?selGroups:audMode==="fb_users"?selContacts:[],audMode:audMode==="fb_users"?"individual":audMode,wa_template_id:ch==="whatsapp"&&waTemplateId?waTemplateId:null,header_media_url:waHeaderMediaUrl||null});
   };
 
   return <Mdl title={editCamp?"Edit Campaign":"New Campaign"} onClose={onClose} w={600}>
@@ -1727,8 +1753,8 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
     {step===3&&<div>
       {/* Audience Mode Tabs */}
       <div style={{display:"flex",gap:0,marginBottom:14}}>
-        {([["segments","📋 Segments"],["groups","👥 Groups"],["individual","👤 Contacts"]] as const).map(([id,lbl],i)=>(
-          <button key={id} onClick={()=>setAudMode(id)} style={{flex:1,padding:"10px",fontSize:11,fontWeight:700,cursor:"pointer",background:audMode===id?C.ad:"transparent",color:audMode===id?C.a:C.t3,border:`1.5px solid ${audMode===id?C.a+"55":C.b1}`,borderRadius:i===0?"10px 0 0 10px":i===2?"0 10px 10px 0":"0",fontFamily:FB,transition:"all .15s"}}>{lbl}</button>
+        {([["segments","📋 Segments"],["groups","👥 Groups"],["individual","👤 Contacts"],...(ch==="facebook"||ch==="instagram"?[["fb_users",ch==="facebook"?"📘 FB Users":"📸 IG Users"]]:[])]).map(([id,lbl],i,arr)=>(
+          <button key={id} onClick={()=>setAudMode(id as any)} style={{flex:1,padding:"10px",fontSize:11,fontWeight:700,cursor:"pointer",background:audMode===id?C.ad:"transparent",color:audMode===id?C.a:C.t3,border:`1.5px solid ${audMode===id?C.a+"55":C.b1}`,borderRadius:i===0?"10px 0 0 10px":i===arr.length-1?"0 10px 10px 0":"0",fontFamily:FB,transition:"all .15s"}}>{lbl}</button>
         ))}
       </div>
 
@@ -1825,6 +1851,52 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
             </button>
           );})}
         </div>
+      </div>}
+
+      {audMode==="fb_users"&&<div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div style={{flex:1,position:"relative"}}>
+            <input value={fbSearch} onChange={e=>setFbSearch(e.target.value)} placeholder="Search Facebook users..." style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.s2,fontSize:12,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/>
+            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.t3}}>🔍</span>
+          </div>
+          <button onClick={loadFbUsers} disabled={fbLoading} style={{fontSize:10,color:"#1877f2",background:"#1877f210",border:"1px solid #1877f233",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>{fbLoading?"Loading...":"Refresh"}</button>
+        </div>
+        {fbLoading&&<div style={{textAlign:"center",padding:30,fontSize:12,color:C.t3}}>Loading Facebook users...</div>}
+        {!fbLoading&&filteredFbUsers.length===0&&<div style={{textAlign:"center",padding:30,fontSize:12,color:C.t3}}>No Facebook users found. Users must message your page first via Messenger.</div>}
+        {!fbLoading&&filteredFbUsers.length>0&&<>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{filteredFbUsers.length} FACEBOOK USERS</span>
+            <button onClick={()=>{if(selFbUsers.length===filteredFbUsers.length)setSelFbUsers([]);else setSelFbUsers(filteredFbUsers.map(u=>u.fbId));}} style={{fontSize:10,color:C.a,background:"transparent",border:"none",cursor:"pointer",fontWeight:600,fontFamily:FM}}>{selFbUsers.length===filteredFbUsers.length&&filteredFbUsers.length>0?"Deselect All":"Select All"}</button>
+          </div>
+          {selFbUsers.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+            {selFbUsers.map(fid=>{const u=fbUsers.find(x=>x.fbId===fid);return u?<span key={fid} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,background:"#1877f218",color:"#1877f2",padding:"3px 8px",borderRadius:12,fontWeight:600,fontFamily:FM}}>
+              {u.name||u.fbId}
+              <span onClick={()=>toggleFbUser(fid)} style={{cursor:"pointer",fontWeight:800,fontSize:11,marginLeft:2}}>×</span>
+            </span>:null;})}
+          </div>}
+          <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,paddingRight:4}}>
+            {filteredFbUsers.map(u=>{const sel=selFbUsers.includes(u.fbId);return(
+              <button key={u.fbId} onClick={()=>toggleFbUser(u.fbId)} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:sel?"#1877f210":C.s2,border:`1px solid ${sel?"#1877f255":C.b1}`,cursor:"pointer",transition:"background .12s"}}>
+                <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${sel?"#1877f2":C.t3+"66"}`,background:sel?"#1877f2":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .12s"}}>
+                  {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:800}}>✓</span>}
+                </div>
+                {u.picture?<img src={u.picture} style={{width:28,height:28,borderRadius:"50%",flexShrink:0}} alt=""/>:<div style={{width:28,height:28,borderRadius:"50%",background:"#1877f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",flexShrink:0}}>{(u.name||"?")[0]}</div>}
+                <div style={{flex:1,textAlign:"left",minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||"Facebook User"}</div>
+                  <div style={{fontSize:10,color:C.t3,display:"flex",gap:6}}>
+                    <span style={{color:u.source==="messenger"?"#1877f2":u.source==="friend"?"#25d366":C.t3,fontWeight:600}}>{u.source==="messenger"?"Messenger":u.source==="friend"?"Friend":"Contact"}</span>
+                    {u.messageCount>0&&<span>{u.messageCount} msgs</span>}
+                    {u.isContact&&<span style={{color:C.g}}>In contacts</span>}
+                  </div>
+                </div>
+              </button>
+            );})}
+          </div>
+        </>}
+        {selFbUsers.length>0&&<div style={{marginTop:12}}>
+          <button onClick={syncAndSelectFbUsers} disabled={fbSyncing} className="btn-press" style={{width:"100%",padding:"10px",borderRadius:10,fontSize:12,fontWeight:700,cursor:"pointer",background:"#1877f2",color:"#fff",border:"none",fontFamily:FB}}>{fbSyncing?"Syncing...":"Sync "+selFbUsers.length+" user(s) as contacts & select for campaign"}</button>
+          <div style={{fontSize:9,color:C.t3,marginTop:4,textAlign:"center"}}>Selected Facebook users will be added as contacts (if not already) and targeted in this campaign</div>
+        </div>}
       </div>}
 
       <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"14px",textAlign:"center",marginBottom:10,marginTop:14}}>
