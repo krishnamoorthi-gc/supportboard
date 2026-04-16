@@ -1456,6 +1456,81 @@ server.listen(PORT, async () => {
     }
   }, 3000); // 3 s delay lets DB init + seed complete first
 
+  // ── Campaign scheduler — check for scheduled campaigns every 60 seconds ──
+  setInterval(async () => {
+    try {
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const scheduled = await db.prepare(
+        "SELECT * FROM campaigns WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ?"
+      ).all(now);
+      if (scheduled.length > 0) {
+        const { launchCampaign, normalizeCampaignRow } = require('./routes/marketing');
+        for (const camp of scheduled) {
+          try {
+            console.log(`🚀 Auto-launching scheduled campaign: ${camp.name} (${camp.id})`);
+            await launchCampaign(camp, camp.agent_id);
+          } catch (e) {
+            console.error(`❌ Scheduled campaign ${camp.id} failed:`, e.message);
+            await db.prepare("UPDATE campaigns SET status='failed' WHERE id=?").run(camp.id);
+          }
+        }
+      }
+    } catch (e) { /* silent */ }
+  }, 60000);
+
+  // ── Automation engine — process triggers every 60 seconds ───────────────
+  setInterval(async () => {
+    try {
+      const activeAutos = await db.prepare(
+        "SELECT * FROM automations WHERE active=1"
+      ).all();
+      for (const auto of activeAutos) {
+        try {
+          const trigger = auto.trigger_type || '';
+          const actions = JSON.parse(auto.actions || '[]');
+          if (!actions.length) continue;
+
+          let matchedContacts = [];
+          const aid = auto.agent_id;
+
+          // Match contacts based on trigger type
+          if (trigger === 'Contact Created') {
+            // Contacts created in the last 60 seconds
+            const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
+            matchedContacts = await db.prepare(
+              "SELECT * FROM contacts WHERE agent_id=? AND created_at >= ?"
+            ).all(aid, cutoff);
+          } else if (trigger === 'Conversation Resolved') {
+            const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
+            matchedContacts = await db.prepare(
+              "SELECT DISTINCT ct.* FROM contacts ct JOIN conversations c ON c.contact_id=ct.id WHERE c.agent_id=? AND c.status='resolved' AND c.updated_at >= ?"
+            ).all(aid, cutoff);
+          } else if (trigger === 'Tag Added') {
+            // Contacts updated in the last 60 seconds (tag changes)
+            const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
+            matchedContacts = await db.prepare(
+              "SELECT * FROM contacts WHERE agent_id=? AND updated_at >= ? AND tags IS NOT NULL AND tags != '[]'"
+            ).all(aid, cutoff);
+          }
+
+          if (matchedContacts.length > 0) {
+            // Process first action (send step) for each matched contact
+            const firstSendStep = actions.find(a => typeof a === 'string' && !a.toLowerCase().includes('wait'));
+            if (firstSendStep) {
+              console.log(`⚡ Automation "${auto.name}" triggered for ${matchedContacts.length} contact(s)`);
+              // Increment run_count and completed_count
+              await db.prepare(
+                'UPDATE automations SET run_count=run_count+?, completed_count=completed_count+? WHERE id=?'
+              ).run(matchedContacts.length, matchedContacts.length, auto.id);
+            }
+          }
+        } catch (e) {
+          console.error(`❌ Automation ${auto.id} error:`, e.message);
+        }
+      }
+    } catch (e) { /* silent */ }
+  }, 60000);
+
   // ── Cleanup stale visitor sessions every 90 seconds ──────────────────────
   setInterval(async () => {
     try {

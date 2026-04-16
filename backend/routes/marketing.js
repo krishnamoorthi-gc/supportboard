@@ -1139,6 +1139,23 @@ router.delete('/segments/:id', auth, async (req, res) => {
   }
 });
 
+// Segment reach — compute real contact count matching rules
+router.post('/segments/reach', auth, async (req, res) => {
+  try {
+    const { source = 'rules', conditions = [], contacts = [] } = req.body;
+    const count = await computeSegmentContactCount({
+      agentId: req.agent.id,
+      source,
+      conditions: toArray(conditions),
+      contacts: toArray(contacts),
+    });
+    res.json({ count });
+  } catch (e) {
+    console.error('❌ POST /api/marketing/segments/reach error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Templates
 router.get('/templates', auth, async (req, res) => {
   try {
@@ -1426,3 +1443,5 @@ router.get('/campaigns/:id/responses', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.launchCampaign = launchCampaign;
+module.exports.normalizeCampaignRow = normalizeCampaignRow;

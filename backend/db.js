@@ -1414,6 +1414,15 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('ai_agents agent_id column:', e.message); }
 
+    // ── Ensure automations has completed_count column ─────────────────────
+    try {
+      const autoCols = new Set((await query('SHOW COLUMNS FROM automations')).map(c => c.Field));
+      if (!autoCols.has('completed_count')) {
+        await run('ALTER TABLE automations ADD COLUMN completed_count INT DEFAULT 0');
+        console.log('✅ Added completed_count to automations');
+      }
+    } catch (e) { console.error('automations completed_count column:', e.message); }
+
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
