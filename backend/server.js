@@ -34,23 +34,51 @@ const server = http.createServer(app);
 const { setupWebSocket } = require('./ws');
 setupWebSocket(server);
 
-// ── Middleware ──
+// ── Security middleware ──
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+    else cb(null, ALLOWED_ORIGINS[0]);
+  },
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// API-wide rate limiting (100 req/min per IP)
+app.use('/api/', rateLimit({ windowMs: 60000, max: 100, standardHeaders: true, legacyHeaders: false }));
 
 // ── File uploads ──
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
+const UPLOAD_ALLOWED_TYPES = ['image/jpeg','image/png','image/gif','image/webp','application/pdf','text/csv','text/plain',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
 const storage = multer.diskStorage({
   destination: uploadDir,
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname.replace(/\s/g, '_')),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, require('crypto').randomUUID() + ext);
+  },
 });
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!UPLOAD_ALLOWED_TYPES.includes(file.mimetype)) return cb(new Error('File type not allowed'));
+    cb(null, true);
+  },
+});
 
 app.post('/api/upload', require('./middleware/auth'), upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });

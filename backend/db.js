@@ -27,8 +27,10 @@ async function init() {
     database,
     multipleStatements: true,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 50,
+    queueLimit: 20,
     idleTimeout: 60000,
+    enableKeepAlive: true,
     charset: 'UTF8MB4_GENERAL_CI',
   });
   // Belt-and-suspenders: also SET NAMES on every new connection

@@ -3,12 +3,12 @@
 Deploy to live server via SSH + git pull.
 Usage: python deploy.py
 """
-import paramiko, subprocess, sys
+import paramiko, subprocess, sys, os
 
-HOST     = '72.61.254.230'
-USER     = 'supportdesk'
-PASS     = 'HwNxyujEziMu9puHP3G2'
-PM2_NAME = 'onlypoa-live'
+HOST     = os.getenv('DEPLOY_HOST', '72.61.254.230')
+USER     = os.getenv('DEPLOY_USER', 'supportdesk')
+PASS     = os.getenv('DEPLOY_PASS', 'HwNxyujEziMu9puHP3G2')
+PM2_NAME = os.getenv('DEPLOY_PM2', 'onlypoa-live')
 
 # ── Step 1: push local branch → main ──────────────────────────────────────
 cur = subprocess.check_output('git branch --show-current', shell=True).decode().strip()
