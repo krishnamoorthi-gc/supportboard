@@ -65,20 +65,35 @@ app.use('/api/', rateLimit({ windowMs: 60000, max: 100, standardHeaders: true, l
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-const UPLOAD_ALLOWED_TYPES = ['image/jpeg','image/png','image/gif','image/webp','application/pdf','text/csv','text/plain',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+const UPLOAD_ALLOWED_TYPES = [
+  'image/jpeg','image/png','image/gif','image/webp','image/svg+xml',
+  'application/pdf','text/csv','text/plain',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword','application/vnd.ms-excel','application/zip',
+  'application/x-zip-compressed','application/octet-stream',
+  // Audio — voice messages & media
+  'audio/mpeg','audio/mp3','audio/wav','audio/ogg','audio/webm',
+  'audio/aac','audio/mp4','audio/x-m4a',
+  // Video
+  'video/mp4','video/webm','video/ogg','video/quicktime',
+];
 const storage = multer.diskStorage({
   destination: uploadDir,
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    const ext = path.extname(file.originalname).toLowerCase() || '.bin';
     cb(null, require('crypto').randomUUID() + ext);
   },
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
   fileFilter: (req, file, cb) => {
-    if (!UPLOAD_ALLOWED_TYPES.includes(file.mimetype)) return cb(new Error('File type not allowed'));
+    const allowed = UPLOAD_ALLOWED_TYPES.includes(file.mimetype) ||
+      file.mimetype.startsWith('image/') ||
+      file.mimetype.startsWith('audio/') ||
+      file.mimetype.startsWith('video/');
+    if (!allowed) return cb(new Error('File type not allowed'));
     cb(null, true);
   },
 });

@@ -22,7 +22,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       rxArr = Object.entries(raw).map(([emoji, users]) => ({ emoji, users }));
     } catch(e) {}
     const atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments || '[]') : (m.attachments || []);
-    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type } : null;
+    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type, url: atts[0].url || null, contentType: atts[0].contentType || '' } : null;
     const msgTime = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
     let seenBy:string[] = [];
     try { seenBy = Array.isArray(m.seen_by) ? m.seen_by : JSON.parse(m.seen_by || '[]'); } catch {}
@@ -391,25 +391,90 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const callTimerRef=useRef<any>(null);
   const activeCallRef=useRef<any>(null);
   useEffect(()=>{activeCallRef.current=activeCall;},[activeCall]);
+  // ── Voice recording state ──
+  const [isRecording,setIsRecording]=useState(false);
+  const [recordingSec,setRecordingSec]=useState(0);
+  const mediaRecorderRef=useRef<MediaRecorder|null>(null);
+  const audioChunksRef=useRef<Blob[]>([]);
+  const recordTimerRef=useRef<any>(null);
   const handleFileUpload=async(e:any)=>{
     const f=e.target.files?.[0];if(!f)return;
-    const sizeMB=(f.size/1024/1024).toFixed(1);const ext=f.name.split('.').pop()?.toLowerCase()||'file';
+    const MAX_MB=50;
+    if(f.size>MAX_MB*1024*1024){showT(`File too large — max ${MAX_MB} MB`,"error");e.target.value="";return;}
+    const sizeMB=(f.size/1024/1024).toFixed(1);
+    const ext=f.name.split('.').pop()?.toLowerCase()||'bin';
+    const isImg=f.type.startsWith('image/');
+    const isAudio=f.type.startsWith('audio/');
+    const isVideo=f.type.startsWith('video/');
     const myId=myIdRef.current;
-    const msg=`📎 ${f.name}`;
-    const fileObj={name:f.name,size:sizeMB+" MB",type:ext};
-    setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"tm"+uid(),uid:myId,text:msg,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj}]}));
+    const msgText=isAudio?`🎵 ${f.name}`:isVideo?`🎬 ${f.name}`:`📎 ${f.name}`;
+    const tempId="tm"+uid();
+    // Optimistic: show immediately
+    const fileObj:any={name:f.name,size:sizeMB+" MB",type:ext,contentType:f.type};
+    if(isImg)fileObj.previewUrl=URL.createObjectURL(f);
+    setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:tempId,uid:myId,text:msgText,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj,seen_by:[]}]}));
     if(api.isConnected()){
-      // Try real file upload first
       try{
         const fd=new FormData();fd.append("file",f);
         const r=await api.upload("/upload",fd).catch(()=>null);
         const url=r?.url||null;
-        api.post(`/chat/channels/${activeCh}/messages`,{text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext,attachments:url?[{name:f.name,size:sizeMB+" MB",type:ext,url}]:[]}).catch(()=>{});
-      }catch{
-        api.post(`/chat/channels/${activeCh}/messages`,{text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext}).catch(()=>{});
-      }
+        const att={name:f.name,size:sizeMB+" MB",type:ext,url,contentType:f.type};
+        const res=await api.post(`/chat/channels/${activeCh}/messages`,{text:msgText,attachments:url?[att]:[]}).catch(()=>null);
+        // Replace temp ID with real DB id and add server URL
+        if(res?.message?.id){
+          setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===tempId?{...m,id:res.message.id,file:{...m.file,url}}:m)}));
+        }
+      }catch{}
     }
     showT("File shared: "+f.name,"success");e.target.value="";
+  };
+  // ── Voice recording ──
+  const startRecording=async()=>{
+    if(isRecording)return;
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+      const mimeType=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+      const mr=new MediaRecorder(stream,{mimeType});
+      audioChunksRef.current=[];
+      mr.ondataavailable=(e)=>{if(e.data.size>0)audioChunksRef.current.push(e.data);};
+      mr.onstop=async()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        clearInterval(recordTimerRef.current);
+        const blob=new Blob(audioChunksRef.current,{type:mimeType});
+        const durSec=recordingSec;
+        const dur=`${Math.floor(durSec/60)}:${String(durSec%60).padStart(2,'0')}`;
+        const fname=`voice-${Date.now()}.webm`;
+        const myId=myIdRef.current;
+        const msgText=`🎙️ Voice message (${dur})`;
+        const tempId="tm"+uid();
+        let previewUrl=URL.createObjectURL(blob);
+        const fileObj={name:fname,size:(blob.size/1024).toFixed(0)+" KB",type:"webm",contentType:mimeType,url:previewUrl,isVoice:true,duration:dur};
+        setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:tempId,uid:myId,text:msgText,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj,seen_by:[]}]}));
+        setIsRecording(false);setRecordingSec(0);
+        if(api.isConnected()){
+          try{
+            const fd=new FormData();fd.append("file",new File([blob],fname,{type:mimeType}));
+            const r=await api.upload("/upload",fd).catch(()=>null);
+            const url=r?.url||null;
+            const att={name:fname,size:(blob.size/1024).toFixed(0)+" KB",type:"webm",url,contentType:mimeType,isVoice:true,duration:dur};
+            const res=await api.post(`/chat/channels/${activeCh}/messages`,{text:msgText,attachments:url?[att]:[]}).catch(()=>null);
+            if(res?.message?.id){
+              setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===tempId?{...m,id:res.message.id,file:{...m.file,url:url||previewUrl}}:m)}));
+            }
+          }catch{}
+        }
+        showT("Voice message sent","success");
+      };
+      mr.start(250);
+      mediaRecorderRef.current=mr;
+      setIsRecording(true);setRecordingSec(0);
+      recordTimerRef.current=setInterval(()=>setRecordingSec(p=>p+1),1000);
+    }catch{showT("Microphone access required for voice messages","error");}
+  };
+  const stopRecording=()=>{
+    if(mediaRecorderRef.current&&mediaRecorderRef.current.state!=="inactive"){
+      mediaRecorderRef.current.stop();
+    }
   };
   // ── New features state ──
   const [drafts,setDrafts]=useState({});
@@ -795,11 +860,43 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
             })}{i<m.text.split("\n").length-1&&<br/>}</span>;
           })}
         </div>}
-        {m.file&&<div style={{display:"inline-flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:10,marginTop:5,cursor:"pointer"}} onClick={()=>showT("Opening "+m.file.name,"info")}>
-          <span style={{fontSize:22}}>{m.file.type==="pdf"?"📄":m.file.type==="img"?"🖼":"📁"}</span>
-          <div><div style={{fontSize:14,fontWeight:600,color:C.t1}}>{m.file.name}</div><div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>{m.file.size}</div></div>
-          <span style={{color:C.a,fontSize:13}}>↓</span>
-        </div>}
+        {m.file&&(()=>{
+          const f=m.file;const fileUrl=f.url||(f.previewUrl||null);
+          const isImg=f.contentType?.startsWith('image/')||/\.(jpe?g|png|gif|webp|svg)$/i.test(f.name||'');
+          const isVoice=f.isVoice||f.contentType?.startsWith('audio/')||/\.(mp3|ogg|wav|webm|aac|m4a)$/i.test(f.name||'');
+          const isVideo=f.contentType?.startsWith('video/')||/\.(mp4|webm|mov|avi)$/i.test(f.name||'');
+          const icon=isVoice?"🎙️":isVideo?"🎬":isImg?"🖼️":f.type==="pdf"?"📄":f.type==="zip"||f.type==="rar"?"🗜️":"📎";
+          if(isImg&&fileUrl)return(
+            <div style={{marginTop:6,maxWidth:340}}>
+              <img src={fileUrl} alt={f.name} style={{maxWidth:"100%",maxHeight:280,borderRadius:10,border:`1px solid ${C.b1}`,display:"block",objectFit:"cover",cursor:"pointer"}} onClick={()=>window.open(fileUrl,'_blank')}/>
+              <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:3}}>{f.name} · {f.size}</div>
+            </div>
+          );
+          if(isVoice&&fileUrl)return(
+            <div style={{marginTop:6,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:12,minWidth:220,maxWidth:340}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:16}}>🎙️</span>
+                <span style={{fontSize:12,fontWeight:600,color:C.t1}}>Voice message</span>
+                {f.duration&&<span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{f.duration}</span>}
+              </div>
+              <audio controls src={fileUrl} style={{width:"100%",height:32,outline:"none"}}/>
+            </div>
+          );
+          if(isVideo&&fileUrl)return(
+            <div style={{marginTop:6,maxWidth:380}}>
+              <video controls src={fileUrl} style={{maxWidth:"100%",maxHeight:240,borderRadius:10,border:`1px solid ${C.b1}`,display:"block"}}/>
+              <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:3}}>{f.name} · {f.size}</div>
+            </div>
+          );
+          return(
+            <div style={{display:"inline-flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:10,marginTop:5,maxWidth:340,cursor:fileUrl?"pointer":"default"}}
+              onClick={()=>fileUrl&&window.open(fileUrl,'_blank')}>
+              <span style={{fontSize:22}}>{icon}</span>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{f.size}</div></div>
+              {fileUrl&&<span style={{color:C.a,fontSize:13,flexShrink:0}}>↓</span>}
+            </div>
+          );
+        })()}
         {m.reactions?.length>0&&<div style={{display:"flex",gap:2,marginTop:3,flexWrap:"wrap"}}>
           {m.reactions.map((r:any)=><button key={r.emoji} onClick={()=>react(m.id,r.emoji)} title={(r.users||[]).map((u:string)=>ag[u]?.name||u).join(", ")} style={{display:"flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:10,fontSize:12,background:(r.users||[]).includes(myId)?C.ad:C.s3,border:`1px solid ${(r.users||[]).includes(myId)?C.a+"55":C.b1}`,cursor:"pointer"}}>{r.emoji}<span style={{fontSize:9.5,fontFamily:FM,color:(r.users||[]).includes(myId)?C.a:C.t3}}>{(r.users||[]).length}</span></button>)}
           <button onClick={()=>setShowReactions(showReactions===m.id?null:m.id)} style={{width:18,height:18,borderRadius:9,fontSize:9,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
@@ -1023,8 +1120,16 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           <div style={{width:1,height:18,background:C.b2,margin:"0 4px"}}/>
           <button onClick={aiReply} style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:700,background:C.pd,color:C.p,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM,display:"flex",alignItems:"center",gap:3}}><span style={{fontSize:10}}>✦</span>{aiSugLoad?"…":"AI"}</button>
           <button onClick={()=>setShowSchedule(p=>!p)} title="Schedule" style={{width:30,height:28,borderRadius:5,fontSize:14,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">🕐</button>
-          <input ref={fileRef} type="file" onChange={handleFileUpload} style={{display:"none"}} accept="*/*"/>
-          <button onClick={()=>fileRef.current?.click()} title="Attach file" style={{width:30,height:28,borderRadius:5,fontSize:14,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">📎</button>
+          <input ref={fileRef} type="file" onChange={handleFileUpload} style={{display:"none"}} accept="*"/>
+          <button onClick={()=>fileRef.current?.click()} title="Attach file (max 50 MB)" style={{width:30,height:28,borderRadius:5,fontSize:14,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">📎</button>
+          {isRecording?(
+            <button onClick={stopRecording} title="Stop recording" style={{display:"flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:14,fontSize:12,fontWeight:700,background:C.rd,color:C.r,border:`1.5px solid ${C.r}`,cursor:"pointer",animation:"pulse 1s infinite",fontFamily:FM}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:C.r,flexShrink:0}}/>
+              {Math.floor(recordingSec/60)}:{String(recordingSec%60).padStart(2,'0')} Stop
+            </button>
+          ):(
+            <button onMouseDown={startRecording} onClick={isRecording?stopRecording:undefined} title="Hold to record voice message" style={{width:30,height:28,borderRadius:5,fontSize:15,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">🎙️</button>
+          )}
           {scheduledMsgs.length>0&&<button onClick={()=>setShowScheduledList(p=>!p)} style={{padding:"3px 8px",borderRadius:5,fontSize:10,color:C.y,background:C.yd,border:`1px solid ${C.y}44`,cursor:"pointer",fontFamily:FM}}>{scheduledMsgs.length} sched</button>}
           <div style={{flex:1}}/>
           {drafts[activeCh]&&<span style={{fontSize:9,color:C.y,fontFamily:FM,background:C.yd,padding:"2px 6px",borderRadius:4}}>Draft</span>}
