@@ -4,19 +4,27 @@ import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSou
 export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,setAid,msgs,dashWidgets,hiddenWidgets,onDashConfig}){
   const hour=new Date().getHours();
   const greeting=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
-  const [apiKpis,setApiKpis]=useState(null);
-  const [apiActivity,setApiActivity]=useState(null);
+  const [apiKpis,setApiKpis]=useState<any>(null);
+  const [apiActivity,setApiActivity]=useState<any[]>([]);
   const [aiBriefing,setAiBriefing]=useState(null);const [aiBriefLoad,setAiBriefLoad]=useState(false);
   const genBriefing=async()=>{setAiBriefLoad(true);try{const ctx=`Open: ${convs.filter(c=>c.status==="open").length}, Unread: ${convs.reduce((s,c)=>s+(c.unread||0),0)}, Contacts: ${contacts.length}, Agents online: ${agents.filter(a=>a.status==="online").length}/${agents.length}, Urgent: ${convs.filter(c=>c.priority==="urgent").length}`;const d=await api.post('/ai/chat',{max_tokens:300,system:"You are a daily briefing AI for a support team. Give 4-5 bullet points: key metrics, anomalies, action items. Be specific with numbers. No markdown.",messages:[{role:"user",content:ctx}]});setAiBriefing(d.content?.[0]?.text);}catch{setAiBriefing("• "+convs.filter(c=>c.status==="open").length+" open conversations — "+convs.filter(c=>c.priority==="urgent").length+" urgent need attention\n• WhatsApp volume up 23% — consider enabling AI auto-reply\n• 3 conversations approaching SLA breach in next 2 hours\n• CSAT trending at 4.3★ — down slightly from 4.5★ last week\n• Recommendation: Assign unattended urgent tickets to Dev Kumar (lowest load)");}setAiBriefLoad(false);};
-  useEffect(()=>{
+  const loadDash=useCallback(async()=>{
     if(!api.isConnected())return;
-    api.get("/dashboard/kpis").then(setApiKpis).catch(()=>{});
-    api.get("/dashboard/activity-feed").then(r=>setApiActivity(r?.activity)).catch(()=>{});
+    try{
+      const[k,a]=await Promise.all([api.get("/dashboard/kpis"),api.get("/dashboard/activity-feed")]);
+      if(k?.kpis)setApiKpis(k.kpis);
+      if(a?.activity)setApiActivity(a.activity);
+    }catch(e){}
   },[]);
+  useEffect(()=>{
+    loadDash();
+    const t=setInterval(loadDash,30000);
+    return()=>clearInterval(t);
+  },[loadDash]);
   const openConvs=useMemo(()=>convs.filter(c=>c.status==="open"),[convs]);
   const urgentConvs=useMemo(()=>convs.filter(c=>c.priority==="urgent"||c.priority==="high"),[convs]);
   const unassigned=useMemo(()=>convs.filter(c=>!c.agent&&c.status==="open"),[convs]);
-  const unreadTotal=useMemo(()=>apiKpis?.unread_total??convs.reduce((s,c)=>s+(c.unread||0),0),[convs,apiKpis]);
+  const unreadTotal=useMemo(()=>apiKpis?.unreadTotal??convs.reduce((s,c)=>s+(c.unread||0),0),[convs,apiKpis]);
   const resolved=convs.filter(c=>c.status==="resolved");
   const ctMap=useMemo(()=>contacts.reduce((m,c)=>{m[c.id]=c;return m;},{}),[contacts]);
 
@@ -24,19 +32,14 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
   const chColors={live:C.g,email:C.a,whatsapp:"#25d366",telegram:"#0088cc",facebook:"#1877f2",instagram:"#e1306c",viber:"#7360f2",apple:"#555",line:"#06c755",tiktok:"#ff0050",x:"#e7e9ea",sms:"#f5a623",voice:"#1fd07a",video:"#9b6dff",api:"#22d4e8"};
   const chIcons_=t=><ChIcon t={t} s={13}/>;
 
-  const activityFeed=[
-    {id:1,icon:"💬",text:"Arjun Mehta sent a new message",sub:"Payment stuck 3 days · Live Chat",time:"2m ago",color:C.a,action:()=>{setAid("cv1");setScr("inbox");}},
-    {id:2,icon:"🔴",text:"SLA breach warning — Conv #cv1",sub:"Urgent · 3 days unresolved",time:"5m ago",color:C.r,action:null},
-    {id:3,icon:"🤖",text:"AI auto-replied to Sarah Chen",sub:"API auth failing 401 · Email",time:"14m ago",color:C.p,action:()=>{setAid("cv2");setScr("inbox");}},
-    {id:4,icon:"🏷️",text:"Auto-label applied: bug",sub:"Marcus Williams · WhatsApp",time:"31m ago",color:C.y,action:()=>{setAid("cv3");setScr("inbox");}},
-    {id:5,icon:"✅",text:"Dev Kumar resolved a conversation",sub:"Takeshi Yama · Re: Thank you!",time:"2h ago",color:C.g,action:()=>{setAid("cv5");setScr("inbox");}},
-    {id:6,icon:"👤",text:"New contact created: Nadia Popescu",sub:"Corp SA · Starter Plan",time:"3h ago",color:C.cy,action:()=>setScr("contacts")},
-  ];
 
-  const channelBreakdown=useMemo(()=>inboxes.slice(0,6).map(ib=>({name:ib.name,type:ib.type,color:chColors[ib.type]||C.t3,convs:ib.convs||0})).sort((a,b)=>b.convs-a.convs),[inboxes]);
+  const channelBreakdown=useMemo(()=>{
+    const src=apiKpis?.channelBreakdown?.length?apiKpis.channelBreakdown:inboxes.slice(0,6).map(ib=>({name:ib.name,type:ib.type,convs:ib.convs||0}));
+    return src.map((ch:any)=>({...ch,color:chColors[ch.type]||C.t3}));
+  },[apiKpis,inboxes]);
   const maxCh=Math.max(...channelBreakdown.map(c=>c.convs),1);
 
-  const agentStatus=useMemo(()=>agents.map((a,i)=>({...a,online:i<3,load:[4,2,5,1,3,6,2,4,1,5][i%10],maxLoad:6})),[agents]);
+  const agentStatus=useMemo(()=>agents.map(a=>({...a,online:a.status==='active'||a.status==='online'})),[agents]);
 
   const quickActions=[
     {label:"New Conversation",iconId:"inbox",color:C.a,sub:"Start fresh",fn:()=>setScr("inbox")},
@@ -79,11 +82,11 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
       {/* KPI strip */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginTop:24}}>
         {[
-          {label:"Open Conversations",value:openConvs.length,iconId:"inbox",color:C.a,bg:C.ad,delta:"↑ 2 today",fn:()=>setScr("inbox")},
-          {label:"Urgent / High",value:urgentConvs.length,iconId:null,emoji:"🔴",color:C.r,bg:C.rd,delta:urgentConvs.length>0?"Needs attention":"All clear",fn:()=>setScr("inbox")},
-          {label:"Unassigned",value:unassigned.length,iconId:"contacts",color:C.y,bg:C.yd,delta:"Needs agents",fn:()=>setScr("inbox")},
-          {label:"Resolved Today",value:resolved.length,iconId:null,emoji:"✓",color:C.g,bg:C.gd,delta:"↑ vs yesterday",fn:null},
-          {label:"CSAT Score",value:"4.7★",iconId:"reports",color:C.p,bg:C.pd,delta:"Last 7 days",fn:()=>setScr("reports")},
+          {label:"Open Conversations",value:apiKpis?.openConversations??openConvs.length,iconId:"inbox",color:C.a,bg:C.ad,delta:"active now",fn:()=>setScr("inbox")},
+          {label:"Urgent / High",value:apiKpis?.urgentConversations??urgentConvs.length,iconId:null,emoji:"🔴",color:C.r,bg:C.rd,delta:(apiKpis?.urgentConversations??urgentConvs.length)>0?"Needs attention":"All clear",fn:()=>setScr("inbox")},
+          {label:"Unassigned",value:apiKpis?.unassigned??unassigned.length,iconId:"contacts",color:C.y,bg:C.yd,delta:"waiting for agent",fn:()=>setScr("inbox")},
+          {label:"Resolved Today",value:apiKpis?.resolvedToday??resolved.length,iconId:null,emoji:"✓",color:C.g,bg:C.gd,delta:`${apiKpis?.resolutionRate??0}% overall rate`,fn:null},
+          {label:"CSAT Score",value:apiKpis?.avgCsat>0?apiKpis.avgCsat+"★":"N/A",iconId:"reports",color:C.p,bg:C.pd,delta:apiKpis?.responseTime?`Avg reply: ${apiKpis.responseTime}`:"Last 7 days",fn:()=>setScr("reports")},
         ].map(kpi=>(
           <div key={kpi.label} onClick={kpi.fn} className="card-lift" style={{background:kpi.bg,border:"1px solid "+kpi.color+"33",borderRadius:12,padding:"14px 16px",cursor:kpi.fn?"pointer":"default",transition:"transform .15s",position:"relative",overflow:"hidden"}}
             onMouseEnter={e=>kpi.fn&&(e.currentTarget.style.transform="translateY(-2px)")}
@@ -197,8 +200,8 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
               <span style={{width:5,height:5,borderRadius:"50%",background:C.g,animation:"pulse 1.5s infinite"}}/>LIVE
             </span>
           </div>
-          {activityFeed.map((ev,i)=>(
-            <div key={ev.id} className="hov" onClick={ev.action||undefined} style={{display:"flex",gap:12,padding:"11px 18px",borderBottom:i<activityFeed.length-1?"1px solid "+C.b1:"none",cursor:ev.action?"pointer":"default",borderLeft:"2px solid "+(i===0?ev.color:"transparent"),transition:"background .12s"}}>
+          {apiActivity.length>0?apiActivity.map((ev:any,i:number)=>(
+            <div key={ev.id} className="hov" onClick={()=>{setAid(ev.convId);setScr("inbox");}} style={{display:"flex",gap:12,padding:"11px 18px",borderBottom:i<apiActivity.length-1?"1px solid "+C.b1:"none",cursor:"pointer",borderLeft:"2px solid "+(i===0?ev.color:"transparent"),transition:"background .12s"}}>
               <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{ev.icon}</span>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12.5,color:C.t1,fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.text}</div>
@@ -206,7 +209,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
               </div>
               <span style={{fontSize:9.5,color:C.t3,fontFamily:FM,flexShrink:0,marginTop:2}}>{ev.time}</span>
             </div>
-          ))}
+          )):<div style={{padding:"24px 18px",textAlign:"center",color:C.t3,fontSize:12}}>No recent activity yet</div>}
         </div>
       </div>
 
@@ -284,13 +287,9 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12,fontWeight:600,color:ag.online?C.t1:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ag.name}</div>
-                <div style={{display:"flex",gap:4,marginTop:4,alignItems:"center"}}>
-                  {Array.from({length:ag.maxLoad}).map((_,j)=>(
-                    <div key={j} style={{flex:1,height:4,borderRadius:2,background:j<ag.load?(j<2?C.g:j<4?C.y:C.r):C.b1,transition:"background .3s"}}/>
-                  ))}
-                </div>
+                <div style={{fontSize:10,color:ag.online?C.g:C.t3,fontFamily:FM,marginTop:3}}>{ag.role||"agent"}</div>
               </div>
-              <span style={{fontSize:9,color:C.t3,fontFamily:FM,flexShrink:0}}>{ag.online?ag.load+" convs":"away"}</span>
+              <span style={{fontSize:9,color:ag.online?C.g:C.t3,fontFamily:FM,flexShrink:0}}>{ag.online?"Active":"Away"}</span>
             </div>
           ))}
         </div>
@@ -323,7 +322,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
       {/* Today's Performance */}
       <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
         <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2,marginBottom:12}}>Today's Performance</div>
-        {[{l:"Total Messages",v:"142",d:"+18%",c:C.a},{l:"Avg First Reply",v:"3.2m",d:"-12%",c:C.g},{l:"Resolution Rate",v:"84%",d:"+5%",c:C.p},{l:"Escalation Rate",v:"8%",d:"-3%",c:C.y}].map(m=>(
+        {[{l:"Total Messages",v:String(apiKpis?.todayMessages??0),d:"today",c:C.a},{l:"Avg First Reply",v:apiKpis?.responseTime||"N/A",d:"response time",c:C.g},{l:"Resolution Rate",v:(apiKpis?.resolutionRate??0)+"%",d:"overall",c:C.p},{l:"Total Contacts",v:String(apiKpis?.totalContacts??contacts.length),d:"total",c:C.y}].map(m=>(
           <div key={m.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.b1+"44"}}>
             <span style={{fontSize:11.5,color:C.t2}}>{m.l}</span>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
