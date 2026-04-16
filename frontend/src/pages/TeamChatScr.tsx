@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
+import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, API_BASE, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
 // ─── TEAM CHAT ────────────────────────────────────────────────────────────
 // ─── TEAM CHAT (Slack/Cliq-class) ─────────────────────────────────────────
@@ -15,6 +15,12 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   // ═══ MULTI-PANE ═══
   const [panes,setPanes]=useState([]); // secondary pane channel/dm IDs (max 2)
   const [paneInputs,setPaneInputs]=useState({});
+  const _backendOrigin = API_BASE.replace(/\/api$/, '');
+  const _resolveUrl = (url:string|null|undefined) => {
+    if (!url) return null;
+    if (url.startsWith('blob:') || url.startsWith('http')) return url;
+    return _backendOrigin + (url.startsWith('/') ? '' : '/') + url;
+  };
   function parseApiMsg(m:any) {
     let rxArr:any[] = [];
     try {
@@ -22,7 +28,15 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
       rxArr = Object.entries(raw).map(([emoji, users]) => ({ emoji, users }));
     } catch(e) {}
     const atts = typeof m.attachments === 'string' ? JSON.parse(m.attachments || '[]') : (m.attachments || []);
-    const file = atts.length > 0 ? { name: atts[0].name, size: atts[0].size, type: atts[0].type, url: atts[0].url } : null;
+    const file = atts.length > 0 ? {
+      name: atts[0].name,
+      size: atts[0].size,
+      type: atts[0].type,
+      url: _resolveUrl(atts[0].url),
+      contentType: atts[0].contentType || '',
+      isVoice: !!(atts[0].isVoice),
+      duration: atts[0].duration || null,
+    } : null;
     const msgTime = m.created_at ? new Date(m.created_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '';
     let seenBy:string[] = [];
     try { seenBy = Array.isArray(m.seen_by) ? m.seen_by : JSON.parse(m.seen_by || '[]'); } catch {}
@@ -220,81 +234,115 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     localStreamRef.current?.getTracks().forEach(t=>t.stop());localStreamRef.current=null;
     if(localVideoRef.current)localVideoRef.current.srcObject=null;
     if(remoteVideoRef.current)remoteVideoRef.current.srcObject=null;
+    if(remoteAudioRef.current)remoteAudioRef.current.srcObject=null;
     callIdRef.current=null;callTargetRef.current=null;
     setActiveCall(null);setShowHuddle(false);setHuddleMic(true);setHuddleCam(false);setHuddleScreen(false);
     setCallType(null);setCallDuration(0);setRemoteHasVideo(false);
   };
 
+  const RTC_CONFIG:RTCConfiguration={iceServers:[
+    {urls:'stun:stun.l.google.com:19302'},
+    {urls:'stun:stun1.l.google.com:19302'},
+    {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+    {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+    {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
+  ],iceTransportPolicy:'all' as RTCIceTransportPolicy};
+  const AUDIO_CONSTRAINTS={audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}};
+
   const initCall=async(targetId:string,type:"voice"|"video"|"screen"="voice")=>{
     const callId='call'+uid();
     callIdRef.current=callId;callTargetRef.current=targetId;
     setCallType(type);
-    const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+    const pc=new RTCPeerConnection(RTC_CONFIG);
     peerRef.current=pc;
+
+    // Connection state monitoring
+    pc.onconnectionstatechange=()=>{
+      const s=pc.connectionState;
+      if(s==='failed'){showT('Call connection failed — check your network','error');endCall(true);}
+      if(s==='disconnected')showT('Call connection unstable…','info');
+    };
+    pc.oniceconnectionstatechange=()=>{
+      if(pc.iceConnectionState==='failed'){pc.restartIce();}
+    };
+
     try{
       let stream:MediaStream;
       if(type==="screen"){
         const screenStream=await(navigator.mediaDevices as any).getDisplayMedia({video:{cursor:"always"},audio:true}).catch(()=>null);
-        // Reuse existing mic track from preview if available
         const existingAudio=localStreamRef.current?.getAudioTracks()||[];
-        const micStream=existingAudio.length>0?null:await navigator.mediaDevices.getUserMedia({audio:true}).catch(()=>null);
+        const micStream=existingAudio.length>0?null:await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS).catch(()=>null);
         const tracks=[...(screenStream?.getTracks()||[]),...existingAudio,...(micStream?.getAudioTracks()||[])];
         stream=new MediaStream(tracks);
         setHuddleScreen(true);setHuddleCam(false);
         screenStream?.getVideoTracks()[0]?.addEventListener('ended',()=>endCall(true));
       }else{
-        // Reuse preview stream if it already has the right tracks (avoids double permission prompt)
         const preview=localStreamRef.current;
         const previewHasVideo=(preview?.getVideoTracks().filter(t=>t.readyState==="live").length||0)>0;
         const needsVideo=type==="video";
         if(preview&&(needsVideo===previewHasVideo)){
           stream=preview;
         }else{
-          stream=await navigator.mediaDevices.getUserMedia({audio:true,video:needsVideo});
+          stream=await navigator.mediaDevices.getUserMedia({...AUDIO_CONSTRAINTS,video:needsVideo});
         }
         setHuddleCam(needsVideo);setHuddleScreen(false);
       }
       localStreamRef.current=stream;
       if(localVideoRef.current)localVideoRef.current.srcObject=stream;
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
-    }catch{showT('Microphone/camera access required for calls','error');}
+    }catch(e){showT('Microphone/camera access required for calls','error');endCall(true);return;}
+
     pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId,callId,candidate:e.candidate});};
     pc.ontrack=(e)=>{
-      if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];
+      const s=e.streams[0];
+      if(remoteVideoRef.current){remoteVideoRef.current.srcObject=s;remoteVideoRef.current.play().catch(()=>{});}
+      if(remoteAudioRef.current){remoteAudioRef.current.srcObject=s;remoteAudioRef.current.play().catch(()=>{});}
       if(e.track.kind==="video")setRemoteHasVideo(true);
     };
-    const offer=await pc.createOffer();
+    const offer=await pc.createOffer({offerToReceiveAudio:true,offerToReceiveVideo:true});
     await pc.setLocalDescription(offer);
     const callerName=agents.find((a:any)=>a.id===myIdRef.current)?.name||'Team Member';
     sendWs({type:'tc_call_offer',targetId,callId,offer,callerName,channelId:activeCh,callType:type});
     setActiveCall({callId,targetId,type:'outgoing'});setShowHuddle(true);
     setCallDuration(0);callTimerRef.current=setInterval(()=>setCallDuration(p=>p+1),1000);
-    showT(type==="video"?"📹 Video call started…":type==="screen"?"🖥 Screen share started…":"📞 Voice call started…","info");
+    showT(type==="video"?"Video call started…":type==="screen"?"Screen share started…":"Voice call started…","info");
   };
 
   const acceptCall=async()=>{
     if(!incomingCall)return;
     const type=(incomingCall.callType||"voice") as "voice"|"video"|"screen";
+    const fromId=incomingCall.from;const cId=incomingCall.callId;
     setCallType(type);
-    const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
-    peerRef.current=pc;callIdRef.current=incomingCall.callId;callTargetRef.current=incomingCall.from;
+    const pc=new RTCPeerConnection(RTC_CONFIG);
+    peerRef.current=pc;callIdRef.current=cId;callTargetRef.current=fromId;
+
+    pc.onconnectionstatechange=()=>{
+      const s=pc.connectionState;
+      if(s==='failed'){showT('Call connection failed','error');endCall(true);}
+      if(s==='disconnected')showT('Call connection unstable…','info');
+    };
+    pc.oniceconnectionstatechange=()=>{if(pc.iceConnectionState==='failed')pc.restartIce();};
+
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:type==="video"});
+      const stream=await navigator.mediaDevices.getUserMedia({...AUDIO_CONSTRAINTS,video:type==="video"});
       localStreamRef.current=stream;
       if(localVideoRef.current)localVideoRef.current.srcObject=stream;
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
       setHuddleCam(type==="video");
-    }catch{}
-    pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId:incomingCall.from,callId:incomingCall.callId,candidate:e.candidate});};
+    }catch{showT('Microphone/camera access required','error');endCall(true);return;}
+
+    pc.onicecandidate=(e)=>{if(e.candidate)sendWs({type:'tc_call_ice',targetId:fromId,callId:cId,candidate:e.candidate});};
     pc.ontrack=(e)=>{
-      if(remoteVideoRef.current)remoteVideoRef.current.srcObject=e.streams[0];
+      const s=e.streams[0];
+      if(remoteVideoRef.current){remoteVideoRef.current.srcObject=s;remoteVideoRef.current.play().catch(()=>{});}
+      if(remoteAudioRef.current){remoteAudioRef.current.srcObject=s;remoteAudioRef.current.play().catch(()=>{});}
       if(e.track.kind==="video")setRemoteHasVideo(true);
     };
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
     const answer=await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    sendWs({type:'tc_call_answer',targetId:incomingCall.from,callId:incomingCall.callId,answer});
-    setActiveCall({callId:incomingCall.callId,targetId:incomingCall.from,type:'incoming'});
+    sendWs({type:'tc_call_answer',targetId:fromId,callId:cId,answer});
+    setActiveCall({callId:cId,targetId:fromId,type:'incoming'});
     setIncomingCall(null);setShowHuddle(true);
     setCallDuration(0);callTimerRef.current=setInterval(()=>setCallDuration(p=>p+1),1000);
   };
@@ -351,30 +399,96 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
   const localStreamRef=useRef<MediaStream|null>(null);
   const localVideoRef=useRef<HTMLVideoElement|null>(null);
   const remoteVideoRef=useRef<HTMLVideoElement|null>(null);
+  const remoteAudioRef=useRef<HTMLAudioElement|null>(null);
   const callIdRef=useRef<string|null>(null);
   const callTargetRef=useRef<string|null>(null);
   const callTimerRef=useRef<any>(null);
   const activeCallRef=useRef<any>(null);
   useEffect(()=>{activeCallRef.current=activeCall;},[activeCall]);
+  // ── Voice recording state ──
+  const [isRecording,setIsRecording]=useState(false);
+  const [recordingSec,setRecordingSec]=useState(0);
+  const mediaRecorderRef=useRef<MediaRecorder|null>(null);
+  const audioChunksRef=useRef<Blob[]>([]);
+  const recordTimerRef=useRef<any>(null);
   const handleFileUpload=async(e:any)=>{
     const f=e.target.files?.[0];if(!f)return;
-    const sizeMB=(f.size/1024/1024).toFixed(1);const ext=f.name.split('.').pop()?.toLowerCase()||'file';
+    const MAX_MB=50;
+    if(f.size>MAX_MB*1024*1024){showT(`File too large — max ${MAX_MB} MB`,"error");e.target.value="";return;}
+    const sizeMB=(f.size/1024/1024).toFixed(1);
+    const ext=f.name.split('.').pop()?.toLowerCase()||'bin';
+    const isImg=f.type.startsWith('image/');
+    const isAudio=f.type.startsWith('audio/');
+    const isVideo=f.type.startsWith('video/');
     const myId=myIdRef.current;
-    const msg=`📎 ${f.name}`;
-    const fileObj={name:f.name,size:sizeMB+" MB",type:ext};
-    setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:"tm"+uid(),uid:myId,text:msg,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj}]}));
+    const msgText=isAudio?`🎵 ${f.name}`:isVideo?`🎬 ${f.name}`:`📎 ${f.name}`;
+    const tempId="tm"+uid();
+    // Optimistic: show immediately
+    const fileObj:any={name:f.name,size:sizeMB+" MB",type:ext,contentType:f.type};
+    if(isImg)fileObj.previewUrl=URL.createObjectURL(f);
+    setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:tempId,uid:myId,text:msgText,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj,seen_by:[]}]}));
     if(api.isConnected()){
-      // Try real file upload first
       try{
         const fd=new FormData();fd.append("file",f);
         const r=await api.upload("/upload",fd).catch(()=>null);
         const url=r?.url||null;
-        api.post(`/chat/channels/${activeCh}/messages`,{text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext,attachments:url?[{name:f.name,size:sizeMB+" MB",type:ext,url}]:[]}).catch(()=>{});
-      }catch{
-        api.post(`/chat/channels/${activeCh}/messages`,{text:msg,file_name:f.name,file_size:sizeMB+" MB",file_type:ext}).catch(()=>{});
-      }
+        const att={name:f.name,size:sizeMB+" MB",type:ext,url,contentType:f.type};
+        const res=await api.post(`/chat/channels/${activeCh}/messages`,{text:msgText,attachments:url?[att]:[]}).catch(()=>null);
+        // Replace temp ID with real DB id and add server URL
+        if(res?.message?.id){
+          setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===tempId?{...m,id:res.message.id,file:{...m.file,url}}:m)}));
+        }
+      }catch{}
     }
     showT("File shared: "+f.name,"success");e.target.value="";
+  };
+  // ── Voice recording ──
+  const startRecording=async()=>{
+    if(isRecording)return;
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+      const mimeType=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+      const mr=new MediaRecorder(stream,{mimeType});
+      audioChunksRef.current=[];
+      mr.ondataavailable=(e)=>{if(e.data.size>0)audioChunksRef.current.push(e.data);};
+      mr.onstop=async()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        clearInterval(recordTimerRef.current);
+        const blob=new Blob(audioChunksRef.current,{type:mimeType});
+        const durSec=recordingSec;
+        const dur=`${Math.floor(durSec/60)}:${String(durSec%60).padStart(2,'0')}`;
+        const fname=`voice-${Date.now()}.webm`;
+        const myId=myIdRef.current;
+        const msgText=`🎙️ Voice message (${dur})`;
+        const tempId="tm"+uid();
+        let previewUrl=URL.createObjectURL(blob);
+        const fileObj={name:fname,size:(blob.size/1024).toFixed(0)+" KB",type:"webm",contentType:mimeType,url:previewUrl,isVoice:true,duration:dur};
+        setTcMsgs(p=>({...p,[activeCh]:[...(p[activeCh]||[]),{id:tempId,uid:myId,text:msgText,t:now(),date:"Today",reactions:[],thread:[],pinned:false,file:fileObj,seen_by:[]}]}));
+        setIsRecording(false);setRecordingSec(0);
+        if(api.isConnected()){
+          try{
+            const fd=new FormData();fd.append("file",new File([blob],fname,{type:mimeType}));
+            const r=await api.upload("/upload",fd).catch(()=>null);
+            const url=r?.url||null;
+            const att={name:fname,size:(blob.size/1024).toFixed(0)+" KB",type:"webm",url,contentType:mimeType,isVoice:true,duration:dur};
+            const res=await api.post(`/chat/channels/${activeCh}/messages`,{text:msgText,attachments:url?[att]:[]}).catch(()=>null);
+            if(res?.message?.id){
+              setTcMsgs(p=>({...p,[activeCh]:(p[activeCh]||[]).map((m:any)=>m.id===tempId?{...m,id:res.message.id,file:{...m.file,url:_resolveUrl(url)||previewUrl}}:m)}));
+            }
+          }catch{}
+        }
+        showT("Voice message sent","success");
+      };
+      mr.start(250);
+      mediaRecorderRef.current=mr;
+      setIsRecording(true);setRecordingSec(0);
+      recordTimerRef.current=setInterval(()=>setRecordingSec(p=>p+1),1000);
+    }catch{showT("Microphone access required for voice messages","error");}
+  };
+  const stopRecording=()=>{
+    if(mediaRecorderRef.current&&mediaRecorderRef.current.state!=="inactive"){
+      mediaRecorderRef.current.stop();
+    }
   };
   // ── New features state ──
   const [drafts,setDrafts]=useState({});
@@ -760,11 +874,43 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
             })}{i<m.text.split("\n").length-1&&<br/>}</span>;
           })}
         </div>}
-        {m.file&&(m.file.url&&(m.file.name?.startsWith("voice-")||/^(audio|webm|ogg|mp3|wav|m4a)$/i.test(m.file.type||""))?<div style={{marginTop:5}}><audio controls preload="metadata" style={{height:36,maxWidth:300}} src={m.file.url}/><div style={{fontSize:9,color:C.t3,marginTop:2}}>🎙 {m.file.name} · {m.file.size}</div></div>:<div style={{display:"inline-flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:10,marginTop:5,cursor:"pointer"}} onClick={()=>{if(m.file.url)window.open(m.file.url,"_blank");else showT("Opening "+m.file.name,"info");}}>
-          <span style={{fontSize:22}}>{m.file.type==="pdf"?"📄":m.file.type==="img"?"🖼":"📁"}</span>
-          <div><div style={{fontSize:14,fontWeight:600,color:C.t1}}>{m.file.name}</div><div style={{fontSize:11,color:C.t3,fontFamily:FM,marginTop:2}}>{m.file.size}</div></div>
-          <span style={{color:C.a,fontSize:13}}>↓</span>
-        </div>)}
+        {m.file&&(()=>{
+          const f=m.file;const fileUrl=f.url||(f.previewUrl||null);
+          const isImg=f.contentType?.startsWith('image/')||/\.(jpe?g|png|gif|webp|svg)$/i.test(f.name||'');
+          const isVoice=f.isVoice||f.contentType?.startsWith('audio/')||/\.(mp3|ogg|wav|webm|aac|m4a)$/i.test(f.name||'');
+          const isVideo=f.contentType?.startsWith('video/')||/\.(mp4|webm|mov|avi)$/i.test(f.name||'');
+          const icon=isVoice?"🎙️":isVideo?"🎬":isImg?"🖼️":f.type==="pdf"?"📄":f.type==="zip"||f.type==="rar"?"🗜️":"📎";
+          if(isImg&&fileUrl)return(
+            <div style={{marginTop:6,maxWidth:340}}>
+              <img src={fileUrl} alt={f.name} style={{maxWidth:"100%",maxHeight:280,borderRadius:10,border:`1px solid ${C.b1}`,display:"block",objectFit:"cover",cursor:"pointer"}} onClick={()=>window.open(fileUrl,'_blank')}/>
+              <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:3}}>{f.name} · {f.size}</div>
+            </div>
+          );
+          if(isVoice&&fileUrl)return(
+            <div style={{marginTop:6,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:12,minWidth:220,maxWidth:340}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:16}}>🎙️</span>
+                <span style={{fontSize:12,fontWeight:600,color:C.t1}}>Voice message</span>
+                {f.duration&&<span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{f.duration}</span>}
+              </div>
+              <audio controls src={fileUrl} style={{width:"100%",height:32,outline:"none"}}/>
+            </div>
+          );
+          if(isVideo&&fileUrl)return(
+            <div style={{marginTop:6,maxWidth:380}}>
+              <video controls src={fileUrl} style={{maxWidth:"100%",maxHeight:240,borderRadius:10,border:`1px solid ${C.b1}`,display:"block"}}/>
+              <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:3}}>{f.name} · {f.size}</div>
+            </div>
+          );
+          return(
+            <div style={{display:"inline-flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:10,marginTop:5,maxWidth:340,cursor:fileUrl?"pointer":"default"}}
+              onClick={()=>fileUrl&&window.open(fileUrl,'_blank')}>
+              <span style={{fontSize:22}}>{icon}</span>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div><div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{f.size}</div></div>
+              {fileUrl&&<span style={{color:C.a,fontSize:13,flexShrink:0}}>↓</span>}
+            </div>
+          );
+        })()}
         {m.reactions?.length>0&&<div style={{display:"flex",gap:2,marginTop:3,flexWrap:"wrap"}}>
           {m.reactions.map((r:any)=><button key={r.emoji} onClick={()=>react(m.id,r.emoji)} title={(r.users||[]).map((u:string)=>ag[u]?.name||u).join(", ")} style={{display:"flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:10,fontSize:12,background:(r.users||[]).includes(myId)?C.ad:C.s3,border:`1px solid ${(r.users||[]).includes(myId)?C.a+"55":C.b1}`,cursor:"pointer"}}>{r.emoji}<span style={{fontSize:9.5,fontFamily:FM,color:(r.users||[]).includes(myId)?C.a:C.t3}}>{(r.users||[]).length}</span></button>)}
           <button onClick={()=>setShowReactions(showReactions===m.id?null:m.id)} style={{width:18,height:18,borderRadius:9,fontSize:9,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
@@ -843,14 +989,66 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         <SideSection id="channels" name="CHANNELS" action={{fn:()=>setShowNewCh(true),tip:"New Channel",icon:"+"}}>
           {channels.filter(c=>!tcSearch||c.name.includes(tcSearch)).map(ch=><ChBtn key={ch.id} ch={ch}/>)}
         </SideSection>
-        <SideSection id="dms" name={"MEMBERS ("+(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).length+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
-          {(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase())).map((a:any)=>{const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);return(
-            <button key={a.id} onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}} onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}} className="hov" style={{width:"100%",padding:"5px 10px 5px 16px",display:"flex",alignItems:"center",gap:4,background:dm&&activeCh===dm.id?C.ad:dm&&panes.includes(dm.id)?C.pd+"44":"transparent",border:"none",cursor:"pointer",borderRadius:4,marginBottom:1}}>
-              <Av i={a.av} c={a.color} s={20} dot={a.status==="online"}/><span style={{fontSize:13,color:dm&&activeCh===dm.id?C.t1:C.t2,fontWeight:dm?.unread?700:500,flex:1,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
-              <span style={{fontSize:8,padding:"1px 4px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:a.role==="Member"?C.yd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:a.role==="Member"?C.y:C.t3,fontFamily:FM,fontWeight:700}}>{a.role}</span>
-              {dm&&dm.unread>0&&<span style={{background:C.r,color:"#fff",borderRadius:6,padding:"0 4px",fontSize:7.5,fontWeight:700}}>{dm.unread}</span>}
-            </button>
-          );})}
+        <SideSection id="dms" name={"MEMBERS ("+((agents as any[]).filter((a:any)=>a.id!==myIdRef.current).length)+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
+          {(()=>{
+            const filtered=(agents as any[])
+              .filter((a:any)=>a.id!==myIdRef.current)
+              .filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase()));
+            const online=filtered.filter((a:any)=>a.status==="online");
+            const offline=filtered.filter((a:any)=>a.status!=="online").sort((a:any,b:any)=>(a.name||"").localeCompare(b.name||""));
+            const renderRow=(a:any)=>{
+              const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);
+              const isOn=a.status==="online";
+              const isActive=dm&&activeCh===dm.id;
+              const isPane=dm&&panes.includes(dm.id);
+              return(
+                <button key={a.id}
+                  onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}}
+                  onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}}
+                  className="hov"
+                  style={{width:"100%",padding:"3px 8px 3px 6px",display:"flex",alignItems:"center",gap:8,
+                    background:isActive?C.ad:isPane?C.pd+"22":"transparent",
+                    border:"none",cursor:"pointer",borderRadius:6,marginBottom:1,textAlign:"left",minHeight:34}}>
+                  {/* Avatar + presence ring */}
+                  <div style={{position:"relative",flexShrink:0,width:32,height:32}}>
+                    <Av i={a.av} c={a.color} s={32}/>
+                    <span style={{position:"absolute",bottom:0,right:0,width:10,height:10,borderRadius:"50%",
+                      background:isOn?"#22c55e":"#94a3b8",
+                      border:`2px solid ${C.s1}`,display:"block",boxSizing:"border-box"}}/>
+                  </div>
+                  {/* Name */}
+                  <span style={{flex:1,fontSize:13,lineHeight:"18px",
+                    color:isActive?C.a:isOn?C.t1:C.t3,
+                    fontWeight:dm?.unread?700:isActive?600:400,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {a.name}
+                  </span>
+                  {/* Unread badge */}
+                  {dm&&dm.unread>0&&<span style={{
+                    background:"#ef4444",color:"#fff",borderRadius:99,
+                    padding:"0 5px",fontSize:10,fontWeight:800,
+                    flexShrink:0,minWidth:18,height:18,
+                    display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>
+                    {dm.unread>99?"99+":dm.unread}
+                  </span>}
+                </button>
+              );
+            };
+            return(<>
+              {online.length>0&&<>
+                <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"6px 8px 3px",letterSpacing:"0.05em",userSelect:"none"}}>
+                  ONLINE — {online.length}
+                </div>
+                {online.map(renderRow)}
+              </>}
+              {offline.length>0&&<>
+                <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"8px 8px 3px",letterSpacing:"0.05em",userSelect:"none"}}>
+                  OFFLINE — {offline.length}
+                </div>
+                {offline.map(renderRow)}
+              </>}
+            </>);
+          })()}
         </SideSection>
       </div>
       <div style={{padding:"7px 12px",borderTop:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:-2}}>
@@ -988,8 +1186,16 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
           <div style={{width:1,height:18,background:C.b2,margin:"0 4px"}}/>
           <button onClick={aiReply} style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:700,background:C.pd,color:C.p,border:`1px solid ${C.p}44`,cursor:"pointer",fontFamily:FM,display:"flex",alignItems:"center",gap:3}}><span style={{fontSize:10}}>✦</span>{aiSugLoad?"…":"AI"}</button>
           <button onClick={()=>setShowSchedule(p=>!p)} title="Schedule" style={{width:30,height:28,borderRadius:5,fontSize:14,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">🕐</button>
-          <input ref={fileRef} type="file" onChange={handleFileUpload} style={{display:"none"}} accept="*/*"/>
-          <button onClick={()=>fileRef.current?.click()} title="Attach file" style={{width:30,height:28,borderRadius:5,fontSize:14,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">📎</button>
+          <input ref={fileRef} type="file" onChange={handleFileUpload} style={{display:"none"}} accept="*"/>
+          <button onClick={()=>fileRef.current?.click()} title="Attach file (max 50 MB)" style={{width:30,height:28,borderRadius:5,fontSize:14,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">📎</button>
+          {isRecording?(
+            <button onClick={stopRecording} title="Stop recording" style={{display:"flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:14,fontSize:12,fontWeight:700,background:C.rd,color:C.r,border:`1.5px solid ${C.r}`,cursor:"pointer",animation:"pulse 1s infinite",fontFamily:FM}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:C.r,flexShrink:0}}/>
+              {Math.floor(recordingSec/60)}:{String(recordingSec%60).padStart(2,'0')} Stop
+            </button>
+          ):(
+            <button onMouseDown={startRecording} onClick={isRecording?stopRecording:undefined} title="Hold to record voice message" style={{width:30,height:28,borderRadius:5,fontSize:15,background:"transparent",color:C.t3,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} className="hov">🎙️</button>
+          )}
           {scheduledMsgs.length>0&&<button onClick={()=>setShowScheduledList(p=>!p)} style={{padding:"3px 8px",borderRadius:5,fontSize:10,color:C.y,background:C.yd,border:`1px solid ${C.y}44`,cursor:"pointer",fontFamily:FM}}>{scheduledMsgs.length} sched</button>}
           <div style={{flex:1}}/>
           {drafts[activeCh]&&<span style={{fontSize:9,color:C.y,fontFamily:FM,background:C.yd,padding:"2px 6px",borderRadius:4}}>Draft</span>}
@@ -1049,7 +1255,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
                 <span style={{fontSize:8.5,color:C.t3,fontFamily:FM}}>{m.t}</span>
               </div>
               <div style={{fontSize:12.5,color:C.t1,lineHeight:1.5,wordBreak:"break-word"}}>{m.text}</div>
-              {m.file&&(m.file.url&&(m.file.name?.startsWith("voice-")||/^(audio|webm|ogg|mp3|wav|m4a)$/i.test(m.file.type||""))?<div style={{marginTop:3}}><audio controls preload="metadata" style={{height:32,maxWidth:260}} src={m.file.url}/><div style={{fontSize:8,color:C.t3,marginTop:1}}>🎙 {m.file.name}</div></div>:<div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:6,marginTop:3,fontSize:10}}>{m.file.url?<a href={m.file.url} target="_blank" rel="noreferrer" style={{color:C.a,textDecoration:"none"}}>📎 {m.file.name}</a>:<>📎 {m.file.name}</>} <span style={{color:C.t3}}>{m.file.size}</span></div>)}
+              {m.file&&(()=>{const f=m.file;const fileUrl=f.url||null;const isVoice=f.isVoice||f.contentType?.startsWith('audio/')||/\.(mp3|ogg|wav|webm|aac|m4a)$/i.test(f.name||'')||f.name?.startsWith("voice-");if(isVoice&&fileUrl)return(<div style={{marginTop:3}}><audio controls src={fileUrl} style={{width:"100%",maxWidth:260,height:32}}/><div style={{fontSize:8,color:C.t3,marginTop:1}}>🎙️ {f.name}</div></div>);return(<div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",background:C.s3,border:`1px solid ${C.b1}`,borderRadius:6,marginTop:3,fontSize:10}}>{fileUrl?<a href={fileUrl} target="_blank" rel="noreferrer" style={{color:C.a,textDecoration:"none"}}>📎 {f.name}</a>:<>📎 {f.name}</>} <span style={{color:C.t3}}>{f.size}</span></div>);})()}
               {m.reactions?.length>0&&<div style={{display:"flex",gap:2,marginTop:2,flexWrap:"wrap"}}>{m.reactions.map((r,ri)=><span key={ri} style={{padding:"1px 5px",borderRadius:8,background:C.s3,border:`1px solid ${C.b1}`,fontSize:10,cursor:"pointer"}}>{r.emoji} {r.users.length}</span>)}</div>}
               {m.thread?.length>0&&<div style={{fontSize:9,color:C.a,fontFamily:FM,marginTop:2,cursor:"pointer"}} onClick={()=>{setActiveCh(pId);closePane(pId);setShowThread(m);}}>{m.thread.length} {m.thread.length===1?"reply":"replies"}</div>}
             </div>
@@ -1077,25 +1283,96 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         <div style={{display:"flex",gap:5}}><input value={threadInp} onChange={e=>setThreadInp(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();sendTh();}}} placeholder="Reply in thread…" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/><button onClick={sendTh} style={{width:32,height:32,borderRadius:8,background:C.a,color:"#fff",border:"none",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2191"}</button></div>
       </div>
     </div>}
-    {showMembers&&!showThread&&<div style={{width:280,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
-      <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:15,fontWeight:700,fontFamily:FD}}>👥 Members{aCh?` (${getChMembers(aCh).length})`:""}</span><button onClick={()=>setShowMembers(false)} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:16}}>×</button></div>
-      {aCh&&<button onClick={()=>setShowInvite(true)} className="hov" style={{margin:"10px 12px 4px",padding:"8px",borderRadius:8,fontSize:12,background:C.ad,color:C.a,border:`1px dashed ${C.a}44`,cursor:"pointer",fontWeight:600}}>+ Add to Channel</button>}
-      {setAgents&&<button onClick={()=>setShowWsInvite(true)} className="hov" style={{margin:"4px 12px 8px",padding:"8px",borderRadius:8,fontSize:12,background:C.gd,color:C.g,border:`1px dashed ${C.g}44`,cursor:"pointer",fontWeight:600}}>+ Invite to Workspace</button>}
-      <div style={{padding:"0 12px 6px"}}><div style={{fontSize:10,color:C.t3,fontFamily:FM,background:C.s2,padding:"4px 8px",borderRadius:6,textAlign:"center"}}>{agents.length} members across workspace</div></div>
-      <div style={{flex:1,overflowY:"auto",padding:5}}>
-        {(aCh?agents.filter(a=>getChMembers(aCh).includes(a.id)):agents).map(a=><div key={a.id} className="hov" onClick={()=>setProfilePop(a.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 7px",borderRadius:5,cursor:"pointer"}}>
-          <Av i={a.av} c={a.color} s={22} dot={a.status==="online"}/>
-          <div style={{flex:1}}><div style={{fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:3}}>{a.name}{a.id===myIdRef.current?" (You)":""}<span style={{fontSize:7,padding:"0px 3px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:C.t3,fontWeight:700,fontFamily:FM}}>{a.role}</span></div><div style={{fontSize:8.5,color:C.t3,fontFamily:FM}}>{a.status}</div></div>
-          {aCh&&a.id!==myIdRef.current&&<button onClick={e=>{e.stopPropagation();removeMember(activeCh,a.id);}} title="Remove" style={{fontSize:8,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>}
-        </div>)}
-        {aCh&&agents.filter(a=>!getChMembers(aCh).includes(a.id)).length>0&&<>
-          <div style={{fontSize:8.5,fontWeight:700,fontFamily:FM,color:C.t3,marginTop:8,marginBottom:3,paddingLeft:7}}>NOT IN CHANNEL</div>
-          {agents.filter(a=>!getChMembers(aCh).includes(a.id)).map(a=><div key={a.id} className="hov" style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:5,opacity:0.6}}>
-            <Av i={a.av} c={a.color} s={20}/>
-            <span style={{flex:1,fontSize:10.5}}>{a.name}</span>
-            <button onClick={()=>addMember(activeCh,a.id)} style={{fontSize:8,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,borderRadius:3,padding:"1px 5px",cursor:"pointer",fontFamily:FM}}>+ Add</button>
-          </div>)}
-        </>}
+    {showMembers&&!showThread&&<div style={{width:300,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+      {/* Header */}
+      <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${C.b1}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontSize:15,fontWeight:700,fontFamily:FD,color:C.t1}}>Members</span>
+          <button onClick={()=>setShowMembers(false)} style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",color:C.t3,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:14,lineHeight:1}}>×</button>
+        </div>
+        {/* Search */}
+        <div style={{display:"flex",alignItems:"center",gap:6,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,padding:"6px 10px"}}>
+          <NavIcon id="search" s={12} col={C.t3}/>
+          <input id="mbr-search" placeholder="Find a member…" style={{flex:1,background:"none",border:"none",outline:"none",fontSize:12,color:C.t1,fontFamily:FB}} onChange={e=>{const el=document.getElementById("mbr-search") as HTMLInputElement;el&&el.setAttribute("data-v",e.target.value);}}/>
+        </div>
+      </div>
+      {/* Action buttons */}
+      <div style={{padding:"8px 12px 4px",display:"flex",flexDirection:"column",gap:4}}>
+        {aCh&&<button onClick={()=>setShowInvite(true)} className="hov" style={{padding:"7px 12px",borderRadius:8,fontSize:12,background:C.ad,color:C.a,border:`1px solid ${C.a}33`,cursor:"pointer",fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:14}}>+</span> Add to Channel
+        </button>}
+        {setAgents&&<button onClick={()=>setShowWsInvite(true)} className="hov" style={{padding:"7px 12px",borderRadius:8,fontSize:12,background:C.gd,color:C.g,border:`1px solid ${C.g}33`,cursor:"pointer",fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:14}}>✉</span> Invite to Workspace
+        </button>}
+      </div>
+      {/* Member list */}
+      <div style={{flex:1,overflowY:"auto",padding:"4px 8px 8px"}}>
+        {(()=>{
+          const pool=aCh?agents.filter((a:any)=>getChMembers(aCh).includes(a.id)):agents;
+          const online=pool.filter((a:any)=>a.status==="online");
+          const offline=pool.filter((a:any)=>a.status!=="online");
+          const roleColor=(r:string)=>r==="Owner"?C.p:r==="Admin"?C.a:r==="Agent"?C.g:C.t3;
+          const roleBg=(r:string)=>r==="Owner"?C.pd:r==="Admin"?C.ad:r==="Agent"?C.gd:C.s3;
+          const renderMbrRow=(a:any)=>{
+            const isOn=a.status==="online";
+            const isMe=a.id===myIdRef.current;
+            const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);
+            return(
+              <div key={a.id} className="hov" onClick={()=>setProfilePop(a.id)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",borderRadius:8,cursor:"pointer",marginBottom:1}}>
+                {/* Avatar + presence */}
+                <div style={{position:"relative",flexShrink:0,width:36,height:36}}>
+                  <Av i={a.av} c={a.color} s={36}/>
+                  <span style={{position:"absolute",bottom:0,right:0,width:11,height:11,borderRadius:"50%",
+                    background:isOn?"#22c55e":"#94a3b8",
+                    border:`2px solid ${C.s1}`,display:"block"}}/>
+                </div>
+                {/* Info */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                    <span style={{fontSize:13,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{a.name}{isMe&&<span style={{fontSize:10,color:C.t3,fontWeight:400}}> (you)</span>}</span>
+                    {dm&&dm.unread>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:99,padding:"0 5px",fontSize:10,fontWeight:800,minWidth:18,height:16,display:"flex",alignItems:"center",justifyContent:"center"}}>{dm.unread>99?"99+":dm.unread}</span>}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:10,color:isOn?"#22c55e":"#94a3b8",fontWeight:600}}>{isOn?"Active now":"Offline"}</span>
+                    <span style={{fontSize:9,color:C.t3}}>·</span>
+                    <span style={{fontSize:9,padding:"0 4px",height:14,borderRadius:3,background:roleBg(a.role),color:roleColor(a.role),fontWeight:700,fontFamily:FM,display:"inline-flex",alignItems:"center"}}>{a.role||"Member"}</span>
+                  </div>
+                </div>
+                {/* Channel remove */}
+                {aCh&&!isMe&&<button onClick={e=>{e.stopPropagation();removeMember(activeCh,a.id);}} title="Remove from channel" className="hov"
+                  style={{width:22,height:22,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.r,background:"none",border:"none",cursor:"pointer",opacity:0.7,flexShrink:0}}>✕</button>}
+              </div>
+            );
+          };
+          return(<>
+            {online.length>0&&<>
+              <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"8px 8px 4px",letterSpacing:"0.05em"}}>ONLINE — {online.length}</div>
+              {online.map(renderMbrRow)}
+            </>}
+            {offline.length>0&&<>
+              <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"10px 8px 4px",letterSpacing:"0.05em"}}>OFFLINE — {offline.length}</div>
+              {offline.map(renderMbrRow)}
+            </>}
+            {aCh&&agents.filter((a:any)=>!getChMembers(aCh).includes(a.id)).length>0&&<>
+              <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"10px 8px 4px",letterSpacing:"0.05em",marginTop:4}}>NOT IN CHANNEL</div>
+              {agents.filter((a:any)=>!getChMembers(aCh).includes(a.id)).map((a:any)=>(
+                <div key={a.id} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",borderRadius:8,opacity:0.55}}>
+                  <Av i={a.av} c={a.color} s={32}/>
+                  <span style={{flex:1,fontSize:13,color:C.t2}}>{a.name}</span>
+                  <button onClick={()=>addMember(activeCh,a.id)} className="hov"
+                    style={{padding:"3px 10px",borderRadius:6,fontSize:11,background:C.ad,color:C.a,border:`1px solid ${C.a}44`,cursor:"pointer",fontWeight:600,fontFamily:FM}}>+ Add</button>
+                </div>
+              ))}
+            </>}
+          </>);
+        })()}
+      </div>
+      {/* Footer summary */}
+      <div style={{padding:"8px 14px",borderTop:`1px solid ${C.b1}`,display:"flex",gap:10}}>
+        <span style={{fontSize:11,color:"#22c55e",fontWeight:600}}>{agents.filter((a:any)=>a.status==="online").length} online</span>
+        <span style={{fontSize:11,color:C.t3}}>·</span>
+        <span style={{fontSize:11,color:C.t3}}>{agents.length} total</span>
       </div>
     </div>}
     {showChInfo&&!showThread&&!showMembers&&aCh&&<div style={{width:260,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
@@ -1202,6 +1479,7 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
 
         {/* ── Full-screen remote video ── */}
         <video ref={remoteVideoRef} autoPlay playsInline style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:showVideo?"block":"none"}}/>
+        <audio ref={remoteAudioRef} autoPlay style={{display:"none"}}/>
 
         {/* ── Active voice call — big avatar + waveform ── */}
         {!showVideo&&activeCall&&peer&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:24,background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)"}}>
@@ -1486,7 +1764,7 @@ export function MiniChatPanel({agents,onClose,onExpand}){
           <div style={{flex:1}}>
             <div style={{fontSize:9}}><strong style={{color:m.uid===myIdRef.current?C.a:C.t1}}>{a2.name||"?"}</strong> <span style={{color:C.t3,fontFamily:FM}}>{m.t}</span></div>
             <div style={{fontSize:10,color:C.t2,lineHeight:1.3}}>{m.text.slice(0,80)}{m.text.length>80?"…":""}</div>
-            {m.file&&(m.file.url&&(m.file.name?.startsWith("voice-")||/^(audio|webm|ogg|mp3|wav|m4a)$/i.test(m.file.type||""))?<div style={{marginTop:1}}><audio controls preload="metadata" style={{height:24,maxWidth:180}} src={m.file.url}/></div>:<div style={{fontSize:8,color:C.a,marginTop:1}}>📎 {m.file.name}</div>)}
+            {m.file&&(()=>{const f=m.file;const isVoice=f.isVoice||f.contentType?.startsWith('audio/')||/\.(mp3|ogg|wav|webm|aac|m4a)$/i.test(f.name||'')||f.name?.startsWith("voice-");if(isVoice&&f.url)return(<div style={{marginTop:1}}><audio controls src={f.url} style={{height:24,maxWidth:180}}/></div>);return(<div style={{fontSize:8,color:C.a,marginTop:1}}>📎 {f.name}</div>);})()}
             {m.reactions?.length>0&&<div style={{display:"flex",gap:1,marginTop:1}}>{m.reactions.map((r:any)=><span key={r.emoji} style={{fontSize:8,background:C.s3,borderRadius:5,padding:"0 2px"}}>{r.emoji}{r.users.length}</span>)}</div>}
           </div>
         </div>

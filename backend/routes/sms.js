@@ -12,7 +12,7 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }              = require('../utils/helpers');
-const { broadcastToAll }   = require('../ws');
+const { broadcastToAll, sendToAgent } = require('../ws');
 const { findInboxByPhone, normalizePhone, sendSms, getInboxConfig, resolveCredentials } = require('../services/smsService');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -238,7 +238,7 @@ router.post('/webhook', async (req, res) => {
       `).get(cvId);
       try { if (fullConv) fullConv.labels = JSON.parse(fullConv.labels || '[]'); } catch { if (fullConv) fullConv.labels = []; }
 
-      broadcastToAll({
+      const _smsNewConv = {
         type: 'new_conversation',
         conversation_id: cvId,
         subject: fullConv?.subject,
@@ -248,7 +248,9 @@ router.post('/webhook', async (req, res) => {
         inbox_name: fullConv?.inbox_name,
         inbox_type: 'sms',
         conversation: fullConv,
-      });
+      };
+      if (inbox.agent_id) sendToAgent(inbox.agent_id, _smsNewConv);
+      else broadcastToAll(_smsNewConv);
     } else {
       // Update conversation timestamp
       await db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now(), conv.id);
@@ -282,15 +284,14 @@ router.post('/webhook', async (req, res) => {
     `).get(conv.id);
     try { if (fullConv) fullConv.labels = JSON.parse(fullConv.labels || '[]'); } catch { if (fullConv) fullConv.labels = []; }
 
-    broadcastToAll({
+    const _smsNewMsg = {
       type: 'new_message',
       conversationId: conv.id,
-      message: {
-        ...savedMsg,
-        attachments: attachments,
-      },
+      message: { ...savedMsg, attachments },
       conversation: fullConv,
-    });
+    };
+    if (inbox.agent_id) sendToAgent(inbox.agent_id, _smsNewMsg);
+    else broadcastToAll(_smsNewMsg);
 
     console.log(`[sms] ✓ Inbound SMS saved — conv=${conv.id}, msg=${msgId}, campaign=${campaignId || 'none'}`);
 

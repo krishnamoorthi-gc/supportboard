@@ -74,7 +74,7 @@ router.get('/managed', auth, wrap(async (req, res) => {
 router.post('/managed', auth, wrap(async (req, res) => {
   const { name, email, password, role = 'agent', department_id, permissions, color } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) return res.status(400).json({ error: 'Password must be 8+ chars with uppercase and number' });
 
   const existing = await db.prepare('SELECT id FROM agents WHERE email=?').get(email.toLowerCase().trim());
   if (existing) return res.status(409).json({ error: 'Email already exists' });
@@ -104,9 +104,9 @@ router.patch('/managed/:id', auth, wrap(async (req, res) => {
   const u = await db.prepare('SELECT * FROM agents WHERE id=?').get(req.params.id);
   if (!u) return res.status(404).json({ error: 'User not found' });
 
-  const fields = ['name', 'role', 'color', 'phone', 'bio', 'status', 'avatar', 'department_id'];
+  const ALLOWED_FIELDS = ['name', 'role', 'color', 'phone', 'bio', 'status', 'avatar', 'department_id'];
   const updates = { updated_at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
-  for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
+  for (const f of ALLOWED_FIELDS) if (req.body[f] !== undefined) updates[f] = req.body[f];
   if (req.body.password) updates.password_hash = bcrypt.hashSync(req.body.password, 10);
   if (req.body.permissions !== undefined) updates.permissions = JSON.stringify(req.body.permissions);
 

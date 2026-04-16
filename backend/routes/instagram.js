@@ -17,7 +17,7 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
-const { broadcastToAll } = require('../ws');
+const { broadcastToAll, sendToAgent } = require('../ws');
 
 const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -271,10 +271,18 @@ router.post('/webhook', async (req, res) => {
 
       const cfg = safeJson(inbox.config, {});
       const pageToken = cfg.accessToken || cfg.pageAccessToken || '';
+      const linkedPageId = String(cfg.pageId || cfg.igAccountId || '');
 
       for (const event of entry.messaging || []) {
         // Skip echo messages (outbound from page)
         if (event.message?.is_echo) continue;
+
+        // Extra guard: ensure the recipient is our own linked page/account
+        const recipientId = String(event.recipient?.id || '');
+        if (linkedPageId && recipientId && recipientId !== linkedPageId) {
+          console.log(`[instagram] Skipping event — recipient ${recipientId} != linked page ${linkedPageId}`);
+          continue;
+        }
 
         if (event.message) {
           await processIncomingMessage(event, inbox, pageToken);
@@ -399,16 +407,30 @@ async function processIncomingMessage(event, inbox, pageToken) {
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
     const fullConv = await buildFullConv(cvId);
-    broadcastToAll({
-      type:           'new_conversation',
-      conversation_id: cvId,
-      subject,
-      contact_name:   contact.name,
-      contact_ig_id:  senderId,
-      campaign_id:    campaignId,
-      campaign_name:  campaignName,
-      conversation:   fullConv,
-    });
+    // Only notify the agent who owns this inbox — not all connected agents
+    if (agentId) {
+      sendToAgent(agentId, {
+        type:           'new_conversation',
+        conversation_id: cvId,
+        subject,
+        contact_name:   contact.name,
+        contact_ig_id:  senderId,
+        campaign_id:    campaignId,
+        campaign_name:  campaignName,
+        conversation:   fullConv,
+      });
+    } else {
+      broadcastToAll({
+        type:           'new_conversation',
+        conversation_id: cvId,
+        subject,
+        contact_name:   contact.name,
+        contact_ig_id:  senderId,
+        campaign_id:    campaignId,
+        campaign_name:  campaignName,
+        conversation:   fullConv,
+      });
+    }
   } else if (campaignId && !conv.campaign_id) {
     await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
       .run(campaignId, campaignName, conv.id);
@@ -441,17 +463,22 @@ async function processIncomingMessage(event, inbox, pageToken) {
     'UPDATE conversations SET updated_at=?, unread_count=COALESCE(unread_count,0)+1 WHERE id=?'
   ).run(ts, conv.id);
 
-  // ── broadcast ─────────────────────────────────────────────────────────────
+  // ── broadcast — only to the inbox owner ──────────────────────────────────
   const savedMsg = await db.prepare('SELECT * FROM messages WHERE id=?').get(newMsgId);
   try { savedMsg.attachments = JSON.parse(savedMsg.attachments || '[]'); } catch { savedMsg.attachments = []; }
 
   const fullConv = await buildFullConv(conv.id);
-  broadcastToAll({
+  const payload = {
     type:           'new_message',
     conversationId: conv.id,
     message:        savedMsg,
     conversation:   fullConv,
-  });
+  };
+  if (agentId) {
+    sendToAgent(agentId, payload);
+  } else {
+    broadcastToAll(payload);
+  }
 
   console.log(`[instagram] ✓ Received message from ${senderName} → conv ${conv.id}`);
 }
@@ -490,7 +517,7 @@ async function findInboxByIgAccountId(igAccountId) {
   ).all();
   for (const row of rows) {
     const cfg = safeJson(row.config, {});
-    // Match by igAccountId OR by pageId (Instagram is linked to a Facebook Page)
+    // Strict match: only route to an inbox whose configured pageId or igAccountId matches
     if (
       cfg.igAccountId === String(igAccountId) ||
       cfg.igAccountId === igAccountId ||
@@ -498,8 +525,7 @@ async function findInboxByIgAccountId(igAccountId) {
       cfg.pageId      === igAccountId
     ) return row;
   }
-  // Fallback: try matching any instagram inbox (single-inbox setups)
-  if (rows.length === 1) return rows[0];
+  // No match — do NOT fall back to any inbox so messages from unrelated accounts are never mixed in
   return null;
 }
 

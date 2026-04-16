@@ -34,23 +34,69 @@ const server = http.createServer(app);
 const { setupWebSocket } = require('./ws');
 setupWebSocket(server);
 
-// ── Middleware ──
+// Trust reverse proxy (nginx) so rate-limit sees real client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// ── Security middleware ──
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+    else cb(null, ALLOWED_ORIGINS[0]);
+  },
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// API-wide rate limiting (100 req/min per IP)
+app.use('/api/', rateLimit({ windowMs: 60000, max: 100, standardHeaders: true, legacyHeaders: false }));
 
 // ── File uploads ──
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
+const UPLOAD_ALLOWED_TYPES = [
+  'image/jpeg','image/png','image/gif','image/webp','image/svg+xml',
+  'application/pdf','text/csv','text/plain',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword','application/vnd.ms-excel','application/zip',
+  'application/x-zip-compressed','application/octet-stream',
+  // Audio — voice messages & media
+  'audio/mpeg','audio/mp3','audio/wav','audio/ogg','audio/webm',
+  'audio/aac','audio/mp4','audio/x-m4a',
+  // Video
+  'video/mp4','video/webm','video/ogg','video/quicktime',
+];
 const storage = multer.diskStorage({
   destination: uploadDir,
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname.replace(/\s/g, '_')),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.bin';
+    cb(null, require('crypto').randomUUID() + ext);
+  },
 });
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+  fileFilter: (req, file, cb) => {
+    const allowed = UPLOAD_ALLOWED_TYPES.includes(file.mimetype) ||
+      file.mimetype.startsWith('image/') ||
+      file.mimetype.startsWith('audio/') ||
+      file.mimetype.startsWith('video/');
+    if (!allowed) return cb(new Error('File type not allowed'));
+    cb(null, true);
+  },
+});
 
 app.post('/api/upload', require('./middleware/auth'), upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
@@ -1487,11 +1533,14 @@ server.listen(PORT, async () => {
       for (const auto of activeAutos) {
         try {
           const trigger = auto.trigger_type || '';
-          const actions = JSON.parse(auto.actions || '[]');
-          if (!actions.length) continue;
+          let actions = auto.actions || '[]';
+          if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+          if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+          if (!Array.isArray(actions) || !actions.length) continue;
 
           let matchedContacts = [];
           const aid = auto.agent_id;
+          if (!aid) continue;
 
           // Match contacts based on trigger type
           if (trigger === 'Contact Created') {
