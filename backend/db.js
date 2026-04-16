@@ -1387,6 +1387,12 @@ async function ensureSchemaColumns() {
         // Use NULL default so old rows don't get current timestamp and appear as "live"
         ['last_seen',    "ALTER TABLE visitor_sessions ADD COLUMN last_seen DATETIME"],
         ['user_agent',   "ALTER TABLE visitor_sessions ADD COLUMN user_agent TEXT"],
+        ['visitor_phone',"ALTER TABLE visitor_sessions ADD COLUMN visitor_phone VARCHAR(50)"],
+        ['visitor_avatar',"ALTER TABLE visitor_sessions ADD COLUMN visitor_avatar VARCHAR(500)"],
+        ['visitor_google_id',"ALTER TABLE visitor_sessions ADD COLUMN visitor_google_id VARCHAR(255)"],
+        ['entry_page',   "ALTER TABLE visitor_sessions ADD COLUMN entry_page VARCHAR(1000)"],
+        ['exit_page',    "ALTER TABLE visitor_sessions ADD COLUMN exit_page VARCHAR(1000)"],
+        ['utm_source',   "ALTER TABLE visitor_sessions ADD COLUMN utm_source VARCHAR(255)"],
       ];
       for (const [col, sql] of vsAdds) {
         if (!vsCols.has(col)) {
@@ -1400,6 +1406,21 @@ async function ensureSchemaColumns() {
       // - last_seen NULL   = pre-tracker row that never got a heartbeat
       await run("DELETE FROM visitor_sessions WHERE session_id IS NULL OR session_id = '' OR ip IS NULL OR ip = '' OR last_seen IS NULL");
       console.log('🧹 Removed non-real visitor sessions on startup');
+
+      // ── Ensure visitor_events table exists ──────────────────────────────
+      const [veTables] = await db.query("SHOW TABLES LIKE 'visitor_events'");
+      if (veTables.length === 0) {
+        await run(`CREATE TABLE IF NOT EXISTS visitor_events (
+          id VARCHAR(255) PRIMARY KEY,
+          session_id VARCHAR(255),
+          event_type VARCHAR(50),
+          event_name VARCHAR(100),
+          event_data TEXT,
+          page VARCHAR(255),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        console.log('✅ Created visitor_events table');
+      }
     } catch (e) { console.error('visitor_sessions columns:', e.message); }
 
     // ── agents: department_id + permissions for User Management ────────

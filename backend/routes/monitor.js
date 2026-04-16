@@ -4,15 +4,20 @@ const auth = require('../middleware/auth');
 const { uid } = require('../utils/helpers');
 const { broadcastToAll } = require('../ws');
 
-// GET /api/monitor/visitors — list visitors active in the last 3 minutes
+// GET /api/monitor/visitors — list all visitors
 router.get('/visitors', auth, async (req, res) => {
   try {
-    const cutoff = new Date(Date.now() - 3 * 60 * 1000)
-      .toISOString().slice(0, 19).replace('T', ' ');
     const visitors = await db.prepare(
-      'SELECT * FROM visitor_sessions WHERE last_seen >= ? AND session_id IS NOT NULL AND session_id != "" AND ip IS NOT NULL AND ip != "" ORDER BY last_seen DESC'
-    ).all(cutoff);
-    res.json({ visitors, total: visitors.length });
+      'SELECT * FROM visitor_sessions WHERE session_id IS NOT NULL AND session_id != "" AND ip IS NOT NULL AND ip != "" ORDER BY last_seen DESC'
+    ).all();
+    // Mark active visitors (seen in last 3 minutes)
+    // last_seen is stored in UTC but MySQL returns it without 'Z', so append 'Z' for correct parsing
+    const cutoff = Date.now() - 3 * 60 * 1000;
+    const result = visitors.map(v => ({
+      ...v,
+      is_active: v.last_seen ? new Date(v.last_seen + 'Z').getTime() >= cutoff : false
+    }));
+    res.json({ visitors: result, total: result.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
