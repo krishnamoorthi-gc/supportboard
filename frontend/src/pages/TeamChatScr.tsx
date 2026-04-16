@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
+import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, API_BASE, api, uid, showT, playNotifSound, exportCSV, exportTableCSV, nameColor, t, LANGS, now, ROUTES, AUDIT_LOG, CUSTOM_FIELDS_INIT, EMAIL_SIGS_INIT, BRANDS_INIT, A0, L0, IB0, TM0, CR0, AU0, CT0, CV0, MG0, AI_S, BOT, REPLY_POOL, SDLogo, ChIcon, chI, chC, prC, NavIcon, Av, Tag, Btn, Inp, Sel, CompanyPicker, Toggle, Mdl, CountUp, Confetti, ConvPreview, Fld, Spin, Skel, SkelRow, SkelCards, SkelMsgs, SkelTable, EmptyState, ErrorBanner, ConnBadge, AiInsight, LoadingOverlay, UndoToast, OnboardingWizard, CsatSurvey, SlaTimer, CollisionBadge, CfPanel, CfInput, Sparkline, DonutChart, LazyMount, NotifPanel } from "../shared";
 
 // ─── TEAM CHAT ────────────────────────────────────────────────────────────
 // ─── TEAM CHAT (Slack/Cliq-class) ─────────────────────────────────────────
@@ -989,32 +989,66 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         <SideSection id="channels" name="CHANNELS" action={{fn:()=>setShowNewCh(true),tip:"New Channel",icon:"+"}}>
           {channels.filter(c=>!tcSearch||c.name.includes(tcSearch)).map(ch=><ChBtn key={ch.id} ch={ch}/>)}
         </SideSection>
-        <SideSection id="dms" name={"MEMBERS ("+(agents as any[]).filter((a:any)=>a.id!==myIdRef.current).length+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
-          {(agents as any[])
-            .filter((a:any)=>a.id!==myIdRef.current)
-            .filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase()))
-            .sort((a:any,b:any)=>{
-              // Online first, then by name
-              if(a.status==="online"&&b.status!=="online")return -1;
-              if(a.status!=="online"&&b.status==="online")return 1;
-              return (a.name||"").localeCompare(b.name||"");
-            })
-            .map((a:any)=>{const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);const isOnline=a.status==="online";return(
-            <button key={a.id} onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}} onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}} className="hov" style={{width:"100%",padding:"5px 8px 5px 10px",display:"flex",alignItems:"center",gap:6,background:dm&&activeCh===dm.id?C.ad:dm&&panes.includes(dm.id)?C.pd+"44":"transparent",border:"none",cursor:"pointer",borderRadius:6,marginBottom:1}}>
-              {/* Avatar with online dot */}
-              <div style={{position:"relative",flexShrink:0}}>
-                <Av i={a.av} c={a.color} s={26}/>
-                <span style={{position:"absolute",bottom:0,right:0,width:9,height:9,borderRadius:"50%",background:isOnline?"#22c55e":C.t3,border:`2px solid ${C.s1}`,display:"block"}}/>
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
-                  <span style={{fontSize:13,color:dm&&activeCh===dm.id?C.t1:isOnline?C.t1:C.t2,fontWeight:dm?.unread?700:isOnline?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{a.name}</span>
-                  {dm&&dm.unread>0&&<span style={{background:C.r,color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:800,flexShrink:0,minWidth:18,textAlign:"center",lineHeight:"16px"}}>{dm.unread>9?"9+":dm.unread}</span>}
+        <SideSection id="dms" name={"MEMBERS ("+((agents as any[]).filter((a:any)=>a.id!==myIdRef.current).length)+")"} action={{fn:()=>setShowNewDm(true),tip:"New DM",icon:"+"}}>
+          {(()=>{
+            const filtered=(agents as any[])
+              .filter((a:any)=>a.id!==myIdRef.current)
+              .filter((a:any)=>!tcSearch||a.name.toLowerCase().includes(tcSearch.toLowerCase()));
+            const online=filtered.filter((a:any)=>a.status==="online");
+            const offline=filtered.filter((a:any)=>a.status!=="online").sort((a:any,b:any)=>(a.name||"").localeCompare(b.name||""));
+            const renderRow=(a:any)=>{
+              const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);
+              const isOn=a.status==="online";
+              const isActive=dm&&activeCh===dm.id;
+              const isPane=dm&&panes.includes(dm.id);
+              return(
+                <button key={a.id}
+                  onClick={()=>{if(dm)switchCh(dm.id);else startDm(a.id);}}
+                  onAuxClick={e=>{if(e.button===1&&dm){e.preventDefault();openPane(dm.id);}}}
+                  className="hov"
+                  style={{width:"100%",padding:"3px 8px 3px 6px",display:"flex",alignItems:"center",gap:8,
+                    background:isActive?C.ad:isPane?C.pd+"22":"transparent",
+                    border:"none",cursor:"pointer",borderRadius:6,marginBottom:1,textAlign:"left",minHeight:34}}>
+                  {/* Avatar + presence ring */}
+                  <div style={{position:"relative",flexShrink:0,width:32,height:32}}>
+                    <Av i={a.av} c={a.color} s={32}/>
+                    <span style={{position:"absolute",bottom:0,right:0,width:10,height:10,borderRadius:"50%",
+                      background:isOn?"#22c55e":"#94a3b8",
+                      border:`2px solid ${C.s1}`,display:"block",boxSizing:"border-box"}}/>
+                  </div>
+                  {/* Name */}
+                  <span style={{flex:1,fontSize:13,lineHeight:"18px",
+                    color:isActive?C.a:isOn?C.t1:C.t3,
+                    fontWeight:dm?.unread?700:isActive?600:400,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {a.name}
+                  </span>
+                  {/* Unread badge */}
+                  {dm&&dm.unread>0&&<span style={{
+                    background:"#ef4444",color:"#fff",borderRadius:99,
+                    padding:"0 5px",fontSize:10,fontWeight:800,
+                    flexShrink:0,minWidth:18,height:18,
+                    display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>
+                    {dm.unread>99?"99+":dm.unread}
+                  </span>}
+                </button>
+              );
+            };
+            return(<>
+              {online.length>0&&<>
+                <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"6px 8px 3px",letterSpacing:"0.05em",userSelect:"none"}}>
+                  ONLINE — {online.length}
                 </div>
-                <div style={{fontSize:10,color:isOnline?C.g:C.t3,fontFamily:FM,fontWeight:isOnline?600:400}}>{isOnline?"● Online":"○ Offline"}</div>
-              </div>
-            </button>
-          );})}
+                {online.map(renderRow)}
+              </>}
+              {offline.length>0&&<>
+                <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"8px 8px 3px",letterSpacing:"0.05em",userSelect:"none"}}>
+                  OFFLINE — {offline.length}
+                </div>
+                {offline.map(renderRow)}
+              </>}
+            </>);
+          })()}
         </SideSection>
       </div>
       <div style={{padding:"7px 12px",borderTop:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:-2}}>
@@ -1249,25 +1283,96 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
         <div style={{display:"flex",gap:5}}><input value={threadInp} onChange={e=>setThreadInp(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();sendTh();}}} placeholder="Reply in thread…" style={{flex:1,background:C.bg,border:`1px solid ${C.b1}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/><button onClick={sendTh} style={{width:32,height:32,borderRadius:8,background:C.a,color:"#fff",border:"none",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2191"}</button></div>
       </div>
     </div>}
-    {showMembers&&!showThread&&<div style={{width:280,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
-      <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:15,fontWeight:700,fontFamily:FD}}>👥 Members{aCh?` (${getChMembers(aCh).length})`:""}</span><button onClick={()=>setShowMembers(false)} style={{color:C.t3,background:"none",border:"none",cursor:"pointer",fontSize:16}}>×</button></div>
-      {aCh&&<button onClick={()=>setShowInvite(true)} className="hov" style={{margin:"10px 12px 4px",padding:"8px",borderRadius:8,fontSize:12,background:C.ad,color:C.a,border:`1px dashed ${C.a}44`,cursor:"pointer",fontWeight:600}}>+ Add to Channel</button>}
-      {setAgents&&<button onClick={()=>setShowWsInvite(true)} className="hov" style={{margin:"4px 12px 8px",padding:"8px",borderRadius:8,fontSize:12,background:C.gd,color:C.g,border:`1px dashed ${C.g}44`,cursor:"pointer",fontWeight:600}}>+ Invite to Workspace</button>}
-      <div style={{padding:"0 12px 6px"}}><div style={{fontSize:10,color:C.t3,fontFamily:FM,background:C.s2,padding:"4px 8px",borderRadius:6,textAlign:"center"}}>{agents.length} members across workspace</div></div>
-      <div style={{flex:1,overflowY:"auto",padding:5}}>
-        {(aCh?agents.filter(a=>getChMembers(aCh).includes(a.id)):agents).map(a=><div key={a.id} className="hov" onClick={()=>setProfilePop(a.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 7px",borderRadius:5,cursor:"pointer"}}>
-          <Av i={a.av} c={a.color} s={22} dot={a.status==="online"}/>
-          <div style={{flex:1}}><div style={{fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:3}}>{a.name}{a.id===myIdRef.current?" (You)":""}<span style={{fontSize:7,padding:"0px 3px",borderRadius:3,background:a.role==="Owner"?C.pd:a.role==="Admin"?C.ad:a.role==="Agent"?C.gd:C.s3,color:a.role==="Owner"?C.p:a.role==="Admin"?C.a:a.role==="Agent"?C.g:C.t3,fontWeight:700,fontFamily:FM}}>{a.role}</span></div><div style={{fontSize:8.5,color:C.t3,fontFamily:FM}}>{a.status}</div></div>
-          {aCh&&a.id!==myIdRef.current&&<button onClick={e=>{e.stopPropagation();removeMember(activeCh,a.id);}} title="Remove" style={{fontSize:8,color:C.r,background:"none",border:"none",cursor:"pointer"}}>✕</button>}
-        </div>)}
-        {aCh&&agents.filter(a=>!getChMembers(aCh).includes(a.id)).length>0&&<>
-          <div style={{fontSize:8.5,fontWeight:700,fontFamily:FM,color:C.t3,marginTop:8,marginBottom:3,paddingLeft:7}}>NOT IN CHANNEL</div>
-          {agents.filter(a=>!getChMembers(aCh).includes(a.id)).map(a=><div key={a.id} className="hov" style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:5,opacity:0.6}}>
-            <Av i={a.av} c={a.color} s={20}/>
-            <span style={{flex:1,fontSize:10.5}}>{a.name}</span>
-            <button onClick={()=>addMember(activeCh,a.id)} style={{fontSize:8,color:C.a,background:C.ad,border:`1px solid ${C.a}44`,borderRadius:3,padding:"1px 5px",cursor:"pointer",fontFamily:FM}}>+ Add</button>
-          </div>)}
-        </>}
+    {showMembers&&!showThread&&<div style={{width:300,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+      {/* Header */}
+      <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${C.b1}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontSize:15,fontWeight:700,fontFamily:FD,color:C.t1}}>Members</span>
+          <button onClick={()=>setShowMembers(false)} style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",color:C.t3,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",fontSize:14,lineHeight:1}}>×</button>
+        </div>
+        {/* Search */}
+        <div style={{display:"flex",alignItems:"center",gap:6,background:C.s2,border:`1px solid ${C.b1}`,borderRadius:8,padding:"6px 10px"}}>
+          <NavIcon id="search" s={12} col={C.t3}/>
+          <input id="mbr-search" placeholder="Find a member…" style={{flex:1,background:"none",border:"none",outline:"none",fontSize:12,color:C.t1,fontFamily:FB}} onChange={e=>{const el=document.getElementById("mbr-search") as HTMLInputElement;el&&el.setAttribute("data-v",e.target.value);}}/>
+        </div>
+      </div>
+      {/* Action buttons */}
+      <div style={{padding:"8px 12px 4px",display:"flex",flexDirection:"column",gap:4}}>
+        {aCh&&<button onClick={()=>setShowInvite(true)} className="hov" style={{padding:"7px 12px",borderRadius:8,fontSize:12,background:C.ad,color:C.a,border:`1px solid ${C.a}33`,cursor:"pointer",fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:14}}>+</span> Add to Channel
+        </button>}
+        {setAgents&&<button onClick={()=>setShowWsInvite(true)} className="hov" style={{padding:"7px 12px",borderRadius:8,fontSize:12,background:C.gd,color:C.g,border:`1px solid ${C.g}33`,cursor:"pointer",fontWeight:600,textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:14}}>✉</span> Invite to Workspace
+        </button>}
+      </div>
+      {/* Member list */}
+      <div style={{flex:1,overflowY:"auto",padding:"4px 8px 8px"}}>
+        {(()=>{
+          const pool=aCh?agents.filter((a:any)=>getChMembers(aCh).includes(a.id)):agents;
+          const online=pool.filter((a:any)=>a.status==="online");
+          const offline=pool.filter((a:any)=>a.status!=="online");
+          const roleColor=(r:string)=>r==="Owner"?C.p:r==="Admin"?C.a:r==="Agent"?C.g:C.t3;
+          const roleBg=(r:string)=>r==="Owner"?C.pd:r==="Admin"?C.ad:r==="Agent"?C.gd:C.s3;
+          const renderMbrRow=(a:any)=>{
+            const isOn=a.status==="online";
+            const isMe=a.id===myIdRef.current;
+            const dm=(tcDms as any[]).find((d:any)=>d.agentId===a.id);
+            return(
+              <div key={a.id} className="hov" onClick={()=>setProfilePop(a.id)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",borderRadius:8,cursor:"pointer",marginBottom:1}}>
+                {/* Avatar + presence */}
+                <div style={{position:"relative",flexShrink:0,width:36,height:36}}>
+                  <Av i={a.av} c={a.color} s={36}/>
+                  <span style={{position:"absolute",bottom:0,right:0,width:11,height:11,borderRadius:"50%",
+                    background:isOn?"#22c55e":"#94a3b8",
+                    border:`2px solid ${C.s1}`,display:"block"}}/>
+                </div>
+                {/* Info */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                    <span style={{fontSize:13,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{a.name}{isMe&&<span style={{fontSize:10,color:C.t3,fontWeight:400}}> (you)</span>}</span>
+                    {dm&&dm.unread>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:99,padding:"0 5px",fontSize:10,fontWeight:800,minWidth:18,height:16,display:"flex",alignItems:"center",justifyContent:"center"}}>{dm.unread>99?"99+":dm.unread}</span>}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:10,color:isOn?"#22c55e":"#94a3b8",fontWeight:600}}>{isOn?"Active now":"Offline"}</span>
+                    <span style={{fontSize:9,color:C.t3}}>·</span>
+                    <span style={{fontSize:9,padding:"0 4px",height:14,borderRadius:3,background:roleBg(a.role),color:roleColor(a.role),fontWeight:700,fontFamily:FM,display:"inline-flex",alignItems:"center"}}>{a.role||"Member"}</span>
+                  </div>
+                </div>
+                {/* Channel remove */}
+                {aCh&&!isMe&&<button onClick={e=>{e.stopPropagation();removeMember(activeCh,a.id);}} title="Remove from channel" className="hov"
+                  style={{width:22,height:22,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.r,background:"none",border:"none",cursor:"pointer",opacity:0.7,flexShrink:0}}>✕</button>}
+              </div>
+            );
+          };
+          return(<>
+            {online.length>0&&<>
+              <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"8px 8px 4px",letterSpacing:"0.05em"}}>ONLINE — {online.length}</div>
+              {online.map(renderMbrRow)}
+            </>}
+            {offline.length>0&&<>
+              <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"10px 8px 4px",letterSpacing:"0.05em"}}>OFFLINE — {offline.length}</div>
+              {offline.map(renderMbrRow)}
+            </>}
+            {aCh&&agents.filter((a:any)=>!getChMembers(aCh).includes(a.id)).length>0&&<>
+              <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,padding:"10px 8px 4px",letterSpacing:"0.05em",marginTop:4}}>NOT IN CHANNEL</div>
+              {agents.filter((a:any)=>!getChMembers(aCh).includes(a.id)).map((a:any)=>(
+                <div key={a.id} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",borderRadius:8,opacity:0.55}}>
+                  <Av i={a.av} c={a.color} s={32}/>
+                  <span style={{flex:1,fontSize:13,color:C.t2}}>{a.name}</span>
+                  <button onClick={()=>addMember(activeCh,a.id)} className="hov"
+                    style={{padding:"3px 10px",borderRadius:6,fontSize:11,background:C.ad,color:C.a,border:`1px solid ${C.a}44`,cursor:"pointer",fontWeight:600,fontFamily:FM}}>+ Add</button>
+                </div>
+              ))}
+            </>}
+          </>);
+        })()}
+      </div>
+      {/* Footer summary */}
+      <div style={{padding:"8px 14px",borderTop:`1px solid ${C.b1}`,display:"flex",gap:10}}>
+        <span style={{fontSize:11,color:"#22c55e",fontWeight:600}}>{agents.filter((a:any)=>a.status==="online").length} online</span>
+        <span style={{fontSize:11,color:C.t3}}>·</span>
+        <span style={{fontSize:11,color:C.t3}}>{agents.length} total</span>
       </div>
     </div>}
     {showChInfo&&!showThread&&!showMembers&&aCh&&<div style={{width:260,background:C.s1,borderLeft:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",flexShrink:0}}>
