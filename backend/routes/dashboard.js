@@ -101,7 +101,7 @@ router.get('/activity-feed', auth, wrap(async (req, res) => {
 
   const rows = await db.prepare(
     `SELECT c.id, c.status, c.priority, c.updated_at, c.subject, c.channel as ch, c.unread_count as unread,
-            ct.name as contact_name, ct.color as contact_color, ct.av as contact_av
+            ct.name as contact_name, ct.color as contact_color, ct.avatar as contact_av
      FROM conversations c
      LEFT JOIN contacts ct ON c.contact_id=ct.id
      WHERE c.agent_id=?
