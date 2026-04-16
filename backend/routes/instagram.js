@@ -17,7 +17,7 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
-const { broadcastToAll } = require('../ws');
+const { broadcastToAll, sendToAgent } = require('../ws');
 
 const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -407,16 +407,30 @@ async function processIncomingMessage(event, inbox, pageToken) {
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
     const fullConv = await buildFullConv(cvId);
-    broadcastToAll({
-      type:           'new_conversation',
-      conversation_id: cvId,
-      subject,
-      contact_name:   contact.name,
-      contact_ig_id:  senderId,
-      campaign_id:    campaignId,
-      campaign_name:  campaignName,
-      conversation:   fullConv,
-    });
+    // Only notify the agent who owns this inbox — not all connected agents
+    if (agentId) {
+      sendToAgent(agentId, {
+        type:           'new_conversation',
+        conversation_id: cvId,
+        subject,
+        contact_name:   contact.name,
+        contact_ig_id:  senderId,
+        campaign_id:    campaignId,
+        campaign_name:  campaignName,
+        conversation:   fullConv,
+      });
+    } else {
+      broadcastToAll({
+        type:           'new_conversation',
+        conversation_id: cvId,
+        subject,
+        contact_name:   contact.name,
+        contact_ig_id:  senderId,
+        campaign_id:    campaignId,
+        campaign_name:  campaignName,
+        conversation:   fullConv,
+      });
+    }
   } else if (campaignId && !conv.campaign_id) {
     await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
       .run(campaignId, campaignName, conv.id);
@@ -449,17 +463,22 @@ async function processIncomingMessage(event, inbox, pageToken) {
     'UPDATE conversations SET updated_at=?, unread_count=COALESCE(unread_count,0)+1 WHERE id=?'
   ).run(ts, conv.id);
 
-  // ── broadcast ─────────────────────────────────────────────────────────────
+  // ── broadcast — only to the inbox owner ──────────────────────────────────
   const savedMsg = await db.prepare('SELECT * FROM messages WHERE id=?').get(newMsgId);
   try { savedMsg.attachments = JSON.parse(savedMsg.attachments || '[]'); } catch { savedMsg.attachments = []; }
 
   const fullConv = await buildFullConv(conv.id);
-  broadcastToAll({
+  const payload = {
     type:           'new_message',
     conversationId: conv.id,
     message:        savedMsg,
     conversation:   fullConv,
-  });
+  };
+  if (agentId) {
+    sendToAgent(agentId, payload);
+  } else {
+    broadcastToAll(payload);
+  }
 
   console.log(`[instagram] ✓ Received message from ${senderName} → conv ${conv.id}`);
 }
