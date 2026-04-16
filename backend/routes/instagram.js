@@ -44,24 +44,49 @@ router.post('/subscribe', auth, async (req, res) => {
   if (!cfg.accessToken) return res.status(400).json({ error: 'Page access token not configured' });
 
   try {
-    // 1. Debug / validate the token if appId + appSecret are provided
-    let tokenInfo = null;
-    if (cfg.appId && cfg.appSecret) {
-      const appAccessToken = `${cfg.appId}|${cfg.appSecret}`;
-      const debugUrl = new URL(`${GRAPH_BASE}/debug_token`);
-      debugUrl.searchParams.set('input_token', cfg.accessToken);
-      debugUrl.searchParams.set('access_token', appAccessToken);
-
-      const debugRes = await fetch(debugUrl, { method: 'GET' });
-      const debugData = await debugRes.json();
-      if (!debugRes.ok || debugData?.error) {
-        const msg = debugData?.error?.message || JSON.stringify(debugData);
-        throw new Error(`Token validation failed: ${msg}`);
+    // 1. Validate the access token by fetching account info first
+    let pageName = '', pageCategory = '', pagePicture = '';
+    try {
+      const infoRes = await fetch(
+        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
+      );
+      const infoData = await infoRes.json();
+      if (!infoRes.ok || infoData?.error) {
+        const msg = infoData?.error?.message || JSON.stringify(infoData);
+        throw new Error(`Invalid access token or account ID: ${msg}`);
       }
-      tokenInfo = debugData.data || null;
+      pageName = infoData.name || '';
+      pageCategory = infoData.category || '';
+      pagePicture = infoData.picture?.data?.url || '';
+    } catch (infoErr) {
+      throw new Error(`Access token validation failed: ${infoErr.message}`);
     }
 
-    // 2. Check for required Instagram permissions
+    // 2. Debug token for permission checks (non-fatal if appId/appSecret are wrong)
+    let tokenInfo = null;
+    let tokenWarning = '';
+    if (cfg.appId && cfg.appSecret) {
+      try {
+        const appAccessToken = `${cfg.appId}|${cfg.appSecret}`;
+        const debugUrl = new URL(`${GRAPH_BASE}/debug_token`);
+        debugUrl.searchParams.set('input_token', cfg.accessToken);
+        debugUrl.searchParams.set('access_token', appAccessToken);
+
+        const debugRes = await fetch(debugUrl, { method: 'GET' });
+        const debugData = await debugRes.json();
+        if (!debugRes.ok || debugData?.error) {
+          tokenWarning = debugData?.error?.message || 'Token debug failed';
+          console.warn('[instagram] Token debug warning (non-fatal):', tokenWarning);
+        } else {
+          tokenInfo = debugData.data || null;
+        }
+      } catch (debugErr) {
+        tokenWarning = debugErr.message;
+        console.warn('[instagram] Token debug error (non-fatal):', debugErr.message);
+      }
+    }
+
+    // 3. Check for required Instagram permissions (only if token debug succeeded)
     const scopes = tokenInfo?.scopes || [];
     const missingPermissions = tokenInfo
       ? ['instagram_manage_messages', 'pages_manage_metadata'].filter(scope => !scopes.includes(scope))
@@ -115,21 +140,7 @@ router.post('/subscribe', auth, async (req, res) => {
       }
     }
 
-    // 5. Fetch page/account info from Graph API
-    let pageName = '', pageCategory = '', pagePicture = '';
-    try {
-      const infoRes = await fetch(
-        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
-      );
-      const infoData = await infoRes.json();
-      if (infoData && !infoData.error) {
-        pageName = infoData.name || '';
-        pageCategory = infoData.category || '';
-        pagePicture = infoData.picture?.data?.url || '';
-      }
-    } catch {}
-
-    // 6. Update inbox config with connection status
+    // 5. Update inbox config with connection status
     const newCfg = {
       ...cfg,
       connStatus: 'connected',
@@ -149,6 +160,7 @@ router.post('/subscribe', auth, async (req, res) => {
       pagePicture: newCfg.pagePicture,
       pageCategory: newCfg.pageCategory,
       tokenScopes: scopes,
+      tokenWarning: tokenWarning || undefined,
     });
   } catch (err) {
     console.error('[instagram] Subscribe endpoint error:', err.message);
