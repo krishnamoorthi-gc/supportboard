@@ -228,7 +228,7 @@ export const BRANDS_INIT=[
 ];
 export const now=()=>new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
 export function SDLogo({s=32}){return <svg width={s} height={s} viewBox="0 0 40 40" fill="none"><defs><linearGradient id="sdg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stopColor="#4c82fb"/><stop offset="1" stopColor="#9b6dff"/></linearGradient></defs><rect width="40" height="40" rx="10" fill="url(#sdg)"/><path d="M12 14.5C12 12.567 13.567 11 15.5 11H24.5C26.433 11 28 12.567 28 14.5V20.5C28 22.433 26.433 24 24.5 24H18L14 28V24H15.5C13.567 24 12 22.433 12 20.5V14.5Z" fill="rgba(255,255,255,.2)"/><path d="M15 16.5C15 15.119 16.119 14 17.5 14H25.5C26.881 14 28 15.119 28 16.5V22.5C28 23.881 26.881 25 25.5 25H21L17 29V25H17.5C16.119 25 15 23.881 15 22.5V16.5Z" fill="#fff"/><circle cx="19.5" cy="19.5" r="1.3" fill="#4c82fb"/><circle cx="23.5" cy="19.5" r="1.3" fill="#9b6dff"/></svg>;}
-export function ChIcon({t,s=14,col}){
+export function ChIcon({t,s=14,col}:{t:any;s?:number;col?:string}){
   const c=col||chC(t);const st={width:s,height:s,display:"inline-block",verticalAlign:"middle",flexShrink:0};
   const svgs={
     whatsapp:<svg style={st} viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.36 2 11.65c0 1.7.45 3.3 1.24 4.72L2 22l5.8-1.52A9.87 9.87 0 0012 21.3c5.52 0 10-4.36 10-9.65S17.52 2 12 2z" fill={c}/><path d="M16.5 14.38c-.24-.12-1.42-.7-1.64-.78-.22-.08-.38-.12-.54.12-.16.24-.62.78-.76.94-.14.16-.28.18-.52.06-.24-.12-1.02-.38-1.94-1.2-.72-.64-1.2-1.42-1.34-1.66-.14-.24-.02-.36.1-.48.12-.1.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.46-.4-.4-.54-.4h-.46c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2s.86 2.32.98 2.48c.12.16 1.7 2.6 4.12 3.64.58.24 1.02.4 1.38.5.58.18 1.1.16 1.52.1.46-.08 1.42-.58 1.62-1.14.2-.56.2-1.04.14-1.14-.06-.1-.22-.16-.46-.28z" fill="#fff"/></svg>,
@@ -250,7 +250,7 @@ export function ChIcon({t,s=14,col}){
   };
   return svgs[t]||<svg style={st} viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill={c}/></svg>;
 }
-export const chI=t=><ChIcon t={t} s={14}/>;
+export const chI=(t,col?)=><ChIcon t={t} s={14} col={col}/>;
 export const chC=t=>({live:C.g,email:C.a,whatsapp:"#25d366",telegram:"#0088cc",facebook:"#1877f2",instagram:"#e1306c",viber:"#7360f2",apple:"#555555",line:"#06c755",tiktok:"#ff0050",x:"#e7e9ea",sms:"#f5a623",voice:"#1fd07a",video:"#9b6dff",api:"#22d4e8"}[t]||C.t2);
 export const prC=p=>({urgent:C.r,high:C.y}[p]||C.t3);
 
@@ -298,7 +298,7 @@ export function NavIcon({id,s=20,col}){
 export const A0=[];export const L0=[];export const IB0=[];export const TM0=[];export const CR0=[];export const AU0=[];export const CT0=[];export const CV0=[];export const MG0={};export const AI_S={};export const BOT=[];export const REPLY_POOL={};
 
 // ─── ATOMS ───────────────────────────────────────────────────────────────
-export function Av({i,c,s=34,dot}){
+export function Av({i,c,s=34,dot}:{i:any;c:any;s?:number;dot?:any}){
   return <div style={{position:"relative",flexShrink:0}}>
     <div style={{width:s,height:s,borderRadius:s*.28,background:c+"28",color:c,border:`1.5px solid ${c}44`,
       display:"flex",alignItems:"center",justifyContent:"center",fontSize:s*.32,fontWeight:700,fontFamily:FM}}>{i}</div>
@@ -306,7 +306,7 @@ export function Av({i,c,s=34,dot}){
       borderRadius:"50%",background:dot?C.g:C.t3,border:`2px solid ${C.s1}`}}/>}
   </div>;
 }
-export function Tag({text,color,onRemove}){
+export function Tag({text,color,onRemove}:{text:any;color:string;onRemove?:()=>void}){
   return <span style={{padding:"2px 7px",borderRadius:4,fontSize:9,fontWeight:700,fontFamily:FM,letterSpacing:"0.4px",
     textTransform:"uppercase",background:color+"22",color,border:`1px solid ${color}44`,
     display:"inline-flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>
@@ -416,7 +416,7 @@ export function Fld({label,children}){
 export function Spin(){return <div style={{width:15,height:15,border:`2px solid ${C.p}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin .7s linear infinite"}}/>;} 
 
 // ═══ PRODUCTION UI — Skeletons, Empty States, Error Boundaries ═══
-export function Skel({w="100%",h=14,r=6,mb=0}){return <div className="skel" style={{width:w,height:h,borderRadius:r,marginBottom:mb,flexShrink:0}}/>;}
+export function Skel({w="100%",h=14,r=6,mb=0}:{w?:string|number;h?:string|number;r?:number;mb?:number}){return <div className="skel" style={{width:w,height:h,borderRadius:r,marginBottom:mb,flexShrink:0}}/>;}
 export function SkelRow({n=5,gap=10}){return <div style={{display:"flex",flexDirection:"column",gap}}>{Array.from({length:n}).map((_,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px"}}><Skel w={34} h={34} r={17}/><div style={{flex:1}}><Skel w="60%" h={12} mb={6}/><Skel w="40%" h={10}/></div><Skel w={50} h={10}/></div>)}</div>;}
 export function SkelCards({n=4}){return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>{Array.from({length:n}).map((_,i)=><div key={i} style={{padding:16,borderRadius:12,border:`1px solid ${C.b1}`,background:C.s1}}><Skel w="40%" h={11} mb={10}/><Skel w="70%" h={22} mb={8}/><Skel w="55%" h={10}/></div>)}</div>;}
 export function SkelMsgs({n=4}){return <div style={{display:"flex",flexDirection:"column",gap:14,padding:"16px 20px"}}>{Array.from({length:n}).map((_,i)=><div key={i} style={{display:"flex",justifyContent:i%2?"flex-end":"flex-start"}}><div style={{maxWidth:"60%"}}><Skel w={80} h={10} mb={6}/><Skel w={i%2?200:260} h={50} r={12}/></div></div>)}</div>;}
@@ -542,7 +542,7 @@ export function CfPanel({entity,recordId,fields,getCfVal,setCfVal,compact}){
   const entityFields=fields.filter(f=>f.entity===entity);
   const [expanded,setExpanded]=useState(!compact);
   if(entityFields.length===0)return null;
-  const groups=[...new Set(entityFields.map(f=>f.group||"Custom"))];
+  const groups=[...new Set(entityFields.map(f=>f.group||"Custom"))] as string[];
   return <div style={{marginTop:compact?6:12}}>
     <button onClick={()=>setExpanded(p=>!p)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",background:"none",border:"none",cursor:"pointer",padding:"4px 0",marginBottom:expanded?6:0}}>
       <span style={{fontSize:8,color:C.t3,transition:"transform .15s",transform:expanded?"rotate(90deg)":"rotate(0)"}}>▶</span>
