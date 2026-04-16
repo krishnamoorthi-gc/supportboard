@@ -309,7 +309,7 @@ router.delete('/automations/:id', auth, wrap(async (req, res) => {
 
 // ── WEBHOOKS ───────────────────────────────────────────────────────────────
 router.get('/webhooks', auth, wrap(async (req, res) => {
-  const rows = await db.prepare('SELECT * FROM webhooks ORDER BY created_at DESC').all();
+  const rows = await db.prepare('SELECT * FROM webhooks WHERE agent_id=? ORDER BY created_at DESC').all(req.agent.id);
   for (const r of rows) { try { r.events = JSON.parse(r.events||'[]'); } catch { r.events=[]; } }
   res.json({ webhooks: rows });
 }));
@@ -318,12 +318,12 @@ router.post('/webhooks', auth, wrap(async (req, res) => {
   const { url, events=[], secret } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
   const id = uid();
-  await db.prepare('INSERT INTO webhooks (id,url,events,secret) VALUES (?,?,?,?)').run(id, url, JSON.stringify(events), secret||null);
+  await db.prepare('INSERT INTO webhooks (id,url,events,secret,agent_id) VALUES (?,?,?,?,?)').run(id, url, JSON.stringify(events), secret||null, req.agent.id);
   res.status(201).json({ webhook: await db.prepare('SELECT * FROM webhooks WHERE id=?').get(id) });
 }));
 
 router.patch('/webhooks/:id', auth, wrap(async (req, res) => {
-  const w = await db.prepare('SELECT * FROM webhooks WHERE id=?').get(req.params.id);
+  const w = await db.prepare('SELECT * FROM webhooks WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!w) return res.status(404).json({ error: 'Not found' });
   const updates = {};
   if (req.body.url !== undefined) updates.url = req.body.url;
@@ -331,18 +331,18 @@ router.patch('/webhooks/:id', auth, wrap(async (req, res) => {
   if (req.body.events !== undefined) updates.events = JSON.stringify(req.body.events);
   if (!Object.keys(updates).length) return res.json({ webhook: w });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE webhooks SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  await db.prepare(`UPDATE webhooks SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
   res.json({ webhook: await db.prepare('SELECT * FROM webhooks WHERE id=?').get(req.params.id) });
 }));
 
 router.delete('/webhooks/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM webhooks WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM webhooks WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
 // ── API KEYS ───────────────────────────────────────────────────────────────
 router.get('/api-keys', auth, wrap(async (req, res) => {
-  const keys = await db.prepare('SELECT id,name,key_preview,scopes,last_used,created_at FROM api_keys ORDER BY created_at DESC').all();
+  const keys = await db.prepare('SELECT id,name,key_preview,scopes,last_used,created_at FROM api_keys WHERE agent_id=? ORDER BY created_at DESC').all(req.agent.id);
   for (const k of keys) { try { k.scopes = JSON.parse(k.scopes||'[]'); } catch { k.scopes=[]; } }
   res.json({ keys });
 }));
@@ -353,48 +353,48 @@ router.post('/api-keys', auth, wrap(async (req, res) => {
   const id = uid();
   const rawKey = 'sd_live_' + require('crypto').randomBytes(24).toString('hex');
   const preview = rawKey.slice(0, 12) + '...' + rawKey.slice(-4);
-  await db.prepare('INSERT INTO api_keys (id,name,key_hash,key_preview,scopes) VALUES (?,?,?,?,?)').run(
-    id, name, bcrypt.hashSync(rawKey, 8), preview, JSON.stringify(scopes)
+  await db.prepare('INSERT INTO api_keys (id,name,key_hash,key_preview,scopes,agent_id) VALUES (?,?,?,?,?,?)').run(
+    id, name, bcrypt.hashSync(rawKey, 8), preview, JSON.stringify(scopes), req.agent.id
   );
   res.status(201).json({ key: { id, name, key: rawKey, preview, scopes } });
 }));
 
 router.patch('/api-keys/:id', auth, wrap(async (req, res) => {
-  const k = await db.prepare('SELECT id,name,key_preview,scopes,last_used,created_at FROM api_keys WHERE id=?').get(req.params.id);
+  const k = await db.prepare('SELECT id,name,key_preview,scopes,last_used,created_at FROM api_keys WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!k) return res.status(404).json({ error: 'Not found' });
   const updates = {};
   if (req.body.name !== undefined) updates.name = req.body.name;
   if (req.body.scopes !== undefined) updates.scopes = JSON.stringify(req.body.scopes);
   if (!Object.keys(updates).length) return res.json({ key: k });
   const sets = Object.keys(updates).map(col=>`${col}=?`).join(',');
-  await db.prepare(`UPDATE api_keys SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  await db.prepare(`UPDATE api_keys SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
   const updated = await db.prepare('SELECT id,name,key_preview,scopes,last_used,created_at FROM api_keys WHERE id=?').get(req.params.id);
   try { updated.scopes = JSON.parse(updated.scopes||'[]'); } catch { updated.scopes=[]; }
   res.json({ key: updated });
 }));
 
 router.delete('/api-keys/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM api_keys WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM api_keys WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
 // ── SLA POLICIES ───────────────────────────────────────────────────────────
 router.get('/sla', auth, wrap(async (req, res) => {
-  res.json({ policies: await db.prepare('SELECT * FROM sla_policies ORDER BY name ASC').all() });
+  res.json({ policies: await db.prepare('SELECT * FROM sla_policies WHERE agent_id=? ORDER BY name ASC').all(req.agent.id) });
 }));
 
 router.post('/sla', auth, wrap(async (req, res) => {
   const { name, first_response_minutes=60, resolution_minutes=480, conditions={} } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  await db.prepare('INSERT INTO sla_policies (id,name,first_response_minutes,resolution_minutes,conditions) VALUES (?,?,?,?,?)').run(
-    id, name, first_response_minutes, resolution_minutes, JSON.stringify(conditions)
+  await db.prepare('INSERT INTO sla_policies (id,name,first_response_minutes,resolution_minutes,conditions,agent_id) VALUES (?,?,?,?,?,?)').run(
+    id, name, first_response_minutes, resolution_minutes, JSON.stringify(conditions), req.agent.id
   );
   res.status(201).json({ policy: await db.prepare('SELECT * FROM sla_policies WHERE id=?').get(id) });
 }));
 
 router.patch('/sla/:id', auth, wrap(async (req, res) => {
-  const p = await db.prepare('SELECT * FROM sla_policies WHERE id=?').get(req.params.id);
+  const p = await db.prepare('SELECT * FROM sla_policies WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
   const updates = {};
   if (req.body.name !== undefined) updates.name = req.body.name;
@@ -403,44 +403,44 @@ router.patch('/sla/:id', auth, wrap(async (req, res) => {
   if (req.body.conditions !== undefined) updates.conditions = JSON.stringify(req.body.conditions);
   if (!Object.keys(updates).length) return res.json({ policy: p });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE sla_policies SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  await db.prepare(`UPDATE sla_policies SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
   res.json({ policy: await db.prepare('SELECT * FROM sla_policies WHERE id=?').get(req.params.id) });
 }));
 
 router.delete('/sla/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM sla_policies WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM sla_policies WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 
 // ── BRANDS ─────────────────────────────────────────────────────────────────
 router.get('/brands', auth, wrap(async (req, res) => {
-  res.json({ brands: await db.prepare('SELECT * FROM brands ORDER BY name ASC').all() });
+  res.json({ brands: await db.prepare('SELECT * FROM brands WHERE agent_id=? ORDER BY name ASC').all(req.agent.id) });
 }));
 
 router.post('/brands', auth, wrap(async (req, res) => {
   const { name, domain, color, logo, active=1 } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  await db.prepare('INSERT INTO brands (id,name,domain,color,logo,active) VALUES (?,?,?,?,?,?)').run(
-    id, name, domain||null, color||'#4c82fb', logo||null, active?1:0
+  await db.prepare('INSERT INTO brands (id,name,domain,color,logo,active,agent_id) VALUES (?,?,?,?,?,?,?)').run(
+    id, name, domain||null, color||'#4c82fb', logo||null, active?1:0, req.agent.id
   );
   res.status(201).json({ brand: await db.prepare('SELECT * FROM brands WHERE id=?').get(id) });
 }));
 
 router.patch('/brands/:id', auth, wrap(async (req, res) => {
-  const b = await db.prepare('SELECT * FROM brands WHERE id=?').get(req.params.id);
+  const b = await db.prepare('SELECT * FROM brands WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!b) return res.status(404).json({ error: 'Not found' });
   const fields = ['name','domain','color','logo','active'];
   const updates = {};
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   if (!Object.keys(updates).length) return res.json({ brand: b });
   const sets = Object.keys(updates).map(k=>`${k}=?`).join(',');
-  await db.prepare(`UPDATE brands SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  await db.prepare(`UPDATE brands SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
   res.json({ brand: await db.prepare('SELECT * FROM brands WHERE id=?').get(req.params.id) });
 }));
 
 router.delete('/brands/:id', auth, wrap(async (req, res) => {
-  await db.prepare('DELETE FROM brands WHERE id=?').run(req.params.id);
+  await db.prepare('DELETE FROM brands WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 }));
 

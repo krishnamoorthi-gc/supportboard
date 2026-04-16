@@ -1405,6 +1405,15 @@ async function ensureSchemaColumns() {
       }
     } catch (e) { console.error('agents department/permissions columns:', e.message); }
 
+    // ── ai_agents: add agent_id column ─────────────────────────────────
+    try {
+      const aiAgCols = new Set((await query('SHOW COLUMNS FROM ai_agents')).map(c => c.Field));
+      if (!aiAgCols.has('agent_id')) {
+        await run('ALTER TABLE ai_agents ADD COLUMN agent_id VARCHAR(255)');
+        console.log('✅ Added agent_id to ai_agents');
+      }
+    } catch (e) { console.error('ai_agents agent_id column:', e.message); }
+
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);
   }
