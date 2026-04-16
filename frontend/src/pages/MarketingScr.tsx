@@ -12,7 +12,7 @@ const mktPct=(a,b)=>b?Math.round(a/b*100):0;
 const mktFill=(text)=>(text||"").replace(/\{\{(\w+)\}\}/g,(m,k)=>({first_name:"Arjun",last_name:"Mehta",email:"arjun@mail.com",company:"SupportDesk",amount:"₹2,499",discount:"25",code:"FLASH25",link:"acme.co/shop",date:"31 Mar",time:"3:00 PM",product:"Pro Plan",order_id:"ORD-4821",status:"shipped",hours:"24",points:"1,250",unsubscribe:"To unsubscribe, reply STOP"}[k]||m));
 
 const mktParse=(value,fallback)=>{try{return value===undefined||value===null||value===""?fallback:typeof value==="string"?JSON.parse(value):value;}catch{return fallback;}};
-const mapApiCampaign=c=>{const stats=mktParse(c?.stats,{});const selectedContacts=Array.isArray(c?.selected_contacts)?c.selected_contacts:mktParse(c?.selected_contacts??c?.selectedContacts,[]);const audMode=c?.audience_mode||c?.audMode||"segments";const sent=Number(stats?.sent??c?.sent_count??0);const failed=Number(stats?.failed??0);const delivered=Number(stats?.delivered??c?.delivered_count??(sent?Math.round(sent*0.97):0));const read=Number(stats?.opens??c?.open_count??0);const clicked=Number(stats?.clicks??c?.click_count??0);const audience=sent||Number(c?.audience??(audMode==="individual"?selectedContacts.length:0));return{...c,ch:c?.type||c?.ch||"email",name:c?.name||"Campaign",goal:c?.goal||"promotion",status:c?.status||"draft",subject:c?.subject||"",body:c?.body||c?.template||"",template:c?.body||c?.template||"",segmentId:c?.segment_id||c?.segmentId||null,audMode,selectedContacts:Array.isArray(selectedContacts)?selectedContacts:[],audience,sent,delivered,read,clicked,failed,unsub:Number(stats?.unsub??0),revenue:c?.revenue||"â€”",cost:c?.cost||"â€”",roi:c?.roi||"â€”",date:c?.sent_at?.split("T")[0]||c?.scheduled_at?.split("T")[0]||c?.created_at?.split("T")[0]||"â€”",spark:c?.spark||[0,0,0,0,0,0,0],ab:!!(c?.ab_test||c?.ab),schedDate:c?.scheduled_at||c?.schedDate||""};};
+const mapApiCampaign=c=>{const stats=mktParse(c?.stats,{});const selectedContacts=Array.isArray(c?.selected_contacts)?c.selected_contacts:mktParse(c?.selected_contacts??c?.selectedContacts,[]);const audMode=c?.audience_mode||c?.audMode||”segments”;const sent=Number(stats?.sent??c?.sent_count??0);const failed=Number(stats?.failed??0);const delivered=Number(stats?.delivered??c?.delivered_count??0);const read=Number(stats?.opens??c?.open_count??0);const clicked=Number(stats?.clicks??c?.click_count??0);const audience=sent||Number(c?.audience??(audMode===”individual”?selectedContacts.length:0));return{...c,ch:c?.type||c?.ch||”email”,name:c?.name||”Campaign”,goal:c?.goal||”promotion”,status:c?.status||”draft”,subject:c?.subject||””,body:c?.body||c?.template||””,template:c?.body||c?.template||””,segmentId:c?.segment_id||c?.segmentId||null,audMode,selectedContacts:Array.isArray(selectedContacts)?selectedContacts:[],audience,sent,delivered,read,clicked,failed,unsub:Number(stats?.unsub??0),date:c?.sent_at?.split(“T”)[0]||c?.scheduled_at?.split(“T”)[0]||c?.created_at?.split(“T”)[0]||””,ab:!!(c?.ab_test||c?.ab),schedDate:c?.scheduled_at||c?.schedDate||””};};
 const mapApiSegment=s=>{const rules=Array.isArray(s?.conditions)?s.conditions:mktParse(s?.conditions??s?.rules,[]);const contacts=Array.isArray(s?.contacts_json)?s.contacts_json:mktParse(s?.contacts_json??s?.contacts,[]);return{...s,count:s?.contact_count||s?.count||contacts.length||0,desc:s?.description||s?.desc||"",icon:s?.icon||"ðŸ‘¥",fixed:false,rules:Array.isArray(rules)?rules:[],source:s?.source||"rules",contacts:Array.isArray(contacts)?contacts:[]};};
 
 export default function MarketingScr({contacts,pushNotification}){
@@ -63,7 +63,16 @@ export default function MarketingScr({contacts,pushNotification}){
   const parseCsv=file=>{setCsvParsing(true);setCsvFileName(file.name);const reader=new FileReader();reader.onload=e=>{const text=e.target.result;const lines=text.split("\n").filter(l=>l.trim());const headers=lines[0].split(",").map(h=>h.trim().toLowerCase());const emailIdx=headers.findIndex(h=>h.includes("email"));const nameIdx=headers.findIndex(h=>h.includes("name"));const phoneIdx=headers.findIndex(h=>h.includes("phone"));const rows=lines.slice(1).map((line,i)=>{const cols=line.split(",").map(c=>c.trim().replace(/^"|"$/g,""));return{id:"csv_"+i,email:emailIdx>=0?cols[emailIdx]:"",name:nameIdx>=0?cols[nameIdx]:cols[0]||"",phone:phoneIdx>=0?cols[phoneIdx]:"",valid:emailIdx>=0&&cols[emailIdx]?.includes("@")};}).filter(r=>r.name||r.email);setCsvContacts(rows);setCsvParsing(false);showT(`Parsed ${rows.length} contacts from ${file.name}`,"success");};reader.readAsText(file);};
   const parseManualEmails=()=>{const emails=manualEmails.split(/[\n,;]+/).map(e=>e.trim()).filter(e=>e.includes("@"));return emails.map((e,i)=>({id:"man_"+i,email:e,name:e.split("@")[0],valid:true}));};
   const manualCount=segMode==="csv"?csvContacts.length:segMode==="manual"?parseManualEmails().length:0;
-  const segReach=segMode==="rules"?Math.round(contacts.length>0?contacts.length*(0.15+segRules.filter(r=>r.val.trim()).length*0.12):5200*(0.15+segRules.filter(r=>r.val.trim()).length*0.12)):manualCount;
+  const [segReach,setSegReach]=useState(0);
+  useEffect(()=>{
+    if(segMode!=="rules"){setSegReach(manualCount);return;}
+    const rules=segRules.filter(r=>r.val.trim());
+    if(rules.length===0){setSegReach(0);return;}
+    const t=setTimeout(()=>{
+      api.post("/marketing/segments/reach",{source:"rules",conditions:rules}).then(r=>setSegReach(r?.count??0)).catch(()=>setSegReach(0));
+    },500);
+    return()=>clearTimeout(t);
+  },[segMode,segRules,manualCount]);
   // Template library state
   const [tplFilter,setTplFilter]=useState("all");
   // ═══ MARKETING API LOADING ═══
@@ -94,7 +103,7 @@ export default function MarketingScr({contacts,pushNotification}){
       if(r?.automations){
         setAutos(r.automations.map(a=>{
           const actions=typeof a.actions==="string"?JSON.parse(a.actions||"[]"):a.actions||[];
-          return{...a,trigger:a.trigger_type||a.trigger||"Contact Created",status:!!a.active,steps:Array.isArray(actions)?actions:[],enrolled:a.run_count||0,completed:Math.round((a.run_count||0)*0.7),ch:a.ch||"email"};
+          return{...a,trigger:a.trigger_type||a.trigger||"Contact Created",status:!!a.active,steps:Array.isArray(actions)?actions:[],enrolled:a.run_count||0,completed:a.completed_count||0,ch:a.ch||"email"};
         }));
         console.log('✅ Automations loaded from DB:', r.automations.length);
       }
@@ -380,8 +389,8 @@ export default function MarketingScr({contacts,pushNotification}){
       <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:dr>=95?C.g:dr>=85?C.y:c.sent?C.r:C.t3}}>{c.sent?dr+"%":"—"}</span>
       <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:rr>=50?C.g:rr>=30?C.y:c.delivered?C.t2:C.t3}}>{c.delivered?rr+"%":"—"}</span>
       <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:cr>=20?C.g:cr>=10?C.y:c.read?C.t2:C.t3}}>{c.read?cr+"%":"—"}</span>
-      <span style={{fontSize:11,color:c.revenue!=="—"?C.g:C.t3,fontFamily:FM,fontWeight:600}}>{c.revenue}</span>
-      <Spark data={c.spark||[0,0,0,0,0,0,0]} color={mktChC(c.ch)}/>
+      <span style={{fontSize:11,color:C.t3,fontFamily:FM,fontWeight:600}}>{c.failed>0?c.failed+" failed":"—"}</span>
+      <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{c.date||"—"}</span>
       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
         {(c.status==="active"||c.status==="paused")&&<button onClick={()=>togglePause(c.id)} title={c.status==="paused"?"Resume":"Pause"} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.s3,border:`1px solid ${C.b1}`,cursor:"pointer",color:C.t3}} className="hov">{c.status==="paused"?"▶":"⏸"}</button>}
         {(c.status==="draft"||c.status==="scheduled"||c.status==="failed")&&<button onClick={()=>launchCamp(c.id)} style={{width:24,height:24,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,background:C.gd,border:`1px solid ${C.g}44`,cursor:"pointer",color:C.g}} title="Launch">▶</button>}
@@ -878,22 +887,23 @@ export default function MarketingScr({contacts,pushNotification}){
           </div>
         </div>
 
-        {/* Top campaigns by ROI */}
+        {/* Top campaigns by delivery */}
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,overflow:"hidden"}}>
-          <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.b1}`}}><span style={{fontSize:14,fontWeight:700,fontFamily:FD}}>Top Campaigns by ROI</span></div>
+          <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.b1}`}}><span style={{fontSize:14,fontWeight:700,fontFamily:FD}}>Top Campaigns</span></div>
           <div style={{display:"grid",gridTemplateColumns:"40px 2fr 0.8fr 0.8fr 0.8fr 0.8fr",padding:"8px 18px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>
-            {["#","Campaign","Channel","Revenue","Cost","ROI"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM}}>{h}</span>)}
+            {["#","Campaign","Channel","Sent","Delivered","Read"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM}}>{h}</span>)}
           </div>
-          {camps.filter(c=>c.roi!=="—").sort((a,b)=>parseFloat(b.roi.replace(/[^0-9.]/g,""))-parseFloat(a.roi.replace(/[^0-9.]/g,""))).slice(0,5).map((c,i)=>(
+          {camps.filter(c=>c.sent>0).sort((a,b)=>b.delivered-a.delivered).slice(0,5).map((c,i)=>(
             <div key={c.id} style={{display:"grid",gridTemplateColumns:"40px 2fr 0.8fr 0.8fr 0.8fr 0.8fr",padding:"11px 18px",borderBottom:`1px solid ${C.b1}`,alignItems:"center"}}>
               <span style={{fontSize:13,fontWeight:800,fontFamily:FD,color:i===0?C.g:i===1?C.y:C.t2}}>{i+1}</span>
               <span style={{fontSize:12,fontWeight:600}}>{c.name}</span>
               <Tag text={c.ch} color={mktChC(c.ch)}/>
-              <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:C.g}}>{c.revenue}</span>
-              <span style={{fontSize:11,fontFamily:FM,color:C.t3}}>{c.cost}</span>
-              <span style={{fontSize:12,fontWeight:800,fontFamily:FM,color:C.g}}>{c.roi}</span>
+              <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:C.a}}>{c.sent}</span>
+              <span style={{fontSize:11,fontFamily:FM,color:C.g}}>{c.delivered}</span>
+              <span style={{fontSize:11,fontFamily:FM,color:C.p}}>{c.read}</span>
             </div>
           ))}
+          {camps.filter(c=>c.sent>0).length===0&&<div style={{padding:"20px",textAlign:"center",color:C.t3,fontSize:12}}>No campaigns sent yet</div>}
         </div>
       </>}
 
@@ -2256,7 +2266,7 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
             ))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
-            {[{l:"Clicked",v:cr+"%",c2:C.y},{l:"Failed",v:fr+"%",c2:C.r},{l:"Revenue",v:c.revenue,c2:c.revenue!=="—"?C.g:C.t3},{l:"ROI",v:c.roi,c2:c.roi!=="—"?C.g:C.t3}].map(k=>(
+            {[{l:"Clicked",v:cr+"%",c2:C.y},{l:"Failed",v:c.failed,c2:C.r},{l:"Unsubs",v:c.unsub,c2:C.t3},{l:"Audience",v:c.audience,c2:C.a}].map(k=>(
               <div key={k.l} style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:10,padding:"12px",textAlign:"center"}}>
                 <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginBottom:4}}>{k.l}</div>
                 <div style={{fontSize:22,fontWeight:800,fontFamily:FD,color:k.c2}}>{k.v}</div>
@@ -2277,7 +2287,7 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
             ))}
           </div>}
           {/* Sparkline */}
-          {c.spark&&c.spark.some(v=>v>0)&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"16px"}}>
+          {false&&<div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:"16px"}}>
             <div style={{fontSize:12,fontWeight:700,fontFamily:FD,marginBottom:10}}>Engagement Trend</div>
             <svg style={{width:"100%",height:60}} viewBox="0 0 300 60">
               <polyline fill="none" stroke={mktChC(c.ch)} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -2374,24 +2384,20 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
         {/* ── A/B Results ── */}
         {dtab==="abtest"&&c.ab&&<>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-            {[{label:"Variant A (Control)",color:C.a,open:rr+2,click:cr+3,conv:Math.round(cr*0.8)},{label:"Variant B (Challenger)",color:C.p,open:rr-1,click:cr-2,conv:Math.round(cr*0.6)}].map((v,i)=>(
+            {[{label:"Variant A (Control)",color:C.a},{label:"Variant B (Challenger)",color:C.p}].map((v,i)=>(
               <div key={i} style={{background:C.s1,border:`1.5px solid ${v.color}44`,borderRadius:12,padding:"16px"}}>
                 <div style={{fontSize:12,fontWeight:700,color:v.color,fontFamily:FD,marginBottom:12}}>{v.label}</div>
-                {[{l:c.ch==="email"?"Open Rate":"Read Rate",v2:v.open,c2:v.open>rr?C.g:C.y},{l:"Click Rate",v2:v.click,c2:v.click>cr?C.g:C.y},{l:"Conversion",v2:v.conv,c2:C.p}].map(m=>(
-                  <div key={m.l} style={{marginBottom:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                      <span style={{fontSize:11,color:C.t2}}>{m.l}</span>
-                      <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:m.c2}}>{m.v2}%</span>
-                    </div>
-                    <div style={{height:7,background:C.bg,borderRadius:4,overflow:"hidden"}}><div style={{width:m.v2+"%",height:"100%",background:v.color,borderRadius:4}}/></div>
+                {[{l:"Sent",v2:i===0?c.sent:0},{l:"Delivered",v2:i===0?c.delivered:0},{l:c.ch==="email"?"Opens":"Read",v2:i===0?c.read:0},{l:"Clicked",v2:i===0?c.clicked:0}].map(m=>(
+                  <div key={m.l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.b1}44`}}>
+                    <span style={{fontSize:11,color:C.t2}}>{m.l}</span>
+                    <span style={{fontSize:12,fontWeight:700,fontFamily:FM,color:v.color}}>{m.v2}</span>
                   </div>
                 ))}
-                <Btn ch={"Declare "+v.label.split(" ")[1]+" Winner"} v={i===0?"primary":"ai"} full sm onClick={()=>showT(v.label.split(" ")[1]+" declared winner! Sending to remaining audience.","success")}/>
               </div>
             ))}
           </div>
-          <div style={{background:C.ad,border:`1px solid ${C.a}44`,borderRadius:10,padding:"12px 14px",fontSize:11.5,color:C.t2,lineHeight:1.5}}>
-            💡 Variant A is outperforming Variant B on open rate (+{3}pp) and click rate (+{5}pp). Consider declaring it the winner to maximize campaign performance.
+          <div style={{background:C.s2,border:`1px solid ${C.b1}`,borderRadius:10,padding:"12px 14px",fontSize:11.5,color:C.t3,lineHeight:1.5}}>
+            A/B testing results will populate as delivery data is tracked. Currently showing real sent/delivered counts.
           </div>
         </>}
 
@@ -2432,7 +2438,7 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
         {/* ── Settings ── */}
         {dtab==="settings"&&<>
           <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden",marginBottom:16}}>
-            {[["Campaign ID",c.id],["Channel",<span key="ch" style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={c.ch} s={14}/> {mktChL(c.ch)}</span>],["Goal",c.goal],["Status",c.status],["Created",c.date],["Audience",c.audience.toLocaleString()],["A/B Test",c.ab?"Enabled":"Disabled"],["Cost",c.cost||"—"],["Revenue",c.revenue],["ROI",c.roi]].map(([k,v])=>(
+            {[["Campaign ID",c.id],["Channel",<span key="ch" style={{display:"inline-flex",alignItems:"center",gap:4}}><ChIcon t={c.ch} s={14}/> {mktChL(c.ch)}</span>],["Goal",c.goal],["Status",c.status],["Created",c.date||"—"],["Audience",c.audience.toLocaleString()],["A/B Test",c.ab?"Enabled":"Disabled"],["Sent",c.sent],["Delivered",c.delivered],["Failed",c.failed]].map(([k,v])=>(
               <div key={k} style={{display:"flex",padding:"9px 14px",borderBottom:`1px solid ${C.b1}`}}>
                 <span style={{fontSize:11,color:C.t3,fontFamily:FM,width:100,flexShrink:0}}>{k}</span>
                 <span style={{fontSize:12,color:C.t1,fontWeight:500}}>{v}</span>
