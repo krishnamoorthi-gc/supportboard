@@ -271,10 +271,18 @@ router.post('/webhook', async (req, res) => {
 
       const cfg = safeJson(inbox.config, {});
       const pageToken = cfg.accessToken || cfg.pageAccessToken || '';
+      const linkedPageId = String(cfg.pageId || cfg.igAccountId || '');
 
       for (const event of entry.messaging || []) {
         // Skip echo messages (outbound from page)
         if (event.message?.is_echo) continue;
+
+        // Extra guard: ensure the recipient is our own linked page/account
+        const recipientId = String(event.recipient?.id || '');
+        if (linkedPageId && recipientId && recipientId !== linkedPageId) {
+          console.log(`[instagram] Skipping event — recipient ${recipientId} != linked page ${linkedPageId}`);
+          continue;
+        }
 
         if (event.message) {
           await processIncomingMessage(event, inbox, pageToken);
@@ -490,7 +498,7 @@ async function findInboxByIgAccountId(igAccountId) {
   ).all();
   for (const row of rows) {
     const cfg = safeJson(row.config, {});
-    // Match by igAccountId OR by pageId (Instagram is linked to a Facebook Page)
+    // Strict match: only route to an inbox whose configured pageId or igAccountId matches
     if (
       cfg.igAccountId === String(igAccountId) ||
       cfg.igAccountId === igAccountId ||
@@ -498,8 +506,7 @@ async function findInboxByIgAccountId(igAccountId) {
       cfg.pageId      === igAccountId
     ) return row;
   }
-  // Fallback: try matching any instagram inbox (single-inbox setups)
-  if (rows.length === 1) return rows[0];
+  // No match — do NOT fall back to any inbox so messages from unrelated accounts are never mixed in
   return null;
 }
 

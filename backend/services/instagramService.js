@@ -38,12 +38,14 @@ async function sendInstagramMessage({ inboxId, to, text, attachments = [] }) {
   if (!inbox) throw new Error(`Instagram inbox ${inboxId} not found`);
 
   const pageAccessToken = inbox.cfg.accessToken || inbox.cfg.pageAccessToken || '';
+  const pageId = inbox.cfg.pageId || inbox.cfg.igAccountId || 'me';
   const recipientId = normalizeInstagramRecipientId(to);
 
   if (!pageAccessToken) throw new Error(`Instagram page access token not configured for inbox ${inboxId}`);
   if (!recipientId) throw new Error('Instagram recipient ID missing');
 
-  const url = `${GRAPH_BASE}/me/messages`;
+  // Use the specific page ID so the message is sent from the correct linked account
+  const url = `${GRAPH_BASE}/${pageId}/messages`;
   const headers = {
     'Authorization': `Bearer ${pageAccessToken}`,
     'Content-Type': 'application/json',
