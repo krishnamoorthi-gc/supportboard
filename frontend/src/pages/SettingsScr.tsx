@@ -523,7 +523,7 @@ function InboxSet({inboxes,setInboxes}){
     ],
     telegram:[{k:"botToken",l:"Bot Token",ph:"123456:ABCdef..."},{k:"webhookUrl",l:"Webhook URL",ph:"https://api.yoursite.com/tg/webhook"}],
     facebook:[{k:"pageId",l:"Page ID",ph:"123456789"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"appId",l:"App ID",ph:"933722449370118"},{k:"appSecret",l:"App Secret",ph:"abc123def456..."},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_secret_verify_token"}],
-    instagram:[{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_ig_verify_token"}],
+    instagram:[{k:"appId",l:"Instagram App ID",ph:"933722449370118"},{k:"appSecret",l:"Instagram App Secret",ph:"abc123def456..."},{k:"pageId",l:"Instagram Business Account ID",ph:"17841400000"},{k:"accessToken",l:"Page Access Token",ph:"EAAxxxxxxx"},{k:"verifyToken",l:"Webhook Verify Token",ph:"my_ig_verify_token"}],
     email:[{k:"imapHost",l:"IMAP Host",ph:"imap.gmail.com"},{k:"imapPort",l:"IMAP Port",ph:"993"},{k:"smtpHost",l:"SMTP Host",ph:"smtp.gmail.com"},{k:"smtpPort",l:"SMTP Port",ph:"587"},{k:"emailUser",l:"Email Address",ph:"support@yourcompany.com"},{k:"emailPass",l:"Password / App Password",ph:"••••••••"}],
     sms:[{k:"phoneNumber",l:"Twilio Phone Number (From)",ph:"+1 555 000 1234"},{k:"apiKey",l:"Twilio Account SID",ph:"ACxxxxxxx"},{k:"accessToken",l:"Twilio Auth Token",ph:"xxxxxxxxxx"}],
     viber:[{k:"botToken",l:"Bot Token",ph:"xxxx-xxxx-xxxx"},{k:"webhookUrl",l:"Webhook URL",ph:"https://..."}],
@@ -558,7 +558,7 @@ function InboxSet({inboxes,setInboxes}){
   };
   const resetConnectionFields=()=>{
     (chFields[form.type]||[]).forEach(f=>cfgFld(f.k,""));
-    if(form.type==="facebook"){
+    if(form.type==="facebook"||form.type==="instagram"){
       cfgFld("pageName","");
       cfgFld("pagePicture","");
       cfgFld("pageCategory","");
@@ -667,13 +667,33 @@ function InboxSet({inboxes,setInboxes}){
       return;
     }
     if(form.type==="instagram"){
-      const igMissing=[];
+      if(!inboxId){
+        cfgFld("connStatus","failed");
+        showT("Save this Instagram inbox first, then test the connection","error");
+        return;
+      }
+      const igMissing:string[]=[];
+      if(!String(cfg.appId||"").trim())igMissing.push("Instagram App ID");
+      if(!String(cfg.appSecret||"").trim())igMissing.push("Instagram App Secret");
       if(!String(cfg.pageId||"").trim())igMissing.push("Instagram Business Account ID");
       if(!String(cfg.accessToken||"").trim())igMissing.push("Page Access Token");
       if(!String(cfg.verifyToken||"").trim())igMissing.push("Webhook Verify Token");
       if(igMissing.length){cfgFld("connStatus","failed");showT("Fill in: "+igMissing.join(", "),"error");return;}
-      cfgFld("connStatus","configured");
-      showT("Instagram setup looks complete. Real inbound DMs start only after Meta webhook verification.","info");
+      cfgFld("connTesting",true);cfgFld("connStatus","");
+      showT("Validating Instagram token + webhook subscription...","info");
+      try{
+        await api.patch("/settings/inboxes/"+inboxId,{config:{...cfg}});
+        const r=await api.post("/instagram/subscribe",{inboxId});
+        cfgFld("connTesting",false);
+        cfgFld("connStatus","connected");
+        if(r?.pageName){cfgFld("pageName",r.pageName);cfgFld("pagePicture",r.pagePicture||"");cfgFld("pageCategory",r.pageCategory||"");}
+        showT(r?.pageName?"Connected to "+r.pageName+" — Instagram DMs ready":"Instagram connected — ready for messaging","success");
+      }catch(e:any){
+        cfgFld("connTesting",false);
+        cfgFld("connStatus","failed");
+        const missingPerms=e?.data?.missingPermissions?.length?" Missing permissions: "+e.data.missingPermissions.join(", "):"";
+        showT("Instagram connection failed: "+(e?.data?.error||e?.message||"unknown")+missingPerms,"error");
+      }
       return;
     }
     // ── SMS (Twilio) test connection ──
@@ -898,32 +918,53 @@ function InboxSet({inboxes,setInboxes}){
           </div>
         </>}
 
-        {/* Non-Facebook channels: render fields normally */}
-        {form.type!=="facebook"&&(chFields[form.type]||[]).map(f=>(
-          <Fld key={f.k} label={f.l}><Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph}/></Fld>
-        ))}
+        {/* ── Instagram Settings ── */}
+        {form.type==="instagram"&&<>
+          {[{k:"appId",l:"APP ID",ph:"933722449370118",type:"text"},{k:"appSecret",l:"APP SECRET",ph:"abc123def456...",type:"password"},{k:"pageId",l:"INSTAGRAM BUSINESS ACCOUNT ID",ph:"17841400000",type:"text"},{k:"accessToken",l:"PAGE ACCESS TOKEN",ph:"EAAxxxxxxx",type:"password"},{k:"verifyToken",l:"WEBHOOK VERIFY TOKEN",ph:"supportdesk_instagram_verify",type:"text"}].map(f=>(
+            <div key={f.k} style={{marginBottom:10}}>
+              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>{f.l}</div>
+              <Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph} type={f.type}/>
+            </div>
+          ))}
 
-        {/* ── Instagram webhook URL + verify token display ── */}
-        {form.type==="instagram"&&<div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
-          <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>Instagram Webhook</div>
-          <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Meta App Dashboard add the Instagram product, then configure the Webhooks product with this callback URL and the same verify token shown below. Subscribe to the <code style={{fontFamily:FM,color:"#e1306c"}}>messages</code> field.</div>
-          <div style={{display:"grid",gap:10}}>
-            <div>
-              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>CALLBACK URL</div>
-              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
-                <div style={{flex:1,fontSize:11,fontFamily:FM,color:C.g,wordBreak:"break-all"}}>{instagramWebhookUrl}</div>
-                <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(instagramWebhookUrl,"Callback URL")}/>
+          {cfg.connStatus==="connected"&&cfg.pageName&&
+            <div style={{padding:"14px 16px",background:"#fce4ec",borderRadius:12,border:"1px solid #e1306c44",marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {cfg.pagePicture&&<img src={cfg.pagePicture} alt="" style={{width:38,height:38,borderRadius:"50%",border:"2px solid #e1306c"}}/>}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#c2185b"}}>Connected: {cfg.pageName}</div>
+                  <div style={{fontSize:10,color:"#57606a"}}>{cfg.pageCategory||"Instagram Business Account"}{cfg.pageId?" · Account ID: "+cfg.pageId:""}</div>
+                </div>
               </div>
             </div>
-            <div>
-              <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>VERIFY TOKEN</div>
-              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
-                <div style={{flex:1,fontSize:11,fontFamily:FM,color:cfg.verifyToken?"#e1306c":C.t3,wordBreak:"break-all"}}>{cfg.verifyToken||"Enter a webhook verify token above"}</div>
-                <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(cfg.verifyToken||"","Verify Token")}/>
+          }
+
+          <div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:C.t1,marginBottom:4}}>Instagram Webhook</div>
+            <div style={{fontSize:10.5,color:C.t3,lineHeight:1.55,marginBottom:12}}>In Meta App Dashboard add the Instagram product, then configure the Webhooks product with this callback URL and the same verify token shown below. Subscribe to the <code style={{fontFamily:FM,color:"#e1306c"}}>messages</code> field.</div>
+            <div style={{display:"grid",gap:10}}>
+              <div>
+                <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>CALLBACK URL</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                  <div style={{flex:1,fontSize:11,fontFamily:FM,color:C.g,wordBreak:"break-all"}}>{instagramWebhookUrl}</div>
+                  <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(instagramWebhookUrl,"Callback URL")}/>
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize:9,fontWeight:800,fontFamily:FM,color:C.t3,letterSpacing:"0.08em",marginBottom:6}}>VERIFY TOKEN</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg,border:`1px solid ${C.b1}`,borderRadius:10}}>
+                  <div style={{flex:1,fontSize:11,fontFamily:FM,color:cfg.verifyToken?"#e1306c":C.t3,wordBreak:"break-all"}}>{cfg.verifyToken||"Enter a webhook verify token above"}</div>
+                  <Btn ch="Copy" v="ghost" sm onClick={()=>copyToClipboard(cfg.verifyToken||"","Verify Token")}/>
+                </div>
               </div>
             </div>
           </div>
-        </div>}
+        </>}
+
+        {/* Non-Facebook/Instagram channels: render fields normally */}
+        {form.type!=="facebook"&&form.type!=="instagram"&&(chFields[form.type]||[]).map(f=>(
+          <Fld key={f.k} label={f.l}><Inp val={cfg[f.k]||""} set={v=>cfgFld(f.k,v)} ph={f.ph}/></Fld>
+        ))}
 
         {/* ── WhatsApp webhook URL display ── */}
         {form.type==="whatsapp"&&<div style={{marginTop:4,marginBottom:12,padding:"14px 16px",background:C.s1,borderRadius:12,border:`1px solid ${C.b1}`}}>

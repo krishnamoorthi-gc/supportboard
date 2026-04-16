@@ -15,6 +15,7 @@
 
 const router = require('express').Router();
 const db     = require('../db');
+const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
 const { broadcastToAll } = require('../ws');
 
@@ -29,6 +30,131 @@ function safeJson(v, fb) {
 function now() {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
+
+// ── POST /api/instagram/subscribe  (validate token + subscribe webhooks) ─────
+router.post('/subscribe', auth, async (req, res) => {
+  const { inboxId } = req.body;
+  if (!inboxId) return res.status(400).json({ error: 'inboxId required' });
+
+  const inbox = await db.prepare('SELECT * FROM inboxes WHERE id=?').get(inboxId);
+  if (!inbox) return res.status(404).json({ error: 'Inbox not found' });
+
+  const cfg = safeJson(inbox.config, {});
+  if (!cfg.pageId) return res.status(400).json({ error: 'Instagram Business Account ID not configured' });
+  if (!cfg.accessToken) return res.status(400).json({ error: 'Page access token not configured' });
+
+  try {
+    // 1. Debug / validate the token if appId + appSecret are provided
+    let tokenInfo = null;
+    if (cfg.appId && cfg.appSecret) {
+      const appAccessToken = `${cfg.appId}|${cfg.appSecret}`;
+      const debugUrl = new URL(`${GRAPH_BASE}/debug_token`);
+      debugUrl.searchParams.set('input_token', cfg.accessToken);
+      debugUrl.searchParams.set('access_token', appAccessToken);
+
+      const debugRes = await fetch(debugUrl, { method: 'GET' });
+      const debugData = await debugRes.json();
+      if (!debugRes.ok || debugData?.error) {
+        const msg = debugData?.error?.message || JSON.stringify(debugData);
+        throw new Error(`Token validation failed: ${msg}`);
+      }
+      tokenInfo = debugData.data || null;
+    }
+
+    // 2. Check for required Instagram permissions
+    const scopes = tokenInfo?.scopes || [];
+    const missingPermissions = tokenInfo
+      ? ['instagram_manage_messages', 'pages_manage_metadata'].filter(scope => !scopes.includes(scope))
+      : [];
+    if (missingPermissions.length) {
+      return res.status(400).json({
+        error: `Token is missing required permissions: ${missingPermissions.join(', ')}`,
+        missingPermissions,
+        tokenScopes: scopes,
+      });
+    }
+
+    // 3. Subscribe the linked Facebook page to webhooks (Instagram DMs route via page)
+    const subUrl = new URL(`${GRAPH_BASE}/${cfg.pageId}/subscribed_apps`);
+    subUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,message_deliveries,message_reads');
+    const subRes = await fetch(subUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cfg.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    const subData = await subRes.json();
+    if (!subRes.ok || subData?.error) {
+      console.warn('[instagram] Page subscription warning:', subData?.error?.message || JSON.stringify(subData));
+      // Don't fail — Instagram may not need page-level subscription for all setups
+    }
+
+    // 4. App-level webhook subscription for Instagram object
+    if (cfg.appId && cfg.appSecret && cfg.verifyToken) {
+      const appAccessToken = `${cfg.appId}|${cfg.appSecret}`;
+      const baseUrl = (process.env.PUBLIC_URL || process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+      const callbackUrl = `${baseUrl}/api/instagram/webhook`;
+
+      const appSubRes = await fetch(`${GRAPH_BASE}/${cfg.appId}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: appAccessToken,
+          object: 'instagram',
+          callback_url: callbackUrl,
+          verify_token: cfg.verifyToken,
+          fields: 'messages,messaging_postbacks',
+        }),
+      });
+      const appSubData = await appSubRes.json();
+      if (!appSubRes.ok || appSubData?.error) {
+        console.warn('[instagram] App subscription warning:', appSubData?.error?.message || JSON.stringify(appSubData));
+      } else {
+        console.log('[instagram] App-level webhook subscription updated');
+      }
+    }
+
+    // 5. Fetch page/account info from Graph API
+    let pageName = '', pageCategory = '', pagePicture = '';
+    try {
+      const infoRes = await fetch(
+        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
+      );
+      const infoData = await infoRes.json();
+      if (infoData && !infoData.error) {
+        pageName = infoData.name || '';
+        pageCategory = infoData.category || '';
+        pagePicture = infoData.picture?.data?.url || '';
+      }
+    } catch {}
+
+    // 6. Update inbox config with connection status
+    const newCfg = {
+      ...cfg,
+      connStatus: 'connected',
+      webhookSubscribedAt: now(),
+      pageName: pageName || cfg.pageName || '',
+      pageCategory: pageCategory || cfg.pageCategory || '',
+      pagePicture: pagePicture || cfg.pagePicture || '',
+      connectedAt: now(),
+    };
+    await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify(newCfg), inboxId);
+
+    console.log(`[instagram] ✓ Account ${cfg.pageId} (${newCfg.pageName}) subscribed to webhooks`);
+    res.json({
+      success: true,
+      pageId: cfg.pageId,
+      pageName: newCfg.pageName,
+      pagePicture: newCfg.pagePicture,
+      pageCategory: newCfg.pageCategory,
+      tokenScopes: scopes,
+    });
+  } catch (err) {
+    console.error('[instagram] Subscribe endpoint error:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
 
 // ── GET /api/instagram/webhook  (Meta verification) ──────────────────────────
 router.get('/webhook', async (req, res) => {
