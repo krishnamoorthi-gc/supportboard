@@ -34,6 +34,9 @@ const server = http.createServer(app);
 const { setupWebSocket } = require('./ws');
 setupWebSocket(server);
 
+// Trust reverse proxy (nginx) so rate-limit sees real client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
 // ── Security middleware ──
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
