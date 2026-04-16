@@ -1487,8 +1487,9 @@ server.listen(PORT, async () => {
       for (const auto of activeAutos) {
         try {
           const trigger = auto.trigger_type || '';
-          const actions = JSON.parse(auto.actions || '[]');
-          if (!actions.length) continue;
+          let actions = auto.actions || '[]';
+          if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+          if (!Array.isArray(actions) || !actions.length) continue;
 
           let matchedContacts = [];
           const aid = auto.agent_id;
