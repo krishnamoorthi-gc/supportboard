@@ -105,7 +105,7 @@ router.patch('/managed/:id', auth, wrap(async (req, res) => {
   if (!u) return res.status(404).json({ error: 'User not found' });
 
   const fields = ['name', 'role', 'color', 'phone', 'bio', 'status', 'avatar', 'department_id'];
-  const updates = { updated_at: new Date().toISOString() };
+  const updates = { updated_at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   if (req.body.password) updates.password_hash = bcrypt.hashSync(req.body.password, 10);
   if (req.body.permissions !== undefined) updates.permissions = JSON.stringify(req.body.permissions);
