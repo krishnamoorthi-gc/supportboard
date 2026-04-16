@@ -88,7 +88,7 @@ router.post('/agents', auth, async (req, res) => {
 
 router.patch('/agents/:id', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM sales_agents WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sales_agents WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Sales agent not found' });
     const fields = [
       'name', 'role', 'emoji', 'color', 'tone', 'language',
@@ -101,7 +101,7 @@ router.patch('/agents/:id', auth, async (req, res) => {
       }
     }
     const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-    await db.prepare(`UPDATE sales_agents SET ${sets} WHERE id = ?`).run(...Object.values(updates), req.params.id);
+    await db.prepare(`UPDATE sales_agents SET ${sets} WHERE id = ? AND agent_id = ?`).run(...Object.values(updates), req.params.id, req.agent.id);
     const agent = await db.prepare('SELECT * FROM sales_agents WHERE id = ?').get(req.params.id);
     res.json({ agent });
   } catch (err) {
@@ -112,7 +112,7 @@ router.patch('/agents/:id', auth, async (req, res) => {
 
 router.delete('/agents/:id', auth, async (req, res) => {
   try {
-    await db.prepare('DELETE FROM sales_agents WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM sales_agents WHERE id = ? AND agent_id = ?').run(req.params.id, req.agent.id);
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /agents/:id error:', err);
@@ -122,10 +122,10 @@ router.delete('/agents/:id', auth, async (req, res) => {
 
 router.patch('/agents/:id/toggle', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM sales_agents WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sales_agents WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Sales agent not found' });
     const newActive = existing.active ? 0 : 1;
-    await db.prepare('UPDATE sales_agents SET active = ?, updated_at = ? WHERE id = ?').run(newActive, now(), req.params.id);
+    await db.prepare('UPDATE sales_agents SET active = ?, updated_at = ? WHERE id = ? AND agent_id = ?').run(newActive, now(), req.params.id, req.agent.id);
     const agent = await db.prepare('SELECT * FROM sales_agents WHERE id = ?').get(req.params.id);
     res.json({ agent });
   } catch (err) {
@@ -183,7 +183,7 @@ router.post('/playbooks', auth, async (req, res) => {
 
 router.patch('/playbooks/:id', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM sales_playbooks WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sales_playbooks WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Playbook not found' });
     const fields = ['name', 'trigger', 'steps', 'product_tier', 'owner_name', 'active', 'conversion_count'];
     const updates = {};
@@ -205,7 +205,7 @@ router.patch('/playbooks/:id', auth, async (req, res) => {
 
 router.delete('/playbooks/:id', auth, async (req, res) => {
   try {
-    await db.prepare('DELETE FROM sales_playbooks WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM sales_playbooks WHERE id = ? AND agent_id = ?').run(req.params.id, req.agent.id);
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /playbooks/:id error:', err);
@@ -259,7 +259,7 @@ router.post('/qualification', auth, async (req, res) => {
 
 router.patch('/qualification/:id', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM sales_qualification_rules WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sales_qualification_rules WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Qualification rule not found' });
     const fields = ['field', 'operator', 'value', 'points', 'active'];
     const updates = {};
@@ -277,7 +277,7 @@ router.patch('/qualification/:id', auth, async (req, res) => {
 
 router.delete('/qualification/:id', auth, async (req, res) => {
   try {
-    await db.prepare('DELETE FROM sales_qualification_rules WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM sales_qualification_rules WHERE id = ? AND agent_id = ?').run(req.params.id, req.agent.id);
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /qualification/:id error:', err);
@@ -331,7 +331,7 @@ router.post('/objections', auth, async (req, res) => {
 
 router.patch('/objections/:id', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM sales_objections WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sales_objections WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Objection handler not found' });
     const fields = ['trigger_phrase', 'response', 'category', 'active'];
     const updates = {};
@@ -349,7 +349,7 @@ router.patch('/objections/:id', auth, async (req, res) => {
 
 router.delete('/objections/:id', auth, async (req, res) => {
   try {
-    await db.prepare('DELETE FROM sales_objections WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM sales_objections WHERE id = ? AND agent_id = ?').run(req.params.id, req.agent.id);
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /objections/:id error:', err);
@@ -406,7 +406,7 @@ router.post('/products', auth, async (req, res) => {
 
 router.patch('/products/:id', auth, async (req, res) => {
   try {
-    const existing = await db.prepare('SELECT * FROM sales_products WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sales_products WHERE id = ? AND agent_id = ?').get(req.params.id, req.agent.id);
     if (!existing) return res.status(404).json({ error: 'Product not found' });
     const fields = ['name', 'price', 'features', 'segment', 'qualifier_rule', 'active'];
     const updates = {};
@@ -428,7 +428,7 @@ router.patch('/products/:id', auth, async (req, res) => {
 
 router.delete('/products/:id', auth, async (req, res) => {
   try {
-    await db.prepare('DELETE FROM sales_products WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM sales_products WHERE id = ? AND agent_id = ?').run(req.params.id, req.agent.id);
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /products/:id error:', err);

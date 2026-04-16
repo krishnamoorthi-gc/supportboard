@@ -241,11 +241,11 @@ router.post('/reports-insight', auth, async (req, res) => {
 
 // ── AI Agents CRUD ────────────────────────────────────────────────────────────
 router.get('/agents', auth, (req, res) => {
-  res.json({ agents: db.prepare('SELECT * FROM ai_agents ORDER BY name ASC').all() });
+  res.json({ agents: db.prepare('SELECT * FROM ai_agents WHERE agent_id=? ORDER BY name ASC').all(req.agent.id) });
 });
 
 router.get('/agents/:id', auth, (req, res) => {
-  const agent = db.prepare('SELECT * FROM ai_agents WHERE id=?').get(req.params.id);
+  const agent = db.prepare('SELECT * FROM ai_agents WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!agent) return res.status(404).json({ error: 'Not found' });
   res.json({ agent });
 });
@@ -254,26 +254,26 @@ router.post('/agents', auth, (req, res) => {
   const { name, description, system_prompt, tone, type = 'support' } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const id = uid();
-  db.prepare('INSERT INTO ai_agents (id,name,description,system_prompt,tone,type) VALUES (?,?,?,?,?,?)').run(
-    id, name, description || null, system_prompt || null, tone || 'professional', type
+  db.prepare('INSERT INTO ai_agents (id,name,description,system_prompt,tone,type,agent_id) VALUES (?,?,?,?,?,?,?)').run(
+    id, name, description || null, system_prompt || null, tone || 'professional', type, req.agent.id
   );
   res.status(201).json({ agent: db.prepare('SELECT * FROM ai_agents WHERE id=?').get(id) });
 });
 
 router.patch('/agents/:id', auth, (req, res) => {
-  const agent = db.prepare('SELECT * FROM ai_agents WHERE id=?').get(req.params.id);
+  const agent = db.prepare('SELECT * FROM ai_agents WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!agent) return res.status(404).json({ error: 'Not found' });
   const fields = ['name', 'description', 'system_prompt', 'tone', 'type'];
   const updates = {};
   for (const f of fields) if (req.body[f] !== undefined) updates[f] = req.body[f];
   if (!Object.keys(updates).length) return res.json({ agent });
   const sets = Object.keys(updates).map(k => `${k}=?`).join(',');
-  db.prepare(`UPDATE ai_agents SET ${sets} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  db.prepare(`UPDATE ai_agents SET ${sets} WHERE id=? AND agent_id=?`).run(...Object.values(updates), req.params.id, req.agent.id);
   res.json({ agent: db.prepare('SELECT * FROM ai_agents WHERE id=?').get(req.params.id) });
 });
 
 router.delete('/agents/:id', auth, (req, res) => {
-  db.prepare('DELETE FROM ai_agents WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM ai_agents WHERE id=? AND agent_id=?').run(req.params.id, req.agent.id);
   res.json({ success: true });
 });
 

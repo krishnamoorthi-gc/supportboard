@@ -30,6 +30,7 @@ import SettingsScr from "./pages/SettingsScr";
 import KnowledgeBaseScr from "./pages/KnowledgeBaseScr";
 import TeamChatScr from "./pages/TeamChatScr";
 import { MiniChatPanel } from "./pages/TeamChatScr";
+import UserManagementScr from "./pages/UserManagementScr";
 
 const INBOX_CACHE_KEY = "sd_cached_inboxes";
 
@@ -438,7 +439,7 @@ export default function App(){
   const screenViewers=(viewers[scr]||[]).map(id=>agents.find(a=>a.id===id)).filter(Boolean);
   // ── F13: Custom nav ──
   const [navOrder,setNavOrder]=useState(["home","inbox","teamchat","monitor","contacts","reports","marketing","integrations","knowledgebase","widget","settings","billing"]);
-  const [pinnedNav,setPinnedNav]=useState(["home","inbox","teamchat","crm","contacts","marketing","monitor","calendar","integrations","knowledgebase","reports","settings"]);
+  const [pinnedNav,setPinnedNav]=useState(["home","inbox","teamchat","crm","contacts","marketing","monitor","calendar","integrations","knowledgebase","reports","users","settings"]);
   const [showNavConfig,setShowNavConfig]=useState(false);
   const togglePin=id=>setPinnedNav(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const moveNav=(id,dir)=>{setNavOrder(p=>{const i=p.indexOf(id);if(i<0||(dir===-1&&i===0)||(dir===1&&i===p.length-1))return p;const n=[...p];[n[i],n[i+dir]]=[n[i+dir],n[i]];return n;});};
@@ -454,7 +455,7 @@ export default function App(){
   const toggleDashWidget=id=>{setHiddenWidgets(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);};
   // ── 9. Notification Center v2 ──
   const [notifFilter,setNotifFilter]=useState("all");
-  const allNavIds=["home","inbox","teamchat","crm","contacts","marketing","monitor","calendar","integrations","knowledgebase","reports","settings"];
+  const allNavIds=["home","inbox","teamchat","crm","contacts","marketing","monitor","calendar","integrations","knowledgebase","reports","users","settings"];
   // ── Command Palette ──
   const [showCmd,setShowCmd]=useState(false);
   const [cmdQ,setCmdQ]=useState("");
@@ -1022,19 +1023,19 @@ export default function App(){
     {/* RAIL */}
     <nav role="navigation" aria-label="Main navigation" className="sd-nav-rail" style={{width:82,background:C.s1,borderRight:`1px solid ${C.b1}`,display:"flex",flexDirection:"column",alignItems:"center",padding:"14px 0 10px",gap:3,flexShrink:0,zIndex:20,overflowY:"auto",overflowX:"hidden"}}>
       <div style={{flexShrink:0,marginBottom:14}}><SDLogo s={42}/></div>
-      {pinnedNav.filter(id=>ROUTES[id]).map(id=>(
+      {pinnedNav.filter(id=>ROUTES[id]&&(!me?.permissions||me.permissions.includes(id)||id==="home"||id==="users")).map(id=>(
         <button key={id} className={`nav${scr===id?" nav-active":""}`} onClick={()=>navigate(id)} title={ROUTES[id]?.label||id} style={{width:70,padding:"8px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:scr===id?C.a:C.t1,background:scr===id?C.ad:"transparent",border:`1.5px solid ${scr===id?C.a+"44":"transparent"}`,cursor:"pointer",transition:"all .15s",position:"relative",flexShrink:0,marginBottom:1}}>
           <NavIcon id={id} s={22} col={scr===id?C.a:C.t2}/>
-          <span style={{fontSize:10.5,fontWeight:scr===id?700:600,fontFamily:FD,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:66,textAlign:"center",lineHeight:1.15,letterSpacing:-.1,color:scr===id?C.a:C.t1}}>{(ROUTES[id]?.label||id).replace("Knowledge Base","KB").replace("Integrations & API","Integr.").replace("Live Monitor","Monitor").replace("Widget Builder","Widget").replace("Team Chat","Chat")}</span>
+          <span style={{fontSize:10.5,fontWeight:scr===id?700:600,fontFamily:FD,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:66,textAlign:"center",lineHeight:1.15,letterSpacing:-.1,color:scr===id?C.a:C.t1}}>{(ROUTES[id]?.label||id).replace("Knowledge Base","KB").replace("Integrations & API","Integr.").replace("Live Monitor","Monitor").replace("Widget Builder","Widget").replace("Team Chat","Chat").replace("User Management","Users")}</span>
           {id==="teamchat"&&tcUnread>0&&scr!=="teamchat"&&<span style={{position:"absolute",top:2,right:2,width:16,height:16,borderRadius:"50%",background:C.r,color:"#fff",fontSize:8,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.s1}`}}>{tcUnread}</span>}
         </button>
       ))}
-      {allNavIds.filter(id=>!pinnedNav.includes(id)).length>0&&<>
+      {allNavIds.filter(id=>!pinnedNav.includes(id)&&(!me?.permissions||me.permissions.includes(id)||id==="home"||id==="users")).length>0&&<>
         <div style={{width:48,height:1,background:C.b2,margin:"8px 0"}}/>
-        {allNavIds.filter(id=>!pinnedNav.includes(id)).map(id=>(
+        {allNavIds.filter(id=>!pinnedNav.includes(id)&&(!me?.permissions||me.permissions.includes(id)||id==="home"||id==="users")).map(id=>(
           <button key={"m_"+id} className={`nav${scr===id?" nav-active":""}`} onClick={()=>navigate(id)} title={ROUTES[id]?.label||id} style={{width:70,padding:"7px 0",borderRadius:11,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,color:scr===id?C.a:C.t1,background:scr===id?C.ad:"transparent",border:`1.5px solid ${scr===id?C.a+"44":"transparent"}`,cursor:"pointer",transition:"all .15s",flexShrink:0,marginBottom:1}}>
             <NavIcon id={id} s={20} col={scr===id?C.a:C.t2}/>
-            <span style={{fontSize:10,fontWeight:scr===id?700:600,fontFamily:FD,whiteSpace:"nowrap",maxWidth:66,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",lineHeight:1.15,color:scr===id?C.a:C.t1}}>{(ROUTES[id]?.label||id).replace("Knowledge Base","KB").replace("Integrations & API","Integr.").replace("Live Monitor","Monitor").replace("Widget Builder","Widget").replace("Team Chat","Chat")}</span>
+            <span style={{fontSize:10,fontWeight:scr===id?700:600,fontFamily:FD,whiteSpace:"nowrap",maxWidth:66,overflow:"hidden",textOverflow:"ellipsis",textAlign:"center",lineHeight:1.15,color:scr===id?C.a:C.t1}}>{(ROUTES[id]?.label||id).replace("Knowledge Base","KB").replace("Integrations & API","Integr.").replace("Live Monitor","Monitor").replace("Widget Builder","Widget").replace("Team Chat","Chat").replace("User Management","Users")}</span>
           </button>
         ))}
       </>}
@@ -1160,6 +1161,7 @@ export default function App(){
         <LazyMount active={scr==="integrations"}><IntegrationsScr/></LazyMount>
         <LazyMount active={scr==="knowledgebase"}><KnowledgeBaseScr/></LazyMount>
         <LazyMount active={scr==="reports"}><ReportsScr convs={convs} agents={agents} labels={labels} contacts={contacts} inboxes={inboxes}/></LazyMount>
+        <LazyMount active={scr==="users"}><UserManagementScr/></LazyMount>
         <LazyMount active={scr==="settings"}><SettingsScr {...sp} me={me} setMe={setMe} stab={stab} setStab={setStab} fontKey={fontKey} applyFont={applyFont} fontScale={fontScale} applySize={applySize} themeKey={themeKey} applyTheme={applyTheme} autoTheme={autoTheme} setAutoTheme={setAutoTheme} inboxes={inboxes} aiAutoReply={aiAutoReply} setAiAutoReply={setAiAutoReply} aiChannels={aiChannels} setAiChannels={setAiChannels} customFields={customFields} setCustomFields={setCustomFields}/></LazyMount>
       </div>
     </div>

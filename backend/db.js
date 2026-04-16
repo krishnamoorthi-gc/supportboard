@@ -936,6 +936,16 @@ CREATE TABLE IF NOT EXISTS aibot_urls (
   status VARCHAR(50) DEFAULT 'trained',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Departments (User Management)
+CREATE TABLE IF NOT EXISTS departments (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 `;
 
   await db.query(schema.replace(/TEXT DEFAULT \(datetime\('now'\)\)/g, "DATETIME DEFAULT CURRENT_TIMESTAMP")
@@ -1381,6 +1391,28 @@ async function ensureSchemaColumns() {
       await run("DELETE FROM visitor_sessions WHERE session_id IS NULL OR session_id = '' OR ip IS NULL OR ip = '' OR last_seen IS NULL");
       console.log('🧹 Removed non-real visitor sessions on startup');
     } catch (e) { console.error('visitor_sessions columns:', e.message); }
+
+    // ── agents: department_id + permissions for User Management ────────
+    try {
+      const agCols = new Set((await query('SHOW COLUMNS FROM agents')).map(c => c.Field));
+      if (!agCols.has('department_id')) {
+        await run('ALTER TABLE agents ADD COLUMN department_id VARCHAR(255) DEFAULT NULL');
+        console.log('✅ Added department_id to agents');
+      }
+      if (!agCols.has('permissions')) {
+        await run('ALTER TABLE agents ADD COLUMN permissions TEXT DEFAULT NULL');
+        console.log('✅ Added permissions to agents');
+      }
+    } catch (e) { console.error('agents department/permissions columns:', e.message); }
+
+    // ── ai_agents: add agent_id column ─────────────────────────────────
+    try {
+      const aiAgCols = new Set((await query('SHOW COLUMNS FROM ai_agents')).map(c => c.Field));
+      if (!aiAgCols.has('agent_id')) {
+        await run('ALTER TABLE ai_agents ADD COLUMN agent_id VARCHAR(255)');
+        console.log('✅ Added agent_id to ai_agents');
+      }
+    } catch (e) { console.error('ai_agents agent_id column:', e.message); }
 
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);

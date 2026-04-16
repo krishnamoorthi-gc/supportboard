@@ -7,8 +7,8 @@ router.get('/', auth, async (req, res) => {
   try {
     const { offset, limit } = paginate(req);
     const { q, tag } = req.query;
-    // Show contacts for this agent + contacts created by any bot (bot-visitor tagged)
-    let where = '(agent_id=? OR tags LIKE ?)'; const params = [req.agent.id, '%bot-visitor%'];
+    // Show only contacts for this agent
+    let where = 'agent_id=?'; const params = [req.agent.id];
     if (q) { where += ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR company LIKE ?)'; const lq=`%${q}%`; params.push(lq,lq,lq,lq); }
     if (tag) { where += ' AND tags LIKE ?'; params.push(`%"${tag}"%`); }
     const contacts = await db.prepare(`SELECT * FROM contacts WHERE ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, limit, offset);
@@ -24,7 +24,7 @@ router.get('/', auth, async (req, res) => {
 });
 
 router.get('/:id', auth, async (req, res) => {
-  const c = await db.prepare('SELECT * FROM contacts WHERE id=? AND (agent_id=? OR tags LIKE ?)').get(req.params.id, req.agent.id, '%bot-visitor%');
+  const c = await db.prepare('SELECT * FROM contacts WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   try { c.tags = JSON.parse(c.tags||'[]'); } catch { c.tags=[]; }
   try { c.custom_fields = JSON.parse(c.custom_fields||'{}'); } catch { c.custom_fields={}; }
