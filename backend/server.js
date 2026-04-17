@@ -1525,9 +1525,12 @@ if (fs.existsSync(frontendDist)) {
     }
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
-  app.use(express.static(frontendDist));
+  app.use(express.static(frontendDist, { setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  }}));
   app.get('/{*path}', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/ws')) return next();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }

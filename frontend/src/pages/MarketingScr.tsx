@@ -1529,12 +1529,26 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
   const [fbUsers,setFbUsers]=useState<any[]>([]);
   const [fbLoading,setFbLoading]=useState(false);
   const [fbSearch,setFbSearch]=useState("");
+  const [fbSearching,setFbSearching]=useState(false);
   const [selFbUsers,setSelFbUsers]=useState<string[]>([]);
   const [fbSyncing,setFbSyncing]=useState(false);
-  const loadFbUsers=async()=>{setFbLoading(true);try{const r=await api.get("/facebook/users");if(r?.users)setFbUsers(r.users);}catch(e:any){showT(e.message||"Failed to load Facebook users","error");}setFbLoading(false);};
+  const loadFbUsers=async(q?:string)=>{
+    if(!q)setFbLoading(true);else setFbSearching(true);
+    try{
+      const qs=q?`?q=${encodeURIComponent(q)}`:'';
+      const r=await api.get(`/facebook/users${qs}`);
+      if(r?.users)setFbUsers(r.users);
+    }catch(e:any){showT(e.message||"Failed to load Facebook users","error");}
+    setFbLoading(false);setFbSearching(false);
+  };
   useEffect(()=>{if((ch==="facebook"||ch==="instagram")&&audMode==="fb_users"&&fbUsers.length===0)loadFbUsers();},[ch,audMode]);
+  useEffect(()=>{
+    if(!(ch==="facebook"||ch==="instagram")||audMode!=="fb_users")return;
+    const t=setTimeout(()=>loadFbUsers(fbSearch||undefined),420);
+    return()=>clearTimeout(t);
+  },[fbSearch]);
   const toggleFbUser=(fbId:string)=>setSelFbUsers(p=>p.includes(fbId)?p.filter(x=>x!==fbId):[...p,fbId]);
-  const filteredFbUsers=fbUsers.filter(u=>{if(!fbSearch.trim())return true;const q=fbSearch.toLowerCase();return u.name?.toLowerCase().includes(q)||u.fbId?.includes(q);});
+  const filteredFbUsers=fbSearch.trim()?fbUsers.filter(u=>{const q=fbSearch.toLowerCase();return u.name?.toLowerCase().includes(q)||u.fbId?.includes(q);}):fbUsers;
   const syncAndSelectFbUsers=async()=>{
     if(selFbUsers.length===0){showT("Select Facebook users first","warn");return;}
     setFbSyncing(true);
@@ -1866,16 +1880,18 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
       {audMode==="fb_users"&&<div>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
           <div style={{flex:1,position:"relative"}}>
-            <input value={fbSearch} onChange={e=>setFbSearch(e.target.value)} placeholder="Search Facebook users..." style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:8,border:`1px solid ${C.b1}`,background:C.s2,fontSize:12,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box"}}/>
-            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.t3}}>🔍</span>
+            <input value={fbSearch} onChange={e=>setFbSearch(e.target.value)} placeholder="Search by name across all pages…" style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:8,border:`1px solid ${fbSearch?'#1877f2':C.b1}`,background:C.s2,fontSize:12,color:C.t1,outline:"none",fontFamily:FB,boxSizing:"border-box",transition:"border .15s"}}/>
+            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:12,color:fbSearching?"#1877f2":C.t3}}>{fbSearching?"⏳":"🔍"}</span>
+            {fbSearch&&<span onClick={()=>setFbSearch("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.t3,cursor:"pointer",lineHeight:1}}>×</span>}
           </div>
-          <button onClick={loadFbUsers} disabled={fbLoading} style={{fontSize:10,color:"#1877f2",background:"#1877f210",border:"1px solid #1877f233",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>{fbLoading?"Loading...":"Refresh"}</button>
+          <button onClick={()=>loadFbUsers()} disabled={fbLoading} style={{fontSize:10,color:"#1877f2",background:"#1877f210",border:"1px solid #1877f233",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontWeight:600,fontFamily:FM,whiteSpace:"nowrap"}}>{fbLoading?"Loading...":"Refresh"}</button>
         </div>
         {fbLoading&&<div style={{textAlign:"center",padding:30,fontSize:12,color:C.t3}}>Loading Facebook users...</div>}
-        {!fbLoading&&filteredFbUsers.length===0&&<div style={{textAlign:"center",padding:30,fontSize:12,color:C.t3}}>No Facebook users found. Users must message your page first via Messenger.</div>}
+        {!fbLoading&&fbSearching&&<div style={{textAlign:"center",padding:16,fontSize:12,color:"#1877f2"}}>Searching…</div>}
+        {!fbLoading&&!fbSearching&&filteredFbUsers.length===0&&<div style={{textAlign:"center",padding:30,fontSize:12,color:C.t3}}>{fbSearch.trim()?`No results for "${fbSearch}" — try a different name`:"No Facebook users found. Users must message your page first via Messenger."}</div>}
         {!fbLoading&&filteredFbUsers.length>0&&<>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{filteredFbUsers.length} FACEBOOK USERS</span>
+            <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>{filteredFbUsers.length} {fbSearch.trim()?"RESULTS":"FACEBOOK USERS"}</span>
             <button onClick={()=>{if(selFbUsers.length===filteredFbUsers.length)setSelFbUsers([]);else setSelFbUsers(filteredFbUsers.map(u=>u.fbId));}} style={{fontSize:10,color:C.a,background:"transparent",border:"none",cursor:"pointer",fontWeight:600,fontFamily:FM}}>{selFbUsers.length===filteredFbUsers.length&&filteredFbUsers.length>0?"Deselect All":"Select All"}</button>
           </div>
           {selFbUsers.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
@@ -1890,13 +1906,13 @@ function MktModal2({editCamp,defaultCh,segments,contacts=[],groups=[],userTempla
                 <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${sel?"#1877f2":C.t3+"66"}`,background:sel?"#1877f2":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .12s"}}>
                   {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:800}}>✓</span>}
                 </div>
-                {u.picture?<img src={u.picture} style={{width:28,height:28,borderRadius:"50%",flexShrink:0}} alt=""/>:<div style={{width:28,height:28,borderRadius:"50%",background:"#1877f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",flexShrink:0}}>{(u.name||"?")[0]}</div>}
+                {u.picture?<img src={u.picture} style={{width:32,height:32,borderRadius:"50%",flexShrink:0,objectFit:"cover",border:"2px solid #1877f233"}} alt=""/>:<div style={{width:32,height:32,borderRadius:"50%",background:"#1877f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",flexShrink:0}}>{(u.name||"?")[0].toUpperCase()}</div>}
                 <div style={{flex:1,textAlign:"left",minWidth:0}}>
                   <div style={{fontSize:12,fontWeight:600,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||"Facebook User"}</div>
-                  <div style={{fontSize:10,color:C.t3,display:"flex",gap:6}}>
+                  <div style={{fontSize:10,color:C.t3,display:"flex",gap:6,alignItems:"center"}}>
                     <span style={{color:u.source==="messenger"?"#1877f2":u.source==="friend"?"#25d366":C.t3,fontWeight:600}}>{u.source==="messenger"?"Messenger":u.source==="friend"?"Friend":"Contact"}</span>
                     {u.messageCount>0&&<span>{u.messageCount} msgs</span>}
-                    {u.isContact&&<span style={{color:C.g}}>In contacts</span>}
+                    {u.isContact&&<span style={{color:C.g}}>✓ In contacts</span>}
                   </div>
                 </div>
               </button>

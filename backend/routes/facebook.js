@@ -523,7 +523,7 @@ async function getFbCredentials(agentId, inboxId) {
   };
 }
 
-// ── GET /api/facebook/users  — Search FB friends + page conversations ───────
+// ── GET /api/facebook/users  — Search FB friends + ALL page conversations ────
 router.get('/users', auth, async (req, res) => {
   const { q, inboxId } = req.query;
 
@@ -551,51 +551,63 @@ router.get('/users', auth, async (req, res) => {
             messageCount: 0,
           });
         }
-        console.log(`[facebook] Friends: ${friendsData.data?.length || 0} found`);
       } catch (e) {
         console.warn('[facebook] Friends fetch error:', e.message);
       }
-
-      // Also try /me/accounts to get pages the user manages (for additional context)
-      try {
-        const pagesUrl = `${GRAPH_BASE}/me/accounts?fields=id,name,picture&access_token=${fb.userAccessToken}`;
-        const pagesRes = await fetch(pagesUrl);
-        const pagesData = await pagesRes.json();
-        // Don't add pages as users, just log
-        console.log(`[facebook] User manages ${pagesData.data?.length || 0} pages`);
-      } catch {}
     }
 
-    // ── Source 2: Page conversations (people who messaged via Messenger) ──
-    if (fb.pageId && fb.accessToken) {
-      try {
-        const convsUrl = `${GRAPH_BASE}/${fb.pageId}/conversations?fields=participants{id,name,profile_pic},updated_time,message_count&limit=50&access_token=${fb.accessToken}`;
-        const convsRes = await fetch(convsUrl);
-        const convsData = await convsRes.json();
-        for (const conv of convsData.data || []) {
-          for (const p of conv.participants?.data || []) {
-            if (p.id === fb.pageId) continue;
-            if (!usersMap.has(p.id)) {
-              usersMap.set(p.id, {
-                fbId: p.id,
-                name: p.name || p.id,
-                picture: p.profile_pic || '',
-                source: 'messenger',
-                messageCount: conv.message_count || 0,
-                lastActive: conv.updated_time || '',
-              });
+    // ── Source 2: ALL active Facebook inboxes → page conversations ──────────
+    // Fetch across every connected FB page so the search pool is as wide as possible
+    try {
+      const allFbInboxes = await db.prepare(
+        "SELECT id, config FROM inboxes WHERE type='facebook' AND active=1"
+      ).all();
+
+      for (const inbox of allFbInboxes) {
+        const cfg = safeJson(inbox.config, {});
+        const pageId = cfg.pageId;
+        const token  = cfg.accessToken;
+        if (!pageId || !token) continue;
+
+        try {
+          const convsUrl = `${GRAPH_BASE}/${pageId}/conversations?fields=participants,updated_time,message_count&limit=100&access_token=${token}`;
+          const convsRes = await fetch(convsUrl);
+          const convsData = await convsRes.json();
+          if (convsData.error) continue; // skip expired / invalid tokens silently
+
+          for (const conv of convsData.data || []) {
+            for (const p of conv.participants?.data || []) {
+              if (p.id === pageId) continue;
+              if (!usersMap.has(p.id)) {
+                usersMap.set(p.id, {
+                  fbId: p.id,
+                  name: p.name || p.id,
+                  picture: '',
+                  source: 'messenger',
+                  messageCount: conv.message_count || 0,
+                  lastActive: conv.updated_time || '',
+                  inboxId: inbox.id,
+                });
+              } else {
+                // Update message count if this conversation has more messages
+                const existing = usersMap.get(p.id);
+                if ((conv.message_count || 0) > existing.messageCount) {
+                  existing.messageCount = conv.message_count || 0;
+                  existing.lastActive = conv.updated_time || existing.lastActive;
+                }
+              }
             }
           }
-        }
-      } catch (e) {
-        console.warn('[facebook] Conversations fetch error:', e.message);
+        } catch {}
       }
+    } catch (e) {
+      console.warn('[facebook] Multi-inbox conversations fetch error:', e.message);
     }
 
-    // ── Source 3: Existing FB contacts from DB ──
+    // ── Source 3: Existing FB contacts from DB (with stored avatar) ──
     try {
       const dbContacts = await db.prepare(
-        "SELECT id, name, phone FROM contacts WHERE phone LIKE 'fb:%' AND (agent_id=? OR agent_id IS NULL)"
+        "SELECT id, name, phone, avatar FROM contacts WHERE phone LIKE 'fb:%' AND (agent_id=? OR agent_id IS NULL)"
       ).all(req.agent.id);
       for (const c of dbContacts) {
         const fbId = c.phone.replace(/^fb:/, '');
@@ -603,45 +615,17 @@ router.get('/users', auth, async (req, res) => {
           usersMap.set(fbId, {
             fbId,
             name: c.name || fbId,
-            picture: '',
+            picture: c.avatar || '',
             source: 'contact',
             messageCount: 0,
             lastActive: '',
           });
+        } else {
+          // Enrich messenger entry with stored avatar if available
+          if (!usersMap.get(fbId).picture && c.avatar) usersMap.get(fbId).picture = c.avatar;
         }
       }
     } catch {}
-
-    // Batch-fetch profile pictures for users still missing them (messenger/contact sources)
-    if (fb.accessToken) {
-      const noPicIds = Array.from(usersMap.entries())
-        .filter(([, u]) => !u.picture)
-        .map(([id]) => id)
-        .slice(0, 50);
-      if (noPicIds.length > 0) {
-        try {
-          const batchRequests = noPicIds.map(id => ({ method: 'GET', relative_url: `${id}?fields=profile_pic` }));
-          const batchRes = await fetch(`${GRAPH_BASE}/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `batch=${encodeURIComponent(JSON.stringify(batchRequests))}&access_token=${fb.accessToken}&include_headers=false`,
-          });
-          const batchData = await batchRes.json();
-          if (Array.isArray(batchData)) {
-            batchData.forEach((result, i) => {
-              if (result && result.code === 200) {
-                try {
-                  const userData = JSON.parse(result.body);
-                  if (userData.profile_pic) usersMap.get(noPicIds[i]).picture = userData.profile_pic;
-                } catch {}
-              }
-            });
-          }
-        } catch (e) {
-          console.warn('[facebook] Batch profile pic fetch error:', e.message);
-        }
-      }
-    }
 
     let users = Array.from(usersMap.values());
 
@@ -654,10 +638,36 @@ router.get('/users', auth, async (req, res) => {
       u.contactId = existing?.id || null;
     }
 
-    // Filter by search query
+    // When a search query is given, also search ALL contacts by name so users can
+    // find existing contacts (not only those from page conversations or fb: phone entries)
     if (q) {
       const lq = q.toLowerCase();
       users = users.filter(u => u.name.toLowerCase().includes(lq) || u.fbId.includes(lq));
+
+      try {
+        const nameMatches = await db.prepare(
+          `SELECT id, name, phone, avatar FROM contacts
+           WHERE LOWER(name) LIKE ?
+           LIMIT 20`
+        ).all(`%${lq}%`);
+        for (const c of nameMatches) {
+          const fbId = c.phone?.startsWith('fb:') ? c.phone.replace(/^fb:/, '') : null;
+          const key = fbId || ('ct_' + c.id);
+          if (!usersMap.has(key) && !users.find(u => u.contactId === c.id)) {
+            users.push({
+              fbId: fbId || '',
+              contactId: c.id,
+              name: c.name,
+              picture: c.avatar || '',
+              source: 'contact',
+              messageCount: 0,
+              lastActive: '',
+              isContact: true,
+            });
+          }
+        }
+      } catch {}
+
     }
 
     // Sort: non-contacts first, then by last active, then by name
@@ -919,10 +929,12 @@ async function processIncomingMessage(event, inbox, pageToken) {
 
   // Get sender profile
   let senderName = senderId;
+  let senderAvatar = '';
   try {
     const profileRes = await fetch(`${GRAPH_BASE}/${senderId}?fields=first_name,last_name,profile_pic&access_token=${pageToken}`);
     const profile = await profileRes.json();
     if (profile.first_name) senderName = `${profile.first_name} ${profile.last_name || ''}`.trim();
+    if (profile.profile_pic) senderAvatar = profile.profile_pic;
   } catch {}
 
   // Find or create contact
@@ -934,9 +946,12 @@ async function processIncomingMessage(event, inbox, pageToken) {
   if (!contact) {
     const ctId = 'ct' + uid();
     await db.prepare(
-      'INSERT INTO contacts (id,name,phone,color,tags,agent_id) VALUES (?,?,?,?,?,?)'
-    ).run(ctId, senderName, 'fb:' + senderId, '#1877f2', '["facebook"]', agentId);
+      'INSERT INTO contacts (id,name,phone,color,tags,agent_id,avatar) VALUES (?,?,?,?,?,?,?)'
+    ).run(ctId, senderName, 'fb:' + senderId, '#1877f2', '["facebook"]', agentId, senderAvatar || null);
     contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(ctId);
+  } else if (senderAvatar && !contact.avatar) {
+    await db.prepare('UPDATE contacts SET avatar=? WHERE id=?').run(senderAvatar, contact.id);
+    contact.avatar = senderAvatar;
   }
 
   // ── check if this is a campaign reply ──────────────────────────────────
