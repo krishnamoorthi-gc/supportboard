@@ -59,8 +59,8 @@ export default function TeamChatScr({agents,setAgents,fontKey,themeKey}){
     setPaneInputs(p=>({...p,[chId]:""}));
     if(api.isConnected())api.post(`/chat/channels/${chId}/messages`,{text:txt}).catch(()=>{});
   };;
-  // Public channels auto-include all agents/members
-  const getChMembers=ch=>{if(!ch)return[];if(!ch.private)return agents.map(a=>a.id);return ch.members||[];};
+  // Channels only include members that were explicitly added (public = discoverable, not auto-joined)
+  const getChMembers=ch=>{if(!ch)return[];return ch.members||[];};
   const [tcMsgs,setTcMsgs]=useState<Record<string,any[]>>({});
   const [activeCh,setActiveCh]=useState("");
   const [tcInp,setTcInp]=useState("");

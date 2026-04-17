@@ -10,18 +10,20 @@ let db;
 
 async function init() {
   const host = process.env.DB_HOST || '127.0.0.1';
+  const port = parseInt(process.env.DB_PORT) || 3306;
   const user = process.env.DB_USER || 'root';
   const password = process.env.DB_PASS || '';
   const database = process.env.DB_NAME || 'supportboard';
 
   // First connect without DB to create it
-  const connection = await mysql.createConnection({ host, user, password });
+  const connection = await mysql.createConnection({ host, port, user, password });
   await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\``);
   await connection.end();
 
   // Now connect with DB — use pool for auto-reconnection on stale/dead connections
   db = mysql.createPool({
     host,
+    port,
     user,
     password,
     database,

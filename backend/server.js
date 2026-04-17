@@ -49,16 +49,39 @@ const rateLimit = require('express-rate-limit');
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
-    else cb(null, ALLOWED_ORIGINS[0]);
-  },
-  credentials: true,
-}));
+// Auto-include PUBLIC_URL and its www/non-www variant so the live frontend always works
+if (process.env.PUBLIC_URL) {
+  const pu = process.env.PUBLIC_URL.trim();
+  if (!ALLOWED_ORIGINS.includes(pu)) ALLOWED_ORIGINS.push(pu);
+  // Also add without www or with www
+  const noWww = pu.replace('://www.', '://');
+  const withWww = pu.includes('://www.') ? pu : pu.replace('://', '://www.');
+  if (!ALLOWED_ORIGINS.includes(noWww)) ALLOWED_ORIGINS.push(noWww);
+  if (!ALLOWED_ORIGINS.includes(withWww)) ALLOWED_ORIGINS.push(withWww);
+}
+console.log('🌐 CORS allowed origins:', ALLOWED_ORIGINS.join(', '));
+// Public endpoints (tracker, widget) — allow ANY origin, handle preflight
+const publicPaths = ['/api/track', '/api/event', '/tracker.js', '/api/monitor/snippet', '/widget'];
+app.use((req, res, next) => {
+  if (publicPaths.some(p => req.path.startsWith(p))) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  }
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+      else { console.warn('⚠️ CORS blocked origin:', origin); cb(null, false); }
+    },
+    credentials: true,
+  })(req, res, next);
+});
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
@@ -191,7 +214,7 @@ async function geoLookup(ip) {
 }
 
 // ── GET /tracker.js — embeddable tracking script ────────────────────────────
-app.get('/tracker.js', widgetCors, (req, res) => {
+app.get('/tracker.js', (req, res) => {
   // PUBLIC_URL takes priority — it's the externally reachable URL (ngrok, domain, etc.)
   const BACKEND = process.env.PUBLIC_URL || process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.setHeader('Content-Type', 'application/javascript');
@@ -261,7 +284,7 @@ app.get('/tracker.js', widgetCors, (req, res) => {
 });
 
 // ── POST /api/event — receive custom events (clicks, forms, etc) ────────────
-app.post('/api/event', widgetCors, async (req, res) => {
+app.post('/api/event', async (req, res) => {
   res.json({ ok: true });
   try {
     const { session_id, name, data, page } = req.body;
@@ -279,7 +302,7 @@ app.get('/api/monitor/events/:session_id', require('./middleware/auth'), async (
     res.json({ events });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/track', widgetCors, async (req, res) => {
+app.post('/api/track', async (req, res) => {
   const { session_id, event, page } = req.body;
   console.log(`📡 Track [${event}]: session=${session_id} page=${page}`);
   res.json({ ok: true }); 
@@ -297,7 +320,7 @@ app.post('/api/track', widgetCors, async (req, res) => {
     if (event === 'leave') {
       const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (existing) {
-        await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=?, last_seen=DATE_SUB(NOW(), INTERVAL 5 MINUTE), status="offline" WHERE session_id=?').run(page || '', duration || 0, session_id);
+        await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), last_seen=NOW(), status="offline" WHERE session_id=?').run(page || '', session_id);
         broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
       }
       return;
@@ -305,7 +328,6 @@ app.post('/api/track', widgetCors, async (req, res) => {
 
     const geo = await geoLookup(ip);
     const flag = FLAG_MAP[geo.country_code] || '🌍';
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     const existing = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
 
@@ -315,7 +337,7 @@ app.post('/api/track', widgetCors, async (req, res) => {
       if (history[history.length - 1] !== page) history.push(page);
       if (history.length > 50) history.shift();
       const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
-      
+
       const vName = identify.name || existing.visitor_name;
       const vEmail = identify.email || existing.visitor_email;
       const vPhone = identify.phone || existing.visitor_phone;
@@ -323,11 +345,11 @@ app.post('/api/track', widgetCors, async (req, res) => {
       const vGoogle = identify.google_id || existing.visitor_google_id;
 
       await db.prepare(
-        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=?, exit_page=?, last_seen=?, status="browsing", 
+        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), exit_page=?, last_seen=NOW(), status="browsing",
          visitor_name=?, visitor_email=?, visitor_phone=?, visitor_avatar=?, visitor_google_id=?, utm_source=?
          WHERE session_id=?`
-      ).run(page, JSON.stringify(history), newCount, duration || 0, page, now, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
-      
+      ).run(page, JSON.stringify(history), newCount, page, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
+
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
     } else {
@@ -337,7 +359,7 @@ app.post('/api/track', widgetCors, async (req, res) => {
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
          entry_page, exit_page, utm_source, duration, visitor_name, visitor_email, visitor_phone, visitor_avatar, visitor_google_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',?,?,?,?,?,?,?,?,?,?)`
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0,?,?,?,?,?)`
       ).run(
         id, session_id, ip, flag,
         geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
@@ -346,8 +368,8 @@ app.post('/api/track', widgetCors, async (req, res) => {
         referrer || '', source || 'Direct',
         browser, os, device,
         screen_width || null, screen_height || null,
-        language || 'en', ua, now,
-        page, page, utm_source || '', duration || 0,
+        language || 'en', ua,
+        page, page, utm_source || '',
         identify.name || null, identify.email || null, identify.phone || null, identify.avatar || null, identify.google_id || null
       );
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(id);
@@ -357,7 +379,7 @@ app.post('/api/track', widgetCors, async (req, res) => {
     console.error('❌ Tracking Error:', e);
   }
 });
-app.options('/api/track', widgetCors, (req, res) => res.sendStatus(204));
+// OPTIONS for /api/track handled by global public paths middleware above
 
 app.get('/api/bot-public/:token', widgetCors, async (req, res) => {
   try {
@@ -1431,7 +1453,13 @@ app.use('/api/instagram', require('./routes/instagram'));
 // SMS (Twilio) inbound webhook + delivery status callbacks (public, no auth)
 app.use('/api/sms', require('./routes/sms'));
 
-// Live monitor - real visitor sessions
+// Live monitor - snippet endpoint is public (no auth)
+app.get('/api/monitor/snippet', (req, res) => {
+  const backendUrl = process.env.PUBLIC_URL || process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4002}`;
+  const snippet = `<!-- SupportDesk Live Visitor Tracking -->\n<script src="${backendUrl}/tracker.js" async></script>`;
+  res.json({ snippet, backendUrl, trackerUrl: `${backendUrl}/tracker.js` });
+});
+// Live monitor - remaining routes require auth
 app.use('/api/monitor', require('./middleware/auth'), require('./routes/monitor'));
 
 // Notifications

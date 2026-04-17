@@ -40,13 +40,15 @@ function mapApiVisitor(v:any){
     prevPages: v.pages_visited||1,
     pageHistory: (() => { try { return JSON.parse(v.page_history || '[]'); } catch { return [v.page || '/']; } })(),
     timeOnSite: (() => {
+      const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now();
+      const isOnline = !!v.is_active;
+      if (isOnline) return Math.max(0, Math.floor((Date.now() - joined) / 1000));
       if (v.duration && !isNaN(parseInt(v.duration))) return parseInt(v.duration);
-      const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now();
-      const diff = Math.floor((Date.now() - joined) / 1000);
-      return isNaN(diff) ? 0 : diff;
+      return Math.max(0, Math.floor((Date.now() - joined) / 1000));
     })(),
     visitedAt: v.created_at || '',
-    joined: v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now(),
+    joined: v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now(),
+    ipVersion: v.ip ? (v.ip.includes(':') ? 'IPv6' : 'IPv4') : '',
     browser: v.browser||'Unknown',
     os: v.os||'Unknown',
     device: v.device||'Desktop',
@@ -101,7 +103,19 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
       const d=await api.get('/monitor/visitors');
       if(d?.visitors){
         const mapped=d.visitors.map(mapApiVisitor);
-        setVisitors(mapped);
+        // Merge: for active visitors, preserve the existing 'joined' anchor so timeOnSite doesn't jump
+        setVisitors(prev=>{
+          if(!prev.length)return mapped;
+          const prevMap=new Map(prev.map(v=>[v.id,v]));
+          return mapped.map(v=>{
+            const old=prevMap.get(v.id);
+            if(old&&v.isActive&&old.isActive){
+              // Keep the stable joined timestamp and recompute timeOnSite from it
+              return {...v,joined:old.joined,timeOnSite:Math.max(0,Math.floor((Date.now()-old.joined)/1000))};
+            }
+            return v;
+          });
+        });
         if(setLiveVisitors)setLiveVisitors(d.visitors);
         setLastRefresh(Date.now());
       }
@@ -135,13 +149,24 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
     setVisitors(liveVisitors.map(mapApiVisitor));
   },[liveVisitors]);
 
-  // Recompute timeOnSite every 3 seconds
+  // Tick active visitors' timeOnSite every 3s using joined anchor — single source of truth
   useEffect(()=>{
+    const hasActive=visitors.some(v=>v.isActive);
+    if(!hasActive)return;
     const t=setInterval(()=>{
-      setVisitors(prev=>prev.map(v=>({...v,timeOnSite:Math.floor((Date.now()-v.joined)/1000)})));
-    },3000);
+      setVisitors(prev=>{
+        let changed=false;
+        const next=prev.map(v=>{
+          if(!v.isActive)return v;
+          const t2=Math.floor((Date.now()-v.joined)/1000);
+          if(t2!==v.timeOnSite){changed=true;return{...v,timeOnSite:t2};}
+          return v;
+        });
+        return changed?next:prev;
+      });
+    },1000);
     return ()=>clearInterval(t);
-  },[]);
+  },[visitors.length]);
 
   // ── AI Visitor Intent ────────────────────────────────────────────────────
   const genMonAi=async()=>{
@@ -387,7 +412,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
               </div>
               {/* Status */}
               <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",minWidth:0}}>
-                {vis.isActive?<VTag text="● Online" color={C.g}/>:<VTag text="Offline" color={C.t3}/>}
+                {vis.isActive?<VTag text="● Online" color={C.g}/>:<VTag text="Ended" color={C.t3}/>}
                 {vis.chatStatus==="chatting"?<VTag text={vis.typing?"Typing…":"Chatting"} color={vis.typing?C.p:C.g}/>:vis.chatStatus==="invited"?<VTag text="Invited" color={C.y}/>:null}
               </div>
               {/* Actions */}
@@ -436,7 +461,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
               sel.googleId?["Google ID",sel.googleId]:null,
               ["",""],
               ["Location",null],
-              ["Geo IP",sel.ip],
+              ["Geo IP",sel.ip+(sel.ipVersion?" ("+sel.ipVersion+")":"")],
               ["Country",sel.flag+" "+sel.country],
               [sel.city?"City":"","",sel.city?sel.city+(sel.region?", "+sel.region:""):""],
               sel.region?["State",sel.region]:null,
