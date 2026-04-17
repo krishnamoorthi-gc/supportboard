@@ -1400,6 +1400,84 @@ router.get('/campaigns/:id/log', auth, async (req, res) => {
   }
 });
 
+// ── Resend a single failed log entry ──
+router.post('/campaigns/:id/resend-log/:logId', auth, async (req, res) => {
+  try {
+    const campaign = await db.prepare('SELECT * FROM campaigns WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    const log = await db.prepare('SELECT * FROM campaign_send_log WHERE id=? AND campaign_id=?').get(req.params.logId, req.params.id);
+    if (!log) return res.status(404).json({ error: 'Log entry not found' });
+    if (log.status !== 'failed') return res.status(400).json({ error: 'Only failed entries can be resent' });
+
+    const recipient = {
+      id:    log.contact_id,
+      name:  log.contact_name,
+      phone: log.contact_phone,
+      email: log.contact_email,
+    };
+    const mergedBody = mergeCampaignText(campaign.body || '', recipient).trim();
+    const channel = log.channel || campaign.type;
+
+    try {
+      if (channel === 'facebook') {
+        const inbox = await getLaunchableFacebookInbox(req.agent.id);
+        if (!inbox) throw new Error('No active Facebook inbox found');
+        const fbId = String(recipient.phone || '').replace(/^fb:/i, '');
+        await facebookSvc.sendFacebookMessage({ inboxId: inbox.id, to: fbId, text: mergedBody || campaign.name });
+
+      } else if (channel === 'instagram') {
+        const inbox = await getLaunchableInstagramInbox(req.agent.id);
+        if (!inbox) throw new Error('No active Instagram inbox found');
+        const igId = String(recipient.phone || '').replace(/^ig:/i, '');
+        await instagramSvc.sendInstagramMessage({ inboxId: inbox.id, to: igId, text: mergedBody || campaign.name });
+
+      } else if (channel === 'sms') {
+        const inbox = await getLaunchableSmsInbox(req.agent.id);
+        if (!inbox) throw new Error('No active SMS inbox found');
+        await smsSvc.sendSms({ inboxId: inbox.id, to: recipient.phone, body: mergedBody });
+
+      } else if (channel === 'whatsapp') {
+        const inbox = await db.prepare("SELECT * FROM inboxes WHERE agent_id=? AND type='whatsapp' AND active=1 LIMIT 1").get(req.agent.id);
+        if (!inbox) throw new Error('No active WhatsApp inbox found');
+        await whatsappSvc.sendWhatsAppMessage({ inboxId: inbox.id, to: recipient.phone, body: mergedBody });
+
+      } else if (channel === 'email') {
+        await emailSvc.sendEmail({ to: recipient.email, subject: campaign.subject || campaign.name, html: mergedBody });
+
+      } else {
+        throw new Error(`Unsupported channel: ${channel}`);
+      }
+
+      await db.prepare(
+        "UPDATE campaign_send_log SET status='sent', sent_at=?, error_message=NULL WHERE id=?"
+      ).run(nowIso(), log.id);
+
+      // Update campaign failed/sent counts
+      await db.prepare(`
+        UPDATE campaigns SET
+          stats = JSON_SET(COALESCE(stats,'{}'),
+            '$.failed', MAX(0, CAST(JSON_EXTRACT(COALESCE(stats,'{}'),'$.failed') AS INTEGER) - 1),
+            '$.sent',   CAST(JSON_EXTRACT(COALESCE(stats,'{}'),'$.sent') AS INTEGER) + 1,
+            '$.delivered', CAST(JSON_EXTRACT(COALESCE(stats,'{}'),'$.delivered') AS INTEGER) + 1
+          )
+        WHERE id=?
+      `).run(campaign.id);
+
+      res.json({ success: true, status: 'sent' });
+
+    } catch (sendErr) {
+      await db.prepare(
+        "UPDATE campaign_send_log SET error_message=? WHERE id=?"
+      ).run(sendErr.message, log.id);
+      res.status(422).json({ error: sendErr.message });
+    }
+  } catch (e) {
+    console.error('❌ POST resend-log error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Approved WA templates for campaign template selector
 router.get('/wa-templates-approved', auth, async (req, res) => {
   try {
