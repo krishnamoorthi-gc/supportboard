@@ -53,10 +53,16 @@ app.use(helmet({
 }));
 
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
-// Public endpoints (tracker, widget) allow any origin — skip restricted CORS for them
+// Public endpoints (tracker, widget) — allow ANY origin, handle preflight
 const publicPaths = ['/api/track', '/api/event', '/tracker.js', '/api/monitor/snippet', '/widget'];
 app.use((req, res, next) => {
-  if (publicPaths.some(p => req.path.startsWith(p))) return next();
+  if (publicPaths.some(p => req.path.startsWith(p))) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  }
   cors({
     origin: (origin, cb) => {
       if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
