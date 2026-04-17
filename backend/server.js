@@ -53,13 +53,18 @@ app.use(helmet({
 }));
 
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
-    else cb(null, ALLOWED_ORIGINS[0]);
-  },
-  credentials: true,
-}));
+// Public endpoints (tracker, widget) allow any origin — skip restricted CORS for them
+const publicPaths = ['/api/track', '/api/event', '/tracker.js', '/api/monitor/snippet', '/widget'];
+app.use((req, res, next) => {
+  if (publicPaths.some(p => req.path.startsWith(p))) return next();
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+      else cb(null, ALLOWED_ORIGINS[0]);
+    },
+    credentials: true,
+  })(req, res, next);
+});
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
