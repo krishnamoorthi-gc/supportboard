@@ -388,8 +388,8 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
               <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                 <span style={{fontSize:16}}>{vis.flag}</span>
                 <div style={{minWidth:0}}>
-                  <div style={{fontSize:11.5,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.country}</div>
-                  <div style={{fontSize:10,color:C.t3,fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.city || vis.region || '—'}</div>
+                  <div style={{fontSize:11.5,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.country&&vis.country!=="Unknown"?vis.country:<span style={{color:C.t3,fontStyle:"italic"}}>Resolving…</span>}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.city || vis.region || ''}</div>
                 </div>
               </div>
               {/* Device/OS */}
@@ -461,9 +461,9 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
               ["",""],
               ["Location",null],
               ["Geo IP",sel.ip+(sel.ipVersion?" ("+sel.ipVersion+")":"")],
-              ["Country",sel.flag+" "+sel.country],
-              [sel.city?"City":"","",sel.city?sel.city+(sel.region?", "+sel.region:""):""],
-              sel.region?["State",sel.region]:null,
+              ["Country",(sel.country&&sel.country!=="Unknown")?sel.flag+" "+sel.country:"Resolving..."],
+              sel.city?["City",sel.city]:null,
+              sel.region?["State/Region",sel.region]:null,
               ["",""],
               ["Device & Browser",null],
               ["OS",sel.os],

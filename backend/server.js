@@ -204,19 +204,39 @@ async function geoLookup(ip) {
   if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.')) {
     return { country_name: 'Local', city: 'localhost', region: '', country_code: '', latitude: null, longitude: null };
   }
-  if (geoCache.has(ip)) return geoCache.get(ip);
+  // Strip IPv6-mapped prefix (::ffff:1.2.3.4 → 1.2.3.4) for cleaner lookups
+  const cleanIp = ip.replace(/^::ffff:/, '');
+  if (geoCache.has(cleanIp)) return geoCache.get(cleanIp);
+
+  // Provider 1: ip-api.com (free, 45 req/min, no key needed)
   try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 3000); // 3s timeout
-    const res = await fetch(`https://ipapi.co/${ip}/json/`, { signal: controller.signal });
-    clearTimeout(id);
-    const data = await res.json();
-    if (data && !data.error) {
-      geoCache.set(ip, data);
-      setTimeout(() => geoCache.delete(ip), 3600000);
-      return data;
+    const ctrl1 = new AbortController();
+    const t1 = setTimeout(() => ctrl1.abort(), 4000);
+    const r1 = await fetch(`http://ip-api.com/json/${cleanIp}?fields=status,country,city,regionName,countryCode,lat,lon`, { signal: ctrl1.signal });
+    clearTimeout(t1);
+    const d1 = await r1.json();
+    if (d1 && d1.status === 'success') {
+      const geo = { country_name: d1.country || '', city: d1.city || '', region: d1.regionName || '', country_code: d1.countryCode || '', latitude: d1.lat, longitude: d1.lon };
+      geoCache.set(cleanIp, geo);
+      setTimeout(() => geoCache.delete(cleanIp), 3600000);
+      return geo;
     }
-  } catch (e) { console.warn(`Geo lookup failed for ${ip}:`, e.message); }
+  } catch (e) { console.warn(`Geo provider 1 (ip-api) failed for ${cleanIp}:`, e.message); }
+
+  // Provider 2: ipapi.co (fallback, stricter rate limits)
+  try {
+    const ctrl2 = new AbortController();
+    const t2 = setTimeout(() => ctrl2.abort(), 4000);
+    const r2 = await fetch(`https://ipapi.co/${cleanIp}/json/`, { signal: ctrl2.signal });
+    clearTimeout(t2);
+    const d2 = await r2.json();
+    if (d2 && !d2.error) {
+      geoCache.set(cleanIp, d2);
+      setTimeout(() => geoCache.delete(cleanIp), 3600000);
+      return d2;
+    }
+  } catch (e) { console.warn(`Geo provider 2 (ipapi.co) failed for ${cleanIp}:`, e.message); }
+
   return {};
 }
 
@@ -1782,4 +1802,23 @@ server.listen(PORT, async () => {
       }
     } catch {}
   }, 90000);
+
+  // ── Backfill missing geo data every 60 seconds ──────────────────────────
+  setInterval(async () => {
+    try {
+      const missing = await db.prepare(
+        "SELECT id, ip FROM visitor_sessions WHERE (country IS NULL OR country = '') AND ip IS NOT NULL AND ip != '' AND ip NOT IN ('::1','127.0.0.1','::ffff:127.0.0.1') ORDER BY created_at DESC LIMIT 5"
+      ).all();
+      for (const row of missing) {
+        const geo = await geoLookup(row.ip);
+        if (geo.country_name || geo.city) {
+          const flag = FLAG_MAP[geo.country_code] || '🌍';
+          await db.prepare(
+            'UPDATE visitor_sessions SET country=?, city=?, region=?, country_code=?, flag=?, lat=?, lng=? WHERE id=?'
+          ).run(geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '', flag, geo.latitude || null, geo.longitude || null, row.id);
+          console.log(`🌍 Backfilled geo for ${row.ip}: ${geo.city}, ${geo.country_name}`);
+        }
+      }
+    } catch {}
+  }, 60000);
 });
