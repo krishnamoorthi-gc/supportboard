@@ -340,16 +340,49 @@ async function processIncomingMessage(event, inbox, pageToken) {
   if (existing) return;
 
   // ── resolve sender profile ────────────────────────────────────────────────
-  let senderName = senderId;
+  // For Instagram Scoped User IDs (IGSIDs) the reliable way to get a human name
+  // is via the conversations endpoint which returns participant data.
+  // We also try a direct node lookup as a fast path first.
+  let senderName   = '';
+  let senderAvatar = '';
+  const inboxCfg    = safeJson(inbox.config, {});
+  const igAccountId = String(inboxCfg.pageId || inboxCfg.igAccountId || '');
+
   if (pageToken) {
+    // Fast path: direct IGSID node lookup
     try {
       const profileRes = await fetch(
-        `${GRAPH_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
+        `${GRAPH_BASE}/${senderId}?fields=name,username,profile_picture_url&access_token=${pageToken}`
       );
       const profile = await profileRes.json();
-      if (profile?.name) senderName = profile.name;
+      if (!profile.error) {
+        if (profile.name)                  senderName   = profile.name;
+        else if (profile.username)         senderName   = profile.username;
+        if (profile.profile_picture_url)   senderAvatar = profile.profile_picture_url;
+      }
     } catch {}
+
+    // Fallback: conversations API — returns participant name reliably
+    if (!senderName && igAccountId) {
+      try {
+        const convUrl = `${GRAPH_BASE}/${igAccountId}/conversations` +
+          `?user_id=${senderId}&fields=participants{id,name,username,profile_pic}` +
+          `&platform=instagram&access_token=${pageToken}`;
+        const convRes  = await fetch(convUrl);
+        const convData = await convRes.json();
+        const participants = convData?.data?.[0]?.participants?.data || [];
+        const participant  = participants.find(p => String(p.id) === String(senderId));
+        if (participant) {
+          if (participant.name)        senderName   = participant.name;
+          else if (participant.username) senderName = participant.username;
+          if (participant.profile_pic) senderAvatar = participant.profile_pic;
+        }
+      } catch {}
+    }
   }
+
+  // Last resort: use the IGSID shortened as a placeholder name
+  if (!senderName) senderName = 'IG User ' + String(senderId).slice(-6);
 
   // ── find or create contact ────────────────────────────────────────────────
   const agentId = inbox.agent_id || null;
@@ -365,13 +398,24 @@ async function processIncomingMessage(event, inbox, pageToken) {
   if (!contact) {
     const ctId = 'ct' + uid();
     await db.prepare(
-      'INSERT INTO contacts (id,name,phone,color,tags,agent_id) VALUES (?,?,?,?,?,?)'
-    ).run(ctId, senderName, 'ig:' + senderId, '#e1306c', '["instagram"]', agentId);
+      'INSERT INTO contacts (id,name,phone,color,tags,agent_id,avatar) VALUES (?,?,?,?,?,?,?)'
+    ).run(ctId, senderName, 'ig:' + senderId, '#e1306c', '["instagram"]', agentId, senderAvatar || null);
     contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(ctId);
-  } else if (contact.name === contact.phone || contact.name === 'ig:' + senderId) {
-    if (senderName && senderName !== senderId) {
+  } else {
+    // Update name if it's still the raw IGSID, the phone value, or a placeholder
+    const isPlaceholder = !contact.name
+      || contact.name === contact.phone
+      || contact.name === 'ig:' + senderId
+      || /^IG User \d+$/.test(contact.name)
+      || contact.name === senderId;
+    if (isPlaceholder && senderName && senderName !== senderId) {
       await db.prepare('UPDATE contacts SET name=? WHERE id=?').run(senderName, contact.id);
       contact.name = senderName;
+    }
+    // Store avatar if we have one and the contact doesn't yet
+    if (senderAvatar && !contact.avatar) {
+      await db.prepare('UPDATE contacts SET avatar=? WHERE id=?').run(senderAvatar, contact.id);
+      contact.avatar = senderAvatar;
     }
   }
 
