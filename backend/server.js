@@ -65,7 +65,7 @@ if (process.env.PUBLIC_URL) {
 }
 console.log('🌐 CORS allowed origins:', ALLOWED_ORIGINS.join(', '));
 // Public endpoints (tracker, widget) — allow ANY origin, handle preflight
-const publicPaths = ['/api/track', '/api/event', '/api/px', '/tracker.js', '/api/monitor/snippet', '/widget'];
+const publicPaths = ['/api/track', '/api/event', '/api/px', '/tracker.js', '/api/monitor/snippet', '/widget', '/api/bot-public', '/chat'];
 app.use((req, res, next) => {
   if (publicPaths.some(p => req.path.startsWith(p))) {
     res.setHeader('Access-Control-Allow-Origin', '*');

@@ -2212,6 +2212,7 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
   const [sendLog,setSendLog]=useState<any[]>([]);
   const [sendLogLoaded,setSendLogLoaded]=useState(false);
   const [sendLogLoading,setSendLogLoading]=useState(false);
+  const [resendingIds,setResendingIds]=useState<Set<string>>(new Set());
   const loadSendLog=async()=>{
     if(sendLogLoaded||sendLogLoading||!api.isConnected())return;
     setSendLogLoading(true);
@@ -2221,6 +2222,16 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
       setSendLogLoaded(true);
     }catch(e:any){showT(e.message||"Failed to load send log","error");}
     setSendLogLoading(false);
+  };
+  const resendLog=async(logId:string)=>{
+    if(!api.isConnected())return;
+    setResendingIds(p=>new Set(p).add(logId));
+    try{
+      await api.post(`/marketing/campaigns/${camp.id}/resend-log/${logId}`,{});
+      setSendLog(p=>p.map(l=>l.id===logId?{...l,status:"sent",error_message:null,sent_at:new Date().toISOString()}:l));
+      showT("Message resent successfully","success");
+    }catch(e:any){showT(e.message||"Resend failed","error");}
+    setResendingIds(p=>{const s=new Set(p);s.delete(logId);return s;});
   };
   const c=camp;
   const dr=mktPct(c.delivered,c.sent),rr=mktPct(c.read,c.delivered),cr=mktPct(c.clicked,c.read),fr=mktPct(c.failed,c.sent);
@@ -2350,11 +2361,11 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
               ))}
             </div>
             <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,overflow:"hidden"}}>
-              <div style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 0.8fr 0.8fr 1.2fr",padding:"8px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>
-                {["Contact","Phone / Email","Channel","Status","Sent At"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.3px"}}>{h}</span>)}
+              <div style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 0.8fr 0.8fr 1.2fr 80px",padding:"8px 14px",borderBottom:`1px solid ${C.b1}`,background:C.s2}}>
+                {["Contact","Phone / Email","Channel","Status","Sent At","Action"].map(h=><span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.3px"}}>{h}</span>)}
               </div>
               {sendLog.map(log=>(
-                <div key={log.id} style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 0.8fr 0.8fr 1.2fr",padding:"10px 14px",borderBottom:`1px solid ${C.b1}11`,alignItems:"center"}}>
+                <div key={log.id} style={{display:"grid",gridTemplateColumns:"2fr 1.5fr 0.8fr 0.8fr 1.2fr 80px",padding:"10px 14px",borderBottom:`1px solid ${C.b1}11`,alignItems:"center"}}>
                   <div>
                     <div style={{fontSize:11,fontWeight:600,color:C.t1}}>{log.contact_name||"Unknown"}</div>
                   </div>
@@ -2364,6 +2375,13 @@ function CampDetailModal({camp,onClose,onEdit,onDuplicate,onDelete,onPause,onLau
                   <div>
                     <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{log.sent_at?new Date(log.sent_at).toLocaleString():"—"}</div>
                     {log.error_message&&<div style={{fontSize:9,color:C.r,marginTop:2,lineHeight:1.3}}>{log.error_message.slice(0,80)}{log.error_message.length>80?"…":""}</div>}
+                  </div>
+                  <div>
+                    {log.status==="failed"&&(
+                      <button onClick={()=>resendLog(log.id)} disabled={resendingIds.has(log.id)} style={{fontSize:10,fontWeight:700,fontFamily:FM,padding:"4px 10px",borderRadius:8,background:resendingIds.has(log.id)?C.b1:C.a,color:"#fff",border:"none",cursor:resendingIds.has(log.id)?"not-allowed":"pointer",opacity:resendingIds.has(log.id)?0.6:1,whiteSpace:"nowrap"}}>
+                        {resendingIds.has(log.id)?"…":"↻ Resend"}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
