@@ -45,19 +45,34 @@ router.post('/subscribe', auth, async (req, res) => {
 
   try {
     // 1. Validate the access token by fetching account info first
+    //    Use only name,username — always available for any valid IG Business token.
+    //    profile_picture_url requires instagram_basic and is fetched separately (non-fatal).
     let pageName = '', pageCategory = '', pagePicture = '';
+    let linkedFbPageId = cfg.facebookPageId || ''; // may be set by admin
     try {
       const infoRes = await fetch(
-        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
+        `${GRAPH_BASE}/${cfg.pageId}?fields=name,username,page&access_token=${cfg.accessToken}`
       );
       const infoData = await infoRes.json();
       if (!infoRes.ok || infoData?.error) {
         const msg = infoData?.error?.message || JSON.stringify(infoData);
         throw new Error(`Invalid access token or account ID: ${msg}`);
       }
-      pageName = infoData.name || '';
-      pageCategory = infoData.category || '';
-      pagePicture = infoData.picture?.data?.url || '';
+      pageName     = infoData.name     || infoData.username || '';
+      pageCategory = infoData.username ? `@${infoData.username}` : '';
+      // Capture linked Facebook Page ID for use in subscribed_apps
+      if (infoData.page?.id) linkedFbPageId = infoData.page.id;
+
+      // Try to fetch profile picture — requires instagram_basic, non-fatal
+      try {
+        const picRes = await fetch(
+          `${GRAPH_BASE}/${cfg.pageId}?fields=profile_picture_url&access_token=${cfg.accessToken}`
+        );
+        const picData = await picRes.json();
+        if (!picData.error && picData.profile_picture_url) {
+          pagePicture = picData.profile_picture_url;
+        }
+      } catch {}
     } catch (infoErr) {
       throw new Error(`Access token validation failed: ${infoErr.message}`);
     }
@@ -99,8 +114,12 @@ router.post('/subscribe', auth, async (req, res) => {
       });
     }
 
-    // 3. Subscribe the linked Facebook page to webhooks (Instagram DMs route via page)
-    const subUrl = new URL(`${GRAPH_BASE}/${cfg.pageId}/subscribed_apps`);
+    // 3. Subscribe the linked Facebook page to webhooks
+    //    subscribed_apps requires a FACEBOOK PAGE ID (not the IG account ID).
+    //    Use the linked FB Page ID resolved above; fall back to cfg.pageId so we at
+    //    least attempt it (won't throw either way — kept non-fatal).
+    const subTarget = linkedFbPageId || cfg.pageId;
+    const subUrl = new URL(`${GRAPH_BASE}/${subTarget}/subscribed_apps`);
     subUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,message_deliveries,message_reads');
     const subRes = await fetch(subUrl, {
       method: 'POST',
@@ -113,6 +132,8 @@ router.post('/subscribe', auth, async (req, res) => {
     if (!subRes.ok || subData?.error) {
       console.warn('[instagram] Page subscription warning:', subData?.error?.message || JSON.stringify(subData));
       // Don't fail — Instagram may not need page-level subscription for all setups
+    } else {
+      console.log(`[instagram] ✓ FB Page ${subTarget} subscribed to webhook events`);
     }
 
     // 4. App-level webhook subscription for Instagram object
@@ -149,6 +170,8 @@ router.post('/subscribe', auth, async (req, res) => {
       pageCategory: pageCategory || cfg.pageCategory || '',
       pagePicture: pagePicture || cfg.pagePicture || '',
       connectedAt: now(),
+      // Persist the linked Facebook Page ID if we resolved it
+      ...(linkedFbPageId ? { facebookPageId: linkedFbPageId } : {}),
     };
     await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify(newCfg), inboxId);
 
