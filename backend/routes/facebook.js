@@ -569,7 +569,7 @@ router.get('/users', auth, async (req, res) => {
     // ── Source 2: Page conversations (people who messaged via Messenger) ──
     if (fb.pageId && fb.accessToken) {
       try {
-        const convsUrl = `${GRAPH_BASE}/${fb.pageId}/conversations?fields=participants,updated_time,message_count&limit=50&access_token=${fb.accessToken}`;
+        const convsUrl = `${GRAPH_BASE}/${fb.pageId}/conversations?fields=participants{id,name,profile_pic},updated_time,message_count&limit=50&access_token=${fb.accessToken}`;
         const convsRes = await fetch(convsUrl);
         const convsData = await convsRes.json();
         for (const conv of convsData.data || []) {
@@ -579,7 +579,7 @@ router.get('/users', auth, async (req, res) => {
               usersMap.set(p.id, {
                 fbId: p.id,
                 name: p.name || p.id,
-                picture: '',
+                picture: p.profile_pic || '',
                 source: 'messenger',
                 messageCount: conv.message_count || 0,
                 lastActive: conv.updated_time || '',
@@ -611,6 +611,37 @@ router.get('/users', auth, async (req, res) => {
         }
       }
     } catch {}
+
+    // Batch-fetch profile pictures for users still missing them (messenger/contact sources)
+    if (fb.accessToken) {
+      const noPicIds = Array.from(usersMap.entries())
+        .filter(([, u]) => !u.picture)
+        .map(([id]) => id)
+        .slice(0, 50);
+      if (noPicIds.length > 0) {
+        try {
+          const batchRequests = noPicIds.map(id => ({ method: 'GET', relative_url: `${id}?fields=profile_pic` }));
+          const batchRes = await fetch(`${GRAPH_BASE}/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `batch=${encodeURIComponent(JSON.stringify(batchRequests))}&access_token=${fb.accessToken}&include_headers=false`,
+          });
+          const batchData = await batchRes.json();
+          if (Array.isArray(batchData)) {
+            batchData.forEach((result, i) => {
+              if (result && result.code === 200) {
+                try {
+                  const userData = JSON.parse(result.body);
+                  if (userData.profile_pic) usersMap.get(noPicIds[i]).picture = userData.profile_pic;
+                } catch {}
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('[facebook] Batch profile pic fetch error:', e.message);
+        }
+      }
+    }
 
     let users = Array.from(usersMap.values());
 
