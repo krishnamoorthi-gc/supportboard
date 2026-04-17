@@ -160,6 +160,14 @@ router.post('/', auth, async (req, res) => {
     });
   } catch (_) {}
 
+  // Fire workflow trigger: new_conversation
+  try {
+    require('../services/workflowEngine').dispatchTrigger('new_conversation', {
+      conversation: cv,
+      contact: { id: cv.contact_id, name: cv.contact_name, email: cv.contact_email, phone: cv.contact_phone, company: cv.contact_company },
+    });
+  } catch (e) { console.error('[workflow] trigger error:', e.message); }
+
   res.status(201).json({ conversation: cv });
 });
 
@@ -210,6 +218,14 @@ router.patch('/:id', auth, async (req, res) => {
     agent_name: req.agent.name,
     agent_id: req.agent.id
   });
+
+  // Fire workflow triggers for status/csat changes
+  try {
+    const wfEngine = require('../services/workflowEngine');
+    const ctxBase = { conversation: updated, contact: { id: updated.contact_id, name: updated.contact_name, email: updated.contact_email } };
+    if (status === 'resolved') wfEngine.dispatchTrigger('conversation_resolved', ctxBase);
+    if (csat_score !== undefined) wfEngine.dispatchTrigger('csat_received', { ...ctxBase, csat: { score: csat_score, comment: csat_comment } });
+  } catch (e) { console.error('[workflow] update trigger error:', e.message); }
 
   res.json({ conversation: updated });
 });
@@ -485,6 +501,17 @@ router.post('/:id/messages', auth, async (req, res) => {
       conversation: fullConv || null,
     });
   } catch (_) {}
+
+  // Fire workflow trigger: new_message (only for inbound/customer messages)
+  try {
+    if (msg?.role === 'customer' || msg?.role === 'user') {
+      require('../services/workflowEngine').dispatchTrigger('new_message', {
+        conversation: fullConv,
+        message: msg,
+        contact: fullConv ? { id: fullConv.contact_id, name: fullConv.contact_name, email: fullConv.contact_email } : null,
+      });
+    }
+  } catch (e) { console.error('[workflow] trigger error:', e.message); }
 
   res.status(201).json({
     message: msg,

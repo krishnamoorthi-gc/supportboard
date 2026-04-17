@@ -137,6 +137,8 @@ router.post('/', auth, async (req, res) => {
     id, name, email||null, phone||null, company||null, avatar||null, color||'#4c82fb', JSON.stringify(tags), notes||null, location||null, req.agent.id
   );
   const contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
+  // Fire workflow trigger: contact_created
+  try { require('../services/workflowEngine').dispatchTrigger('contact_created', { contact }); } catch {}
   res.status(201).json({ contact });
 });
 

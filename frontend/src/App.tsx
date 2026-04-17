@@ -496,6 +496,8 @@ export default function App(){
       const ws=new WebSocket(`${wsProto}://${wsHost}/ws?token=${encodeURIComponent(token)}`);
       ws.onopen=()=>{showT("Live connected","success");};
       ws.onmessage=e=>{try{const m=JSON.parse(e.data);
+        // Global event bus so pages (like WorkflowScr) can subscribe
+        try { window.dispatchEvent(new CustomEvent("ws", { detail: m })); } catch {}
         if(m.type==="chat_message"&&m.message){
           pushNotification({text:m.message.author+" sent a message in "+m.channel,type:"message",targetScreen:"teamchat"});
         }

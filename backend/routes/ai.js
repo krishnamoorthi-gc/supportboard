@@ -390,3 +390,5 @@ router.post('/chat', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.callGemini = callGemini;
+module.exports.callGeminiChat = callGeminiChat;

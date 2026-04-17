@@ -33,6 +33,11 @@ const server = http.createServer(app);
 // ── WebSocket ──
 const { setupWebSocket } = require('./ws');
 setupWebSocket(server);
+// Wire workflow engine to WebSocket broadcaster
+try {
+  const wfEngine = require('./services/workflowEngine');
+  wfEngine.setWsRef(require('./ws'));
+} catch (e) { console.warn('[workflow] engine init skipped:', e.message); }
 
 // Trust reverse proxy (nginx) so rate-limit sees real client IP from X-Forwarded-For
 app.set('trust proxy', 1);
@@ -1351,6 +1356,7 @@ app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/kb', require('./routes/kb'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/workflows', require('./routes/workflows'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/sales-agent', require('./routes/sales-agent'));
