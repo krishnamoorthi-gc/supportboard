@@ -744,7 +744,7 @@ app.options('/api/bot-public/:token/pre-chat', widgetCors, (req, res) => res.sen
 // ── Widget script ──
 app.get('/widget/bot.js', widgetCors, (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
-  const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001';
+  const BACKEND = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.send(`(function(){
   'use strict';
   var scripts=document.querySelectorAll('script[data-bot-id]');
@@ -1060,7 +1060,7 @@ loadForm();
 // ── Standalone bot chat page ──
 app.get('/chat', widgetCors, (req, res) => {
   const token = req.query.bot || '';
-  const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001';
+  const BACKEND = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="en">
