@@ -103,7 +103,19 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
       const d=await api.get('/monitor/visitors');
       if(d?.visitors){
         const mapped=d.visitors.map(mapApiVisitor);
-        setVisitors(mapped);
+        // Merge: for active visitors, preserve the existing 'joined' anchor so timeOnSite doesn't jump
+        setVisitors(prev=>{
+          if(!prev.length)return mapped;
+          const prevMap=new Map(prev.map(v=>[v.id,v]));
+          return mapped.map(v=>{
+            const old=prevMap.get(v.id);
+            if(old&&v.isActive&&old.isActive){
+              // Keep the stable joined timestamp and recompute timeOnSite from it
+              return {...v,joined:old.joined,timeOnSite:Math.max(0,Math.floor((Date.now()-old.joined)/1000))};
+            }
+            return v;
+          });
+        });
         if(setLiveVisitors)setLiveVisitors(d.visitors);
         setLastRefresh(Date.now());
       }
