@@ -40,10 +40,11 @@ function mapApiVisitor(v:any){
     prevPages: v.pages_visited||1,
     pageHistory: (() => { try { return JSON.parse(v.page_history || '[]'); } catch { return [v.page || '/']; } })(),
     timeOnSite: (() => {
-      if (v.duration && !isNaN(parseInt(v.duration))) return parseInt(v.duration);
       const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now();
-      const diff = Math.floor((Date.now() - joined) / 1000);
-      return isNaN(diff) ? 0 : diff;
+      const isOnline = !!v.is_active;
+      if (isOnline) return Math.max(0, Math.floor((Date.now() - joined) / 1000));
+      if (v.duration && !isNaN(parseInt(v.duration))) return parseInt(v.duration);
+      return Math.max(0, Math.floor((Date.now() - joined) / 1000));
     })(),
     visitedAt: v.created_at || '',
     joined: v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now(),
@@ -135,13 +136,24 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
     setVisitors(liveVisitors.map(mapApiVisitor));
   },[liveVisitors]);
 
-  // Recompute timeOnSite every 3 seconds
+  // Tick active visitors' timeOnSite every 3s using joined anchor — single source of truth
   useEffect(()=>{
+    const hasActive=visitors.some(v=>v.isActive);
+    if(!hasActive)return;
     const t=setInterval(()=>{
-      setVisitors(prev=>prev.map(v=>({...v,timeOnSite:Math.floor((Date.now()-v.joined)/1000)})));
-    },3000);
+      setVisitors(prev=>{
+        let changed=false;
+        const next=prev.map(v=>{
+          if(!v.isActive)return v;
+          const t2=Math.floor((Date.now()-v.joined)/1000);
+          if(t2!==v.timeOnSite){changed=true;return{...v,timeOnSite:t2};}
+          return v;
+        });
+        return changed?next:prev;
+      });
+    },1000);
     return ()=>clearInterval(t);
-  },[]);
+  },[visitors.length]);
 
   // ── AI Visitor Intent ────────────────────────────────────────────────────
   const genMonAi=async()=>{

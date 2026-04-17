@@ -49,6 +49,7 @@ const rateLimit = require('express-rate-limit');
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
@@ -297,7 +298,7 @@ app.post('/api/track', widgetCors, async (req, res) => {
     if (event === 'leave') {
       const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (existing) {
-        await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=?, last_seen=DATE_SUB(NOW(), INTERVAL 5 MINUTE), status="offline" WHERE session_id=?').run(page || '', duration || 0, session_id);
+        await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), last_seen=DATE_SUB(NOW(), INTERVAL 5 MINUTE), status="offline" WHERE session_id=?').run(page || '', session_id);
         broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
       }
       return;
@@ -323,10 +324,10 @@ app.post('/api/track', widgetCors, async (req, res) => {
       const vGoogle = identify.google_id || existing.visitor_google_id;
 
       await db.prepare(
-        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=?, exit_page=?, last_seen=?, status="browsing", 
+        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=TIMESTAMPDIFF(SECOND, created_at, ?), exit_page=?, last_seen=?, status="browsing",
          visitor_name=?, visitor_email=?, visitor_phone=?, visitor_avatar=?, visitor_google_id=?, utm_source=?
          WHERE session_id=?`
-      ).run(page, JSON.stringify(history), newCount, duration || 0, page, now, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
+      ).run(page, JSON.stringify(history), newCount, now, page, now, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
       
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
@@ -1431,7 +1432,13 @@ app.use('/api/instagram', require('./routes/instagram'));
 // SMS (Twilio) inbound webhook + delivery status callbacks (public, no auth)
 app.use('/api/sms', require('./routes/sms'));
 
-// Live monitor - real visitor sessions
+// Live monitor - snippet endpoint is public (no auth)
+app.get('/api/monitor/snippet', (req, res) => {
+  const backendUrl = process.env.PUBLIC_URL || process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4002}`;
+  const snippet = `<!-- SupportDesk Live Visitor Tracking -->\n<script src="${backendUrl}/tracker.js" async></script>`;
+  res.json({ snippet, backendUrl, trackerUrl: `${backendUrl}/tracker.js` });
+});
+// Live monitor - remaining routes require auth
 app.use('/api/monitor', require('./middleware/auth'), require('./routes/monitor'));
 
 // Notifications
