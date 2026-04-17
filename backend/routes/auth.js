@@ -5,14 +5,16 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid } = require('../utils/helpers');
 
+const rateLimit = require('express-rate-limit');
 const SECRET = () => process.env.JWT_SECRET || 'supportdesk_secret';
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts, try again in 15 minutes' }, standardHeaders: true, legacyHeaders: false });
 
 // POST /api/auth/register + /api/auth/signup (alias for proxy compatibility)
 async function handleRegister(req, res) {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password required' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) return res.status(400).json({ error: 'Password must be 8+ chars with uppercase and number' });
 
     const existing = await db.prepare('SELECT id FROM agents WHERE email = ?').get(email.toLowerCase().trim());
     if (existing) return res.status(409).json({ error: 'Email already registered' });
@@ -46,8 +48,8 @@ async function handleRegister(req, res) {
 router.post('/register', handleRegister);
 router.post('/signup', handleRegister);
 
-// POST /api/auth/login
-router.post('/login', async (req, res) => {
+// POST /api/auth/login (rate limited: 10 attempts per 15 min)
+router.post('/login', loginLimiter, async (req, res) => {
   const { name, email, password } = req.body;
 
   // If name is provided, treat as registration

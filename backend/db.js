@@ -27,8 +27,10 @@ async function init() {
     database,
     multipleStatements: true,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 50,
+    queueLimit: 20,
     idleTimeout: 60000,
+    enableKeepAlive: true,
     charset: 'UTF8MB4_GENERAL_CI',
   });
   // Belt-and-suspenders: also SET NAMES on every new connection
@@ -1444,6 +1446,15 @@ async function ensureSchemaColumns() {
         console.log('✅ Added agent_id to ai_agents');
       }
     } catch (e) { console.error('ai_agents agent_id column:', e.message); }
+
+    // ── Ensure automations has completed_count column ─────────────────────
+    try {
+      const autoCols = new Set((await query('SHOW COLUMNS FROM automations')).map(c => c.Field));
+      if (!autoCols.has('completed_count')) {
+        await run('ALTER TABLE automations ADD COLUMN completed_count INT DEFAULT 0');
+        console.log('✅ Added completed_count to automations');
+      }
+    } catch (e) { console.error('automations completed_count column:', e.message); }
 
   } catch (e) {
     console.error('Failed to ensure schema columns:', e.message);

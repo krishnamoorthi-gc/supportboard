@@ -22,22 +22,29 @@ function setupWebSocket(server) {
   const wss = new WebSocket.Server({ server, path: '/ws' });
 
   wss.on('connection', (ws, req) => {
-    // Auth from query param
     const url = new URL(req.url, 'http://localhost');
     const token = url.searchParams.get('token');
     let agentId = null;
 
     if (token) {
       try {
-        const payload = jwt.verify(token, process.env.JWT_SECRET || 'supportdesk_secret');
+        const payload = jwt.verify(token, process.env.JWT_SECRET || process.env.npm_package_name || 'change_me_in_env');
         agentId = payload.id;
         if (!clients.has(agentId)) clients.set(agentId, new Set());
         clients.get(agentId).add(ws);
-      } catch {}
+      } catch {
+        ws.close(4001, 'Invalid token');
+        return;
+      }
     }
 
+    // Rate limit: 60 messages per minute
+    let msgCount = 0;
+    let msgResetTime = Date.now();
     ws.on('message', (raw) => {
       try {
+        if (Date.now() - msgResetTime > 60000) { msgCount = 0; msgResetTime = Date.now(); }
+        if (++msgCount > 60) { ws.close(4029, 'Rate limited'); return; }
         const msg = JSON.parse(raw.toString());
         handleMessage(ws, agentId, msg);
       } catch {}

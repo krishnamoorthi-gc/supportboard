@@ -11,7 +11,7 @@
 const router = require('express').Router();
 const db     = require('../db');
 const { uid }                   = require('../utils/helpers');
-const { broadcastToAll }        = require('../ws');
+const { broadcastToAll, sendToAgent } = require('../ws');
 const { downloadInboundMedia, getInboxConfig } = require('../services/whatsappService');
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -302,9 +302,9 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
            null, inbox.agent_id || null, ts, ts);
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
-    // Broadcast new conversation
+    // Broadcast new conversation — only to the inbox owner
     const fullConv = await buildFullConv(cvId);
-    broadcastToAll({
+    const _newConvPayload = {
       type: 'new_conversation',
       conversation_id: cvId,
       subject,
@@ -313,7 +313,9 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
       campaign_id: campaignId,
       campaign_name: campaignName,
       conversation: fullConv,
-    });
+    };
+    if (inbox.agent_id) sendToAgent(inbox.agent_id, _newConvPayload);
+    else broadcastToAll(_newConvPayload);
   } else if (campaignId && !conv.campaign_id) {
     // Tag existing conversation with campaign if not already tagged
     await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
@@ -373,18 +375,19 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
     'UPDATE conversations SET updated_at=?, unread_count=COALESCE(unread_count,0)+1 WHERE id=?'
   ).run(ts, conv.id);
 
-  // ── broadcast to dashboard ────────────────────────────────────────────────
+  // ── broadcast to inbox owner only ────────────────────────────────────────
   const savedMsg = await db.prepare('SELECT * FROM messages WHERE id=?').get(msgId);
   try { savedMsg.attachments = JSON.parse(savedMsg.attachments || '[]'); } catch { savedMsg.attachments = []; }
 
   const fullConv = await buildFullConv(conv.id);
-
-  broadcastToAll({
+  const _newMsgPayload = {
     type: 'new_message',
     conversationId: conv.id,
     message: savedMsg,
     conversation: fullConv,
-  });
+  };
+  if (inbox.agent_id) sendToAgent(inbox.agent_id, _newMsgPayload);
+  else broadcastToAll(_newMsgPayload);
 
   console.log(`[whatsapp] ✓ Received ${msgType} from ${fromPhone} → conv ${conv.id}`);
 }

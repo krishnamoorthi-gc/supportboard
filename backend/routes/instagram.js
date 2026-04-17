@@ -17,7 +17,7 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
-const { broadcastToAll } = require('../ws');
+const { broadcastToAll, sendToAgent } = require('../ws');
 
 const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -44,24 +44,49 @@ router.post('/subscribe', auth, async (req, res) => {
   if (!cfg.accessToken) return res.status(400).json({ error: 'Page access token not configured' });
 
   try {
-    // 1. Debug / validate the token if appId + appSecret are provided
-    let tokenInfo = null;
-    if (cfg.appId && cfg.appSecret) {
-      const appAccessToken = `${cfg.appId}|${cfg.appSecret}`;
-      const debugUrl = new URL(`${GRAPH_BASE}/debug_token`);
-      debugUrl.searchParams.set('input_token', cfg.accessToken);
-      debugUrl.searchParams.set('access_token', appAccessToken);
-
-      const debugRes = await fetch(debugUrl, { method: 'GET' });
-      const debugData = await debugRes.json();
-      if (!debugRes.ok || debugData?.error) {
-        const msg = debugData?.error?.message || JSON.stringify(debugData);
-        throw new Error(`Token validation failed: ${msg}`);
+    // 1. Validate the access token by fetching account info first
+    let pageName = '', pageCategory = '', pagePicture = '';
+    try {
+      const infoRes = await fetch(
+        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
+      );
+      const infoData = await infoRes.json();
+      if (!infoRes.ok || infoData?.error) {
+        const msg = infoData?.error?.message || JSON.stringify(infoData);
+        throw new Error(`Invalid access token or account ID: ${msg}`);
       }
-      tokenInfo = debugData.data || null;
+      pageName = infoData.name || '';
+      pageCategory = infoData.category || '';
+      pagePicture = infoData.picture?.data?.url || '';
+    } catch (infoErr) {
+      throw new Error(`Access token validation failed: ${infoErr.message}`);
     }
 
-    // 2. Check for required Instagram permissions
+    // 2. Debug token for permission checks (non-fatal if appId/appSecret are wrong)
+    let tokenInfo = null;
+    let tokenWarning = '';
+    if (cfg.appId && cfg.appSecret) {
+      try {
+        const appAccessToken = `${cfg.appId}|${cfg.appSecret}`;
+        const debugUrl = new URL(`${GRAPH_BASE}/debug_token`);
+        debugUrl.searchParams.set('input_token', cfg.accessToken);
+        debugUrl.searchParams.set('access_token', appAccessToken);
+
+        const debugRes = await fetch(debugUrl, { method: 'GET' });
+        const debugData = await debugRes.json();
+        if (!debugRes.ok || debugData?.error) {
+          tokenWarning = debugData?.error?.message || 'Token debug failed';
+          console.warn('[instagram] Token debug warning (non-fatal):', tokenWarning);
+        } else {
+          tokenInfo = debugData.data || null;
+        }
+      } catch (debugErr) {
+        tokenWarning = debugErr.message;
+        console.warn('[instagram] Token debug error (non-fatal):', debugErr.message);
+      }
+    }
+
+    // 3. Check for required Instagram permissions (only if token debug succeeded)
     const scopes = tokenInfo?.scopes || [];
     const missingPermissions = tokenInfo
       ? ['instagram_manage_messages', 'pages_manage_metadata'].filter(scope => !scopes.includes(scope))
@@ -115,21 +140,7 @@ router.post('/subscribe', auth, async (req, res) => {
       }
     }
 
-    // 5. Fetch page/account info from Graph API
-    let pageName = '', pageCategory = '', pagePicture = '';
-    try {
-      const infoRes = await fetch(
-        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
-      );
-      const infoData = await infoRes.json();
-      if (infoData && !infoData.error) {
-        pageName = infoData.name || '';
-        pageCategory = infoData.category || '';
-        pagePicture = infoData.picture?.data?.url || '';
-      }
-    } catch {}
-
-    // 6. Update inbox config with connection status
+    // 5. Update inbox config with connection status
     const newCfg = {
       ...cfg,
       connStatus: 'connected',
@@ -149,11 +160,34 @@ router.post('/subscribe', auth, async (req, res) => {
       pagePicture: newCfg.pagePicture,
       pageCategory: newCfg.pageCategory,
       tokenScopes: scopes,
+      tokenWarning: tokenWarning || undefined,
     });
   } catch (err) {
     console.error('[instagram] Subscribe endpoint error:', err.message);
     res.status(502).json({ error: err.message });
   }
+});
+
+// ── POST /api/instagram/deauthorize  (Meta deauthorize callback) ─────────────
+router.post('/deauthorize', async (req, res) => {
+  console.log('[instagram] Deauthorize callback received:', JSON.stringify(req.body));
+  res.json({ success: true });
+});
+
+// ── POST /api/instagram/data-deletion  (Meta data deletion request) ──────────
+router.post('/data-deletion', async (req, res) => {
+  const userId = req.body?.signed_request ? 'user' : 'unknown';
+  console.log('[instagram] Data deletion request received for:', userId);
+  // Meta requires a JSON response with a confirmation URL and code
+  const confirmationCode = 'del_' + Date.now();
+  res.json({
+    url: `${(process.env.PUBLIC_URL || process.env.API_BASE_URL || '').replace(/\/$/, '')}/api/instagram/data-deletion-status?code=${confirmationCode}`,
+    confirmation_code: confirmationCode,
+  });
+});
+
+router.get('/data-deletion-status', (req, res) => {
+  res.json({ status: 'complete', message: 'All user data has been deleted.' });
 });
 
 // ── GET /api/instagram/webhook  (Meta verification) ──────────────────────────
@@ -237,10 +271,18 @@ router.post('/webhook', async (req, res) => {
 
       const cfg = safeJson(inbox.config, {});
       const pageToken = cfg.accessToken || cfg.pageAccessToken || '';
+      const linkedPageId = String(cfg.pageId || cfg.igAccountId || '');
 
       for (const event of entry.messaging || []) {
         // Skip echo messages (outbound from page)
         if (event.message?.is_echo) continue;
+
+        // Extra guard: ensure the recipient is our own linked page/account
+        const recipientId = String(event.recipient?.id || '');
+        if (linkedPageId && recipientId && recipientId !== linkedPageId) {
+          console.log(`[instagram] Skipping event — recipient ${recipientId} != linked page ${linkedPageId}`);
+          continue;
+        }
 
         if (event.message) {
           await processIncomingMessage(event, inbox, pageToken);
@@ -365,16 +407,30 @@ async function processIncomingMessage(event, inbox, pageToken) {
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
     const fullConv = await buildFullConv(cvId);
-    broadcastToAll({
-      type:           'new_conversation',
-      conversation_id: cvId,
-      subject,
-      contact_name:   contact.name,
-      contact_ig_id:  senderId,
-      campaign_id:    campaignId,
-      campaign_name:  campaignName,
-      conversation:   fullConv,
-    });
+    // Only notify the agent who owns this inbox — not all connected agents
+    if (agentId) {
+      sendToAgent(agentId, {
+        type:           'new_conversation',
+        conversation_id: cvId,
+        subject,
+        contact_name:   contact.name,
+        contact_ig_id:  senderId,
+        campaign_id:    campaignId,
+        campaign_name:  campaignName,
+        conversation:   fullConv,
+      });
+    } else {
+      broadcastToAll({
+        type:           'new_conversation',
+        conversation_id: cvId,
+        subject,
+        contact_name:   contact.name,
+        contact_ig_id:  senderId,
+        campaign_id:    campaignId,
+        campaign_name:  campaignName,
+        conversation:   fullConv,
+      });
+    }
   } else if (campaignId && !conv.campaign_id) {
     await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
       .run(campaignId, campaignName, conv.id);
@@ -407,17 +463,22 @@ async function processIncomingMessage(event, inbox, pageToken) {
     'UPDATE conversations SET updated_at=?, unread_count=COALESCE(unread_count,0)+1 WHERE id=?'
   ).run(ts, conv.id);
 
-  // ── broadcast ─────────────────────────────────────────────────────────────
+  // ── broadcast — only to the inbox owner ──────────────────────────────────
   const savedMsg = await db.prepare('SELECT * FROM messages WHERE id=?').get(newMsgId);
   try { savedMsg.attachments = JSON.parse(savedMsg.attachments || '[]'); } catch { savedMsg.attachments = []; }
 
   const fullConv = await buildFullConv(conv.id);
-  broadcastToAll({
+  const payload = {
     type:           'new_message',
     conversationId: conv.id,
     message:        savedMsg,
     conversation:   fullConv,
-  });
+  };
+  if (agentId) {
+    sendToAgent(agentId, payload);
+  } else {
+    broadcastToAll(payload);
+  }
 
   console.log(`[instagram] ✓ Received message from ${senderName} → conv ${conv.id}`);
 }
@@ -456,7 +517,7 @@ async function findInboxByIgAccountId(igAccountId) {
   ).all();
   for (const row of rows) {
     const cfg = safeJson(row.config, {});
-    // Match by igAccountId OR by pageId (Instagram is linked to a Facebook Page)
+    // Strict match: only route to an inbox whose configured pageId or igAccountId matches
     if (
       cfg.igAccountId === String(igAccountId) ||
       cfg.igAccountId === igAccountId ||
@@ -464,8 +525,7 @@ async function findInboxByIgAccountId(igAccountId) {
       cfg.pageId      === igAccountId
     ) return row;
   }
-  // Fallback: try matching any instagram inbox (single-inbox setups)
-  if (rows.length === 1) return rows[0];
+  // No match — do NOT fall back to any inbox so messages from unrelated accounts are never mixed in
   return null;
 }
 

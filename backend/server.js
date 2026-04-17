@@ -34,23 +34,69 @@ const server = http.createServer(app);
 const { setupWebSocket } = require('./ws');
 setupWebSocket(server);
 
-// ── Middleware ──
+// Trust reverse proxy (nginx) so rate-limit sees real client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// ── Security middleware ──
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+    else cb(null, ALLOWED_ORIGINS[0]);
+  },
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// API-wide rate limiting (100 req/min per IP)
+app.use('/api/', rateLimit({ windowMs: 60000, max: 100, standardHeaders: true, legacyHeaders: false }));
 
 // ── File uploads ──
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
+const UPLOAD_ALLOWED_TYPES = [
+  'image/jpeg','image/png','image/gif','image/webp','image/svg+xml',
+  'application/pdf','text/csv','text/plain',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword','application/vnd.ms-excel','application/zip',
+  'application/x-zip-compressed','application/octet-stream',
+  // Audio — voice messages & media
+  'audio/mpeg','audio/mp3','audio/wav','audio/ogg','audio/webm',
+  'audio/aac','audio/mp4','audio/x-m4a',
+  // Video
+  'video/mp4','video/webm','video/ogg','video/quicktime',
+];
 const storage = multer.diskStorage({
   destination: uploadDir,
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname.replace(/\s/g, '_')),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.bin';
+    cb(null, require('crypto').randomUUID() + ext);
+  },
 });
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+  fileFilter: (req, file, cb) => {
+    const allowed = UPLOAD_ALLOWED_TYPES.includes(file.mimetype) ||
+      file.mimetype.startsWith('image/') ||
+      file.mimetype.startsWith('audio/') ||
+      file.mimetype.startsWith('video/');
+    if (!allowed) return cb(new Error('File type not allowed'));
+    cb(null, true);
+  },
+});
 
 app.post('/api/upload', require('./middleware/auth'), upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
@@ -1513,7 +1559,81 @@ server.listen(PORT, async () => {
     }
   }, 3000); // 3 s delay lets DB init + seed complete first
 
-  // ── Cleanup stale visitor sessions every 90 seconds (Mark offline, don't delete) ──────
+  // ── Campaign scheduler — check for scheduled campaigns every 60 seconds ──
+  setInterval(async () => {
+    try {
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const scheduled = await db.prepare(
+        "SELECT * FROM campaigns WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ?"
+      ).all(now);
+      if (scheduled.length > 0) {
+        const { launchCampaign, normalizeCampaignRow } = require('./routes/marketing');
+        for (const camp of scheduled) {
+          try {
+            console.log(`🚀 Auto-launching scheduled campaign: ${camp.name} (${camp.id})`);
+            await launchCampaign(camp, camp.agent_id);
+          } catch (e) {
+            console.error(`❌ Scheduled campaign ${camp.id} failed:`, e.message);
+            await db.prepare("UPDATE campaigns SET status='failed' WHERE id=?").run(camp.id);
+          }
+        }
+      }
+    } catch (e) { /* silent */ }
+  }, 60000);
+
+  // ── Automation engine — process triggers every 60 seconds ───────────────
+  setInterval(async () => {
+    try {
+      const activeAutos = await db.prepare(
+        "SELECT * FROM automations WHERE active=1"
+      ).all();
+      for (const auto of activeAutos) {
+        try {
+          const trigger = auto.trigger_type || '';
+          let actions = auto.actions || '[]';
+          if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+          if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+          if (!Array.isArray(actions) || !actions.length) continue;
+
+          let matchedContacts = [];
+          const aid = auto.agent_id;
+          if (!aid) continue;
+
+          // Match contacts based on trigger type
+          if (trigger === 'Contact Created') {
+            const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
+            matchedContacts = await db.prepare(
+              "SELECT * FROM contacts WHERE agent_id=? AND created_at >= ?"
+            ).all(aid, cutoff);
+          } else if (trigger === 'Conversation Resolved') {
+            const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
+            matchedContacts = await db.prepare(
+              "SELECT DISTINCT ct.* FROM contacts ct JOIN conversations c ON c.contact_id=ct.id WHERE c.agent_id=? AND c.status='resolved' AND c.updated_at >= ?"
+            ).all(aid, cutoff);
+          } else if (trigger === 'Tag Added') {
+            const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
+            matchedContacts = await db.prepare(
+              "SELECT * FROM contacts WHERE agent_id=? AND updated_at >= ? AND tags IS NOT NULL AND tags != '[]'"
+            ).all(aid, cutoff);
+          }
+
+          if (matchedContacts.length > 0) {
+            const firstSendStep = actions.find(a => typeof a === 'string' && !a.toLowerCase().includes('wait'));
+            if (firstSendStep) {
+              console.log(`⚡ Automation "${auto.name}" triggered for ${matchedContacts.length} contact(s)`);
+              await db.prepare(
+                'UPDATE automations SET run_count=run_count+?, completed_count=completed_count+? WHERE id=?'
+              ).run(matchedContacts.length, matchedContacts.length, auto.id);
+            }
+          }
+        } catch (e) {
+          console.error(`❌ Automation ${auto.id} error:`, e.message);
+        }
+      }
+    } catch (e) { /* silent */ }
+  }, 60000);
+
+  // ── Cleanup stale visitor sessions every 90 seconds ──────────────────────
   setInterval(async () => {
     try {
       const { broadcastToAll } = require('./ws');

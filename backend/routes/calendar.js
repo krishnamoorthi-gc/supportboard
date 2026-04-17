@@ -3,7 +3,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { uid } = require('../utils/helpers');
 
-router.get('/', auth, async (req, res) => {
+router.get('/events', auth, async (req, res) => {
   const { from, to } = req.query;
   let where = 'created_by=?'; const params = [req.agent.id];
   if (from) { where += ' AND start_time >= ?'; params.push(from); }
@@ -13,14 +13,14 @@ router.get('/', auth, async (req, res) => {
   res.json({ events });
 });
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/events/:id', auth, async (req, res) => {
   const e = await db.prepare('SELECT * FROM calendar_events WHERE id=? AND created_by=?').get(req.params.id, req.agent.id);
   if (!e) return res.status(404).json({ error: 'Not found' });
   try { e.attendees = JSON.parse(e.attendees||'[]'); } catch { e.attendees=[]; }
   res.json({ event: e });
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/events', auth, async (req, res) => {
   const { title, description, start_time, end_time, all_day=0, type='meeting', color, attendees=[], location, recurrence, meeting_link } = req.body;
   if (!title || !start_time) return res.status(400).json({ error: 'title and start_time required' });
   const id = uid();
@@ -32,7 +32,7 @@ router.post('/', auth, async (req, res) => {
   res.status(201).json({ event: ev });
 });
 
-router.patch('/:id', auth, async (req, res) => {
+router.patch('/events/:id', auth, async (req, res) => {
   const e = await db.prepare('SELECT * FROM calendar_events WHERE id=? AND created_by=?').get(req.params.id, req.agent.id);
   if (!e) return res.status(404).json({ error: 'Not found' });
   const fields = ['title','description','start_time','end_time','all_day','type','color','location','recurrence','meeting_link'];
@@ -47,7 +47,7 @@ router.patch('/:id', auth, async (req, res) => {
   res.json({ event: updatedEvent });
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/events/:id', auth, async (req, res) => {
   const e = await db.prepare('SELECT id FROM calendar_events WHERE id=? AND created_by=?').get(req.params.id, req.agent.id);
   if (!e) return res.status(404).json({ error: 'Not found' });
   await db.prepare('DELETE FROM calendar_events WHERE id=? AND created_by=?').run(req.params.id, req.agent.id);
@@ -55,7 +55,7 @@ router.delete('/:id', auth, async (req, res) => {
 });
 
 // ═══ SEND INVITE for calendar event ═══
-router.post('/:id/invite', auth, async (req, res) => {
+router.post('/events/:id/invite', auth, async (req, res) => {
   const e = await db.prepare('SELECT * FROM calendar_events WHERE id=? AND created_by=?').get(req.params.id, req.agent.id);
   if (!e) return res.status(404).json({ error: 'Not found' });
 

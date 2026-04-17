@@ -43,6 +43,7 @@ async function sendInstagramMessage({ inboxId, to, text, attachments = [] }) {
   if (!pageAccessToken) throw new Error(`Instagram page access token not configured for inbox ${inboxId}`);
   if (!recipientId) throw new Error('Instagram recipient ID missing');
 
+  // /me/messages with a Page Access Token routes to the correct linked page automatically
   const url = `${GRAPH_BASE}/me/messages`;
   const headers = {
     'Authorization': `Bearer ${pageAccessToken}`,

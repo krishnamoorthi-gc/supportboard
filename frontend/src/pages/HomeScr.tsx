@@ -4,45 +4,47 @@ import { C, FD, FB, FM, FONTS, THEMES, FONT_SIZES, api, uid, showT, playNotifSou
 export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,setAid,msgs,dashWidgets,hiddenWidgets,onDashConfig}){
   const hour=new Date().getHours();
   const greeting=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
-  const [apiKpis,setApiKpis]=useState(null);
-  const [apiActivity,setApiActivity]=useState(null);
+  const [apiKpis,setApiKpis]=useState<any>(null);
+  const [apiActivity,setApiActivity]=useState<any[]>([]);
   const [aiBriefing,setAiBriefing]=useState(null);const [aiBriefLoad,setAiBriefLoad]=useState(false);
-  const genBriefing=async()=>{setAiBriefLoad(true);try{const ctx=`Open: ${convs.filter(c=>c.status==="open").length}, Unread: ${convs.reduce((s,c)=>s+(c.unread||0),0)}, Contacts: ${contacts.length}, Agents online: ${agents.filter(a=>a.status==="online").length}/${agents.length}, Urgent: ${convs.filter(c=>c.priority==="urgent").length}`;const d=await api.post('/ai/chat',{max_tokens:300,system:"You are a daily briefing AI for a support team. Give 4-5 bullet points: key metrics, anomalies, action items. Be specific with numbers. No markdown.",messages:[{role:"user",content:ctx}]});setAiBriefing(d.content?.[0]?.text);}catch{setAiBriefing("• "+convs.filter(c=>c.status==="open").length+" open conversations — "+convs.filter(c=>c.priority==="urgent").length+" urgent need attention\n• WhatsApp volume up 23% — consider enabling AI auto-reply\n• 3 conversations approaching SLA breach in next 2 hours\n• CSAT trending at 4.3★ — down slightly from 4.5★ last week\n• Recommendation: Assign unattended urgent tickets to Dev Kumar (lowest load)");}setAiBriefLoad(false);};
-  useEffect(()=>{
+  const genBriefing=async()=>{setAiBriefLoad(true);try{const ctx=`Open: ${convs.filter(c=>c.status==="open").length}, Unread: ${convs.reduce((s,c)=>s+(c.unread||0),0)}, Contacts: ${contacts.length}, Agents: ${agents.length}, Urgent: ${convs.filter(c=>c.priority==="urgent").length}, Resolution rate: ${apiKpis?.resolutionRate??0}%, Avg reply: ${apiKpis?.responseTime||"N/A"}`;const d=await api.post('/ai/chat',{max_tokens:300,system:"You are a daily briefing AI for a support team. Give 4-5 bullet points: key metrics, anomalies, action items. Be specific with numbers. No markdown.",messages:[{role:"user",content:ctx}]});setAiBriefing(d.content?.[0]?.text);}catch{setAiBriefing(null);}setAiBriefLoad(false);};
+  const loadDash=useCallback(async()=>{
     if(!api.isConnected())return;
-    api.get("/dashboard/kpis").then(setApiKpis).catch(()=>{});
-    api.get("/dashboard/activity-feed").then(r=>setApiActivity(r?.activity)).catch(()=>{});
+    try{
+      const[k,a]=await Promise.all([api.get("/dashboard/kpis"),api.get("/dashboard/activity-feed")]);
+      if(k?.kpis)setApiKpis(k.kpis);
+      if(a?.activity)setApiActivity(a.activity);
+    }catch(e){}
   },[]);
+  useEffect(()=>{
+    loadDash();
+    const t=setInterval(loadDash,30000);
+    return()=>clearInterval(t);
+  },[loadDash]);
   const openConvs=useMemo(()=>convs.filter(c=>c.status==="open"),[convs]);
   const urgentConvs=useMemo(()=>convs.filter(c=>c.priority==="urgent"||c.priority==="high"),[convs]);
   const unassigned=useMemo(()=>convs.filter(c=>!c.agent&&c.status==="open"),[convs]);
-  const unreadTotal=useMemo(()=>apiKpis?.unread_total??convs.reduce((s,c)=>s+(c.unread||0),0),[convs,apiKpis]);
+  const unreadTotal=useMemo(()=>apiKpis?.unreadTotal??convs.reduce((s,c)=>s+(c.unread||0),0),[convs,apiKpis]);
   const resolved=convs.filter(c=>c.status==="resolved");
   const ctMap=useMemo(()=>contacts.reduce((m,c)=>{m[c.id]=c;return m;},{}),[contacts]);
 
   const prC=p=>p==="urgent"?C.r:p==="high"?C.y:p==="normal"?C.a:C.t3;
   const chColors={live:C.g,email:C.a,whatsapp:"#25d366",telegram:"#0088cc",facebook:"#1877f2",instagram:"#e1306c",viber:"#7360f2",apple:"#555",line:"#06c755",tiktok:"#ff0050",x:"#e7e9ea",sms:"#f5a623",voice:"#1fd07a",video:"#9b6dff",api:"#22d4e8"};
-  const chIcons_=t=><ChIcon t={t} s={13}/>;
 
-  const activityFeed=[
-    {id:1,icon:"💬",text:"Arjun Mehta sent a new message",sub:"Payment stuck 3 days · Live Chat",time:"2m ago",color:C.a,action:()=>{setAid("cv1");setScr("inbox");}},
-    {id:2,icon:"🔴",text:"SLA breach warning — Conv #cv1",sub:"Urgent · 3 days unresolved",time:"5m ago",color:C.r,action:null},
-    {id:3,icon:"🤖",text:"AI auto-replied to Sarah Chen",sub:"API auth failing 401 · Email",time:"14m ago",color:C.p,action:()=>{setAid("cv2");setScr("inbox");}},
-    {id:4,icon:"🏷️",text:"Auto-label applied: bug",sub:"Marcus Williams · WhatsApp",time:"31m ago",color:C.y,action:()=>{setAid("cv3");setScr("inbox");}},
-    {id:5,icon:"✅",text:"Dev Kumar resolved a conversation",sub:"Takeshi Yama · Re: Thank you!",time:"2h ago",color:C.g,action:()=>{setAid("cv5");setScr("inbox");}},
-    {id:6,icon:"👤",text:"New contact created: Nadia Popescu",sub:"Corp SA · Starter Plan",time:"3h ago",color:C.cy,action:()=>setScr("contacts")},
-  ];
 
-  const channelBreakdown=useMemo(()=>inboxes.slice(0,6).map(ib=>({name:ib.name,type:ib.type,color:chColors[ib.type]||C.t3,convs:ib.convs||0})).sort((a,b)=>b.convs-a.convs),[inboxes]);
+  const channelBreakdown=useMemo(()=>{
+    const src=apiKpis?.channelBreakdown?.length?apiKpis.channelBreakdown:inboxes.slice(0,6).map(ib=>({name:ib.name,type:ib.type,convs:ib.convs||0}));
+    return src.map((ch:any)=>({...ch,color:chColors[ch.type]||C.t3}));
+  },[apiKpis,inboxes]);
   const maxCh=Math.max(...channelBreakdown.map(c=>c.convs),1);
 
-  const agentStatus=useMemo(()=>agents.map((a,i)=>({...a,online:i<3,load:[4,2,5,1,3,6,2,4,1,5][i%10],maxLoad:6})),[agents]);
+  const agentStatus=useMemo(()=>agents.map(a=>({...a,online:a.status==='active'||a.status==='online'})),[agents]);
 
   const quickActions=[
     {label:"New Conversation",iconId:"inbox",color:C.a,sub:"Start fresh",fn:()=>setScr("inbox")},
     {label:"View All Open",iconId:"inbox",color:C.p,sub:openConvs.length+" open",fn:()=>setScr("inbox")},
     {label:"Contacts",iconId:"contacts",color:C.g,sub:contacts.length+" total",fn:()=>setScr("contacts")},
-    {label:"Live Visitors",iconId:"monitor",color:C.r,sub:"18 online now",fn:()=>setScr("monitor")},
+    {label:"Live Monitor",iconId:"monitor",color:C.r,sub:"Real-time",fn:()=>setScr("monitor")},
     {label:"Reports",iconId:"reports",color:C.y,sub:"Analytics",fn:()=>setScr("reports")},
     {label:"AI Bot",iconId:"settings",color:"#9b6dff",sub:"Settings",fn:()=>setScr("settings")},
   ];
@@ -71,7 +73,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
             <NavIcon id="inbox" s={14} col="#fff"/> Open Inbox
           </button>
           <button onClick={()=>setScr("monitor")} style={{padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:700,fontFamily:FB,background:C.s3,color:C.t2,border:"1px solid "+C.b2,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:C.g,animation:"pulse 1.5s infinite"}}/>18 Live
+            <NavIcon id="monitor" s={14} col={C.t2}/> Monitor
           </button>
         </div>
       </div>
@@ -79,11 +81,11 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
       {/* KPI strip */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginTop:24}}>
         {[
-          {label:"Open Conversations",value:openConvs.length,iconId:"inbox",color:C.a,bg:C.ad,delta:"↑ 2 today",fn:()=>setScr("inbox")},
-          {label:"Urgent / High",value:urgentConvs.length,iconId:null,emoji:"🔴",color:C.r,bg:C.rd,delta:urgentConvs.length>0?"Needs attention":"All clear",fn:()=>setScr("inbox")},
-          {label:"Unassigned",value:unassigned.length,iconId:"contacts",color:C.y,bg:C.yd,delta:"Needs agents",fn:()=>setScr("inbox")},
-          {label:"Resolved Today",value:resolved.length,iconId:null,emoji:"✓",color:C.g,bg:C.gd,delta:"↑ vs yesterday",fn:null},
-          {label:"CSAT Score",value:"4.7★",iconId:"reports",color:C.p,bg:C.pd,delta:"Last 7 days",fn:()=>setScr("reports")},
+          {label:"Open Conversations",value:apiKpis?.openConversations??openConvs.length,iconId:"inbox",color:C.a,bg:C.ad,delta:"active now",fn:()=>setScr("inbox")},
+          {label:"Urgent / High",value:apiKpis?.urgentConversations??urgentConvs.length,iconId:null,emoji:"🔴",color:C.r,bg:C.rd,delta:(apiKpis?.urgentConversations??urgentConvs.length)>0?"Needs attention":"All clear",fn:()=>setScr("inbox")},
+          {label:"Unassigned",value:apiKpis?.unassigned??unassigned.length,iconId:"contacts",color:C.y,bg:C.yd,delta:"waiting for agent",fn:()=>setScr("inbox")},
+          {label:"Resolved Today",value:apiKpis?.resolvedToday??resolved.length,iconId:null,emoji:"✓",color:C.g,bg:C.gd,delta:`${apiKpis?.resolutionRate??0}% overall rate`,fn:null},
+          {label:"CSAT Score",value:apiKpis?.avgCsat>0?apiKpis.avgCsat+"★":"N/A",iconId:"reports",color:C.p,bg:C.pd,delta:apiKpis?.responseTime?`Avg reply: ${apiKpis.responseTime}`:"Last 7 days",fn:()=>setScr("reports")},
         ].map(kpi=>(
           <div key={kpi.label} onClick={kpi.fn} className="card-lift" style={{background:kpi.bg,border:"1px solid "+kpi.color+"33",borderRadius:12,padding:"14px 16px",cursor:kpi.fn?"pointer":"default",transition:"transform .15s",position:"relative",overflow:"hidden"}}
             onMouseEnter={e=>kpi.fn&&(e.currentTarget.style.transform="translateY(-2px)")}
@@ -126,6 +128,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
             <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2}}>Recent Conversations</div>
             <button onClick={()=>setScr("inbox")} style={{fontSize:11,color:C.a,background:"none",border:"none",cursor:"pointer",fontWeight:600,fontFamily:FB}}>View all →</button>
           </div>
+          {convs.length===0&&<div style={{padding:"24px 18px",textAlign:"center",color:C.t3,fontSize:12}}>No conversations yet</div>}
           {convs.slice(0,5).map(cv=>{
             const ct=ctMap[cv.cid];
             const msgCount=(msgs[cv.id]||[]).filter(m=>m.role==="contact"||m.role==="agent").length;
@@ -173,6 +176,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
         {/* Channel breakdown */}
         <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
           <div style={{fontSize:12,fontWeight:700,fontFamily:FD,marginBottom:14,color:C.t2}}>Channel Activity</div>
+          {channelBreakdown.length===0&&<div style={{padding:"16px 0",textAlign:"center",color:C.t3,fontSize:12}}>No channels configured</div>}
           {channelBreakdown.map(ch=>(
             <div key={ch.name} style={{display:"flex",alignItems:"center",gap:10,marginBottom:11}}>
               <div style={{width:28,height:28,borderRadius:7,background:ch.color+"18",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ChIcon t={ch.type} s={16}/></div>
@@ -197,8 +201,8 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
               <span style={{width:5,height:5,borderRadius:"50%",background:C.g,animation:"pulse 1.5s infinite"}}/>LIVE
             </span>
           </div>
-          {activityFeed.map((ev,i)=>(
-            <div key={ev.id} className="hov" onClick={ev.action||undefined} style={{display:"flex",gap:12,padding:"11px 18px",borderBottom:i<activityFeed.length-1?"1px solid "+C.b1:"none",cursor:ev.action?"pointer":"default",borderLeft:"2px solid "+(i===0?ev.color:"transparent"),transition:"background .12s"}}>
+          {apiActivity.length>0?apiActivity.map((ev:any,i:number)=>(
+            <div key={ev.id} className="hov" onClick={()=>{setAid(ev.convId);setScr("inbox");}} style={{display:"flex",gap:12,padding:"11px 18px",borderBottom:i<apiActivity.length-1?"1px solid "+C.b1:"none",cursor:"pointer",borderLeft:"2px solid "+(i===0?ev.color:"transparent"),transition:"background .12s"}}>
               <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{ev.icon}</span>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12.5,color:C.t1,fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.text}</div>
@@ -206,7 +210,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
               </div>
               <span style={{fontSize:9.5,color:C.t3,fontFamily:FM,flexShrink:0,marginTop:2}}>{ev.time}</span>
             </div>
-          ))}
+          )):<div style={{padding:"24px 18px",textAlign:"center",color:C.t3,fontSize:12}}>No recent activity yet</div>}
         </div>
       </div>
 
@@ -229,45 +233,26 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
 
         {/* AI Bot status */}
         <div style={{background:"linear-gradient(135deg,"+C.p+"18,"+C.a+"08)",border:"1px solid "+C.p+"44",borderRadius:14,padding:"16px 18px"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
             <div style={{width:36,height:36,borderRadius:10,background:C.p+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>✦</div>
-            <div>
-              <div style={{fontSize:13,fontWeight:700,fontFamily:FD}}>AI Bot — Aria</div>
-              <div style={{fontSize:10,color:C.p,fontFamily:FM}}>Active on 5 channels</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:700,fontFamily:FD}}>AI Bot</div>
+              <div style={{fontSize:10,color:C.p,fontFamily:FM}}>{inboxes.length} inbox{inboxes.length!==1?"es":""} configured</div>
             </div>
-            <span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,background:C.gd,border:"1px solid "+C.g+"44",borderRadius:20,padding:"3px 9px",fontSize:9,fontWeight:700,color:C.g,fontFamily:FM}}>
-              <span style={{width:5,height:5,borderRadius:"50%",background:C.g,animation:"pulse 1.5s infinite"}}/>ON
-            </span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-            {[{l:"Auto-replies today",v:"24"},{l:"Escalated",v:"3"},{l:"Resolved by AI",v:"18"},{l:"Avg response",v:"1.2s"}].map(s=>(
-              <div key={s.l} style={{background:C.s1+"88",borderRadius:8,padding:"8px 10px"}}>
-                <div style={{fontSize:15,fontWeight:800,color:C.p,fontFamily:FD}}>{s.v}</div>
-                <div style={{fontSize:9.5,color:C.t3,fontFamily:FM,marginTop:2}}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-          <button onClick={()=>setScr("settings")} style={{width:"100%",padding:"7px",borderRadius:8,fontSize:11,fontWeight:700,color:C.p,background:C.pd,border:"1px solid "+C.p+"44",cursor:"pointer",fontFamily:FB}}>Configure AI Bot →</button>
+          <button onClick={()=>setScr("settings")} style={{width:"100%",padding:"7px",borderRadius:8,fontSize:11,fontWeight:700,color:C.p,background:C.pd,border:"1px solid "+C.p+"44",cursor:"pointer",fontFamily:FB}}>Configure AI Bot</button>
         </div>
 
-        {/* CSAT Trends (#13) */}
+        {/* CSAT Score */}
         <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,padding:"16px 18px"}}>
-          <div style={{fontSize:12,fontWeight:700,fontFamily:FD,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>CSAT Trends</span><Tag text="Last 7 days" color={C.t3}/>
-          </div>
-          <div style={{display:"flex",alignItems:"flex-end",gap:6,height:80,marginBottom:10}}>
-            {[4.2,4.5,4.1,4.6,4.3,4.8,4.4].map((v,i)=>{const h=((v-3.5)/2)*80;return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-              <span style={{fontSize:8,fontFamily:FM,color:C.t3}}>{v}</span>
-              <div style={{width:"100%",height:h,borderRadius:4,background:v>=4.5?`linear-gradient(180deg,${C.g},${C.g}88)`:v>=4.0?`linear-gradient(180deg,${C.a},${C.a}88)`:`linear-gradient(180deg,${C.y},${C.y}88)`,transition:"height .5s"}}/>
-            </div>;})}
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.t3,fontFamily:FM}}>
-            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,paddingTop:10,borderTop:`1px solid ${C.b1}`}}>
-            <div><span style={{fontSize:20,fontWeight:800,fontFamily:FD,color:C.g}}>4.4</span><span style={{fontSize:10,color:C.t3,marginLeft:4}}>avg ★</span></div>
-            <div style={{fontSize:10,color:C.g,fontFamily:FM,fontWeight:600}}>↑ 0.2 vs last week</div>
-          </div>
+          <div style={{fontSize:12,fontWeight:700,fontFamily:FD,marginBottom:12}}>CSAT Score</div>
+          {apiKpis?.avgCsat>0
+            ?<div style={{textAlign:"center",padding:"16px 0"}}>
+               <div style={{fontSize:52,fontWeight:800,fontFamily:FD,color:C.g,lineHeight:1}}>{apiKpis.avgCsat}</div>
+               <div style={{fontSize:13,color:C.t3,marginTop:6}}>★ average rating</div>
+               <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:4}}>{apiKpis?.resolutionRate??0}% resolution rate</div>
+             </div>
+            :<div style={{padding:"24px 0",textAlign:"center",color:C.t3,fontSize:12}}>No CSAT ratings yet</div>}
         </div>
 
         {/* Team Status */}
@@ -276,6 +261,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
             Team Status
             <span style={{fontSize:10,color:C.g,fontFamily:FM}}>{agentStatus.filter(a=>a.online).length} online</span>
           </div>
+          {agentStatus.length===0&&<div style={{padding:"16px 0",textAlign:"center",color:C.t3,fontSize:12}}>No team members yet</div>}
           {agentStatus.map(ag=>(
             <div key={ag.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <div style={{position:"relative",flexShrink:0}}>
@@ -284,13 +270,9 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12,fontWeight:600,color:ag.online?C.t1:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ag.name}</div>
-                <div style={{display:"flex",gap:4,marginTop:4,alignItems:"center"}}>
-                  {Array.from({length:ag.maxLoad}).map((_,j)=>(
-                    <div key={j} style={{flex:1,height:4,borderRadius:2,background:j<ag.load?(j<2?C.g:j<4?C.y:C.r):C.b1,transition:"background .3s"}}/>
-                  ))}
-                </div>
+                <div style={{fontSize:10,color:ag.online?C.g:C.t3,fontFamily:FM,marginTop:3}}>{ag.role||"agent"}</div>
               </div>
-              <span style={{fontSize:9,color:C.t3,fontFamily:FM,flexShrink:0}}>{ag.online?ag.load+" convs":"away"}</span>
+              <span style={{fontSize:9,color:ag.online?C.g:C.t3,fontFamily:FM,flexShrink:0}}>{ag.online?"Active":"Away"}</span>
             </div>
           ))}
         </div>
@@ -301,6 +283,7 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
             <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2}}>Recent Contacts</div>
             <button onClick={()=>setScr("contacts")} style={{fontSize:11,color:C.a,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>All →</button>
           </div>
+          {contacts.length===0&&<div style={{padding:"24px 18px",textAlign:"center",color:C.t3,fontSize:12}}>No contacts yet</div>}
           {contacts.slice(0,5).map(ct=>(
             <div key={ct.id} className="hov" onClick={()=>setScr("contacts")} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderBottom:"1px solid "+C.b1,cursor:"pointer",transition:"background .12s"}}>
               <div style={{width:30,height:30,borderRadius:8,background:ct.color+"22",color:ct.color,border:"1.5px solid "+ct.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,fontFamily:FM,flexShrink:0}}>{ct.av}</div>
@@ -318,86 +301,19 @@ export default function HomeScr({me,convs,contacts,agents,labels,inboxes,setScr,
       </div>
     </div>
 
-    {/* FULL-WIDTH BOTTOM ROW — Performance + SLA + Tasks + Bookings + CSAT */}
-    <div style={{padding:"0 32px 24px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:14}}>
-      {/* Today's Performance */}
-      <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
-        <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2,marginBottom:12}}>Today's Performance</div>
-        {[{l:"Total Messages",v:"142",d:"+18%",c:C.a},{l:"Avg First Reply",v:"3.2m",d:"-12%",c:C.g},{l:"Resolution Rate",v:"84%",d:"+5%",c:C.p},{l:"Escalation Rate",v:"8%",d:"-3%",c:C.y}].map(m=>(
-          <div key={m.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.b1+"44"}}>
-            <span style={{fontSize:11.5,color:C.t2}}>{m.l}</span>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:13,fontWeight:700,fontFamily:FM,color:m.c}}>{m.v}</span>
-              <span style={{fontSize:9,color:m.d.startsWith("+")?C.g:C.r,fontFamily:FM}}>{m.d}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      {/* SLA Compliance */}
-      <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
-        <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2,marginBottom:12}}>SLA Compliance</div>
-        {[{l:"First Response",v:92,t:"< 5 min",c:C.g},{l:"Resolution Time",v:78,t:"< 4 hours",c:C.y},{l:"Customer Wait",v:96,t:"< 2 min avg",c:C.g},{l:"Escalation SLA",v:88,t:"< 30 min",c:C.a}].map(s=>(
-          <div key={s.l} style={{marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-              <span style={{fontSize:11,color:C.t2}}>{s.l}</span>
-              <span style={{fontSize:10,fontWeight:700,fontFamily:FM,color:s.c}}>{s.v}%</span>
-            </div>
-            <div style={{height:5,background:C.bg,borderRadius:3}}><div style={{width:s.v+"%",height:"100%",background:s.c,borderRadius:3}}/></div>
-            <div style={{fontSize:9,color:C.t3,fontFamily:FM,marginTop:2}}>{s.t}</div>
-          </div>
-        ))}
-      </div>
-      {/* Tasks Due Today */}
-      <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
-        <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          Tasks Due Today
-          <button onClick={()=>setScr("crm")} style={{fontSize:10,color:C.a,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>CRM →</button>
+    {/* BOTTOM ROW — Today's Performance */}
+    <div style={{padding:"0 32px 24px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+      {[
+        {l:"Messages Today",v:String(apiKpis?.todayMessages??0),c:C.a,icon:"inbox"},
+        {l:"Avg First Reply",v:apiKpis?.responseTime||"N/A",c:C.g,icon:"reports"},
+        {l:"Resolution Rate",v:(apiKpis?.resolutionRate??0)+"%",c:C.p,icon:"reports"},
+        {l:"Total Contacts",v:String(apiKpis?.totalContacts??contacts.length),c:C.y,icon:"contacts"},
+      ].map(m=>(
+        <div key={m.l} style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"18px 20px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:10}}>{m.l}</div>
+          <div style={{fontSize:32,fontWeight:800,fontFamily:FD,color:m.c,lineHeight:1}}>{m.v}</div>
         </div>
-        {[{t:"Send proposal to TechCorp",a:"Priya",p:"high",done:false},{t:"Follow up FreshMart",a:"Dev",p:"normal",done:false},{t:"ROI Calculator for PayEase",a:"Dev",p:"normal",done:false},{t:"Prepare demo sandbox",a:"Meena",p:"high",done:true},{t:"Update competitive analysis",a:"Meena",p:"low",done:true}].map((tk,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:i<4?"1px solid "+C.b1+"44":"none",opacity:tk.done?.7:1}}>
-            <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${tk.done?C.g:tk.p==="high"?C.r:C.b1}`,background:tk.done?C.g:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",flexShrink:0}}>{tk.done?"✓":""}</div>
-            <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,color:tk.done?C.t3:C.t1,textDecoration:tk.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tk.t}</div></div>
-            <span style={{fontSize:9,color:tk.p==="high"?C.r:C.t3,fontFamily:FM,fontWeight:600}}>{tk.a}</span>
-          </div>
-        ))}
-      </div>
-      {/* Upcoming Bookings */}
-      <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
-        <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          Upcoming Bookings
-          <button onClick={()=>setScr("bookings")} style={{fontSize:10,color:C.a,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>All →</button>
-        </div>
-        {[{n:"Arjun Mehta",pg:"Product Demo",d:"Mar 28",t:"10:00",c:C.p},{n:"James Wilson",pg:"Product Demo",d:"Mar 29",t:"11:00",c:C.p},{n:"Vikram Sinha",pg:"Strategy",d:"Mar 31",t:"10:00",c:C.a},{n:"Fatima Al-Rashid",pg:"Strategy",d:"Apr 1",t:"14:00",c:C.a},{n:"Dev Kumar",pg:"Tech Integration",d:"Apr 2",t:"11:00",c:C.cy}].map((bk,i)=>(
-          <div key={i} onClick={()=>setScr("bookings")} className="hov" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<4?"1px solid "+C.b1+"44":"none",cursor:"pointer"}}>
-            <div style={{width:28,height:28,borderRadius:7,background:bk.c+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,fontFamily:FM,color:bk.c,flexShrink:0}}>{bk.n.split(" ").map(w=>w[0]).join("")}</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{bk.n}</div>
-              <div style={{fontSize:9,color:bk.c,fontFamily:FM}}>{bk.pg}</div>
-            </div>
-            <div style={{textAlign:"right",flexShrink:0}}>
-              <div style={{fontSize:10,fontFamily:FM,color:C.t2}}>{bk.d}</div>
-              <div style={{fontSize:9,fontFamily:FM,color:C.t3}}>{bk.t}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      {/* CSAT This Week */}
-      <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:14,padding:"16px 18px"}}>
-        <div style={{fontSize:12,fontWeight:700,fontFamily:FD,color:C.t2,marginBottom:12}}>CSAT This Week</div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",height:90,gap:6,padding:"0 4px"}}>
-          {[{d:"Mon",v:4.5},{d:"Tue",v:4.8},{d:"Wed",v:4.3},{d:"Thu",v:4.7},{d:"Fri",v:4.9},{d:"Sat",v:4.6},{d:"Sun",v:4.7}].map(day=>(
-            <div key={day.d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-              <span style={{fontSize:9,fontWeight:700,fontFamily:FM,color:day.v>=4.7?C.g:day.v>=4.3?C.y:C.r}}>{day.v}</span>
-              <div style={{width:"100%",height:(day.v/5)*70,background:`linear-gradient(180deg,${day.v>=4.7?C.g:day.v>=4.3?C.y:C.r},${day.v>=4.7?C.g:day.v>=4.3?C.y:C.r}66)`,borderRadius:4,minHeight:8}}/>
-              <span style={{fontSize:8,color:C.t3,fontFamily:FM}}>{day.d}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:8,borderTop:"1px solid "+C.b1}}>
-          <span style={{fontSize:10,color:C.t3,fontFamily:FM}}>Avg: 4.64★</span>
-          <span style={{fontSize:10,color:C.g,fontFamily:FM,fontWeight:700}}>+0.2 vs last week</span>
-        </div>
-      </div>
+      ))}
     </div>
   </div>;
 }

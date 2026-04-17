@@ -14,7 +14,7 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { uid }            = require('../utils/helpers');
-const { broadcastToAll } = require('../ws');
+const { broadcastToAll, sendToAgent } = require('../ws');
 const { debugFacebookToken, ensurePageWebhookSubscription, ensureAppWebhookSubscription, fetchPageInfo } = require('../services/facebookService');
 
 const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
@@ -956,7 +956,7 @@ async function processIncomingMessage(event, inbox, pageToken) {
     conv = await db.prepare('SELECT * FROM conversations WHERE id=?').get(cvId);
 
     const fullConv = await buildFullConv(cvId);
-    broadcastToAll({
+    const _fbNewConv = {
       type: 'new_conversation',
       conversation_id: cvId,
       subject,
@@ -964,7 +964,9 @@ async function processIncomingMessage(event, inbox, pageToken) {
       campaign_id: campaignId,
       campaign_name: campaignName,
       conversation: fullConv,
-    });
+    };
+    if (agentId) sendToAgent(agentId, _fbNewConv);
+    else broadcastToAll(_fbNewConv);
   } else if (campaignId && !conv.campaign_id) {
     await db.prepare('UPDATE conversations SET campaign_id=?, campaign_name=? WHERE id=?')
       .run(campaignId, campaignName, conv.id);
@@ -991,7 +993,9 @@ async function processIncomingMessage(event, inbox, pageToken) {
   try { savedMsg.attachments = JSON.parse(savedMsg.attachments || '[]'); } catch { savedMsg.attachments = []; }
 
   const fullConv = await buildFullConv(conv.id);
-  broadcastToAll({ type: 'new_message', conversationId: conv.id, message: savedMsg, conversation: fullConv });
+  const _fbNewMsg = { type: 'new_message', conversationId: conv.id, message: savedMsg, conversation: fullConv };
+  if (agentId) sendToAgent(agentId, _fbNewMsg);
+  else broadcastToAll(_fbNewMsg);
 
   console.log(`[facebook] ✓ Received message from ${senderName} → conv ${conv.id}`);
 }

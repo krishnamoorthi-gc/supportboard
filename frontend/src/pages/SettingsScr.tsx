@@ -475,7 +475,7 @@ function WebFormBuilder({inboxes}){
 }
 
 function InboxSet({inboxes,setInboxes}){
-  const backendUrl=(import.meta.env.VITE_BACKEND_URL??"http://localhost:4002").replace(/\/$/,"");
+  const backendUrl=(import.meta.env.VITE_BACKEND_URL||window.location.origin.replace(":5173",":4002")).replace(/\/$/,"");
   const [showForm,setShowForm]=useState(false);
   const [edit,setEdit]=useState(null);
   const [cfgTab,setCfgTab]=useState("general");
