@@ -41,10 +41,10 @@ function mapApiVisitor(v:any){
     pageHistory: (() => { try { return JSON.parse(v.page_history || '[]'); } catch { return [v.page || '/']; } })(),
     timeOnSite: (() => {
       const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now();
-      const isOnline = !!v.is_active;
-      if (isOnline) return Math.max(0, Math.floor((Date.now() - joined) / 1000));
-      if (v.duration && !isNaN(parseInt(v.duration))) return parseInt(v.duration);
-      return Math.max(0, Math.floor((Date.now() - joined) / 1000));
+      // Online: live tick from first arrival to now
+      if (!!v.is_active) return Math.max(0, Math.floor((Date.now() - joined) / 1000));
+      // Ended: use stored duration (total time they spent on site), never grow past that
+      return parseInt(v.duration) || 0;
     })(),
     visitedAt: v.created_at || '',
     joined: v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now(),
@@ -119,7 +119,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
         if(setLiveVisitors)setLiveVisitors(d.visitors);
         setLastRefresh(Date.now());
       }
-    }catch{}
+    }catch(e){ console.error('❌ fetchVisitors error:', e); }
     setLoading(false);
   },[setLiveVisitors]);
   const [events, setEvents] = useState<any[]>([]);
