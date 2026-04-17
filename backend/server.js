@@ -171,21 +171,24 @@ async function geoLookup(ip) {
   }
   if (geoCache.has(ip)) return geoCache.get(ip);
   try {
-    const res = await fetch(`https://ipapi.co/${ip}/json/`);
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 3000); // 3s timeout
+    const res = await fetch(`https://ipapi.co/${ip}/json/`, { signal: controller.signal });
+    clearTimeout(id);
     const data = await res.json();
     if (data && !data.error) {
       geoCache.set(ip, data);
-      setTimeout(() => geoCache.delete(ip), 3600000); // 1 hr cache
+      setTimeout(() => geoCache.delete(ip), 3600000);
       return data;
     }
-  } catch {}
+  } catch (e) { console.warn(`Geo lookup failed for ${ip}:`, e.message); }
   return {};
 }
 
 // ── GET /tracker.js — embeddable tracking script ────────────────────────────
 app.get('/tracker.js', widgetCors, (req, res) => {
   // PUBLIC_URL takes priority — it's the externally reachable URL (ngrok, domain, etc.)
-  const BACKEND = process.env.PUBLIC_URL || process.env.BACKEND_URL || `http://${req.hostname}:${process.env.PORT || 4002}`;
+  const BACKEND = process.env.PUBLIC_URL || process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
   res.send(`(function(){
@@ -196,30 +199,41 @@ app.get('/tracker.js', widgetCors, (req, res) => {
   try{sid=localStorage.getItem(SK);}catch{}
   if(!sid){sid='vs_'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);try{localStorage.setItem(SK,sid);}catch{}}
   var lastHb=0;
+  var startTime=Date.now();
   function src(){
     var r=document.referrer;if(!r)return'Direct';
-    try{var h=new URL(r).hostname.replace(/^www\\./,'');
-      if(/google/.test(h))return'Google';if(/bing/.test(h))return'Bing';
-      if(/yahoo/.test(h))return'Yahoo';if(/facebook|fb\\.com/.test(h))return'Facebook';
-      if(/twitter|t\\.co/.test(h))return'Twitter';if(/linkedin/.test(h))return'LinkedIn';
-      if(/instagram/.test(h))return'Instagram';if(/youtube/.test(h))return'YouTube';
-      if(/reddit/.test(h))return'Reddit';return h;
-    }catch{return'Direct';}
+    try{
+      var h=new URL(r).hostname.replace(/^www\\./,'');
+      var p=new URLSearchParams(window.location.search);
+      if(p.get('gclid')||p.get('fbclid')||p.get('utm_medium')==='cpc'||p.get('utm_source')==='ads')return'Ads';
+      if(/google|bing|yahoo|duckduckgo|baidu/.test(h))return'Organic';
+      if(/facebook|fb\\.com|t\\.co|twitter|instagram|linkedin|reddit|pinterest|social/.test(h))return'Social';
+      return h||'Referral';
+    }catch{return'Referral';}
   }
+  function utm(){
+    var d={};try{var p=new URLSearchParams(window.location.search);
+    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].forEach(function(k){var v=p.get(k);if(v)d[k]=v;});
+    }catch{}return d;
+  }
+  var iden=null; try{iden=JSON.parse(localStorage.getItem('_sd_iden')||'null');}catch{}
   function send(evt){
     var now=Date.now();
-    if(evt==='heartbeat'&&now-lastHb<28000)return;
+    if(evt==='heartbeat'&&now-lastHb<25000)return;
     lastHb=now;
+    var duration=Math.floor((Date.now()-startTime)/1000);
     try{
       var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch{}
       fetch(B+'/api/track',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         keepalive:evt==='leave',
+        mode:'cors',
         body:JSON.stringify({session_id:sid,event:evt,page:window.location.href,
           referrer:document.referrer,source:src(),title:document.title,
           screen_width:screen.width,screen_height:screen.height,
-          language:navigator.language||'en',tz:tz})
+          language:navigator.language||'en',tz:tz,
+          duration:duration,utm:utm(),identify:iden})
       }).catch(function(){});
     }catch{}
   }
@@ -229,15 +243,45 @@ app.get('/tracker.js', widgetCors, (req, res) => {
   window.addEventListener('beforeunload',function(){send('leave');});
   var lastUrl=window.location.href;
   setInterval(function(){if(window.location.href!==lastUrl){lastUrl=window.location.href;send('pageview');}},1000);
+  window.SD={
+    event:function(name,data){
+      try{fetch(B+'/api/event',{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:JSON.stringify({session_id:sid,name:name,data:data,page:window.location.href})}).catch(function(){});}catch{}
+    },
+    identify:function(data){
+      iden=data;try{localStorage.setItem('_sd_iden',JSON.stringify(data));}catch{}
+      send('heartbeat');
+    }
+  };
 })();`);
 });
 
-// ── POST /api/track — receive tracking events from websites ─────────────────
-app.post('/api/track', widgetCors, async (req, res) => {
-  res.json({ ok: true }); // respond immediately so visitor's browser doesn't wait
+// ── POST /api/event — receive custom events (clicks, forms, etc) ────────────
+app.post('/api/event', widgetCors, async (req, res) => {
+  res.json({ ok: true });
   try {
-    const { session_id, event, page, referrer, source, screen_width, screen_height, language } = req.body;
+    const { session_id, name, data, page } = req.body;
+    if (!session_id || !name) return;
+    const { uid } = require('./utils/helpers');
+    await db.prepare('INSERT INTO visitor_events (id, session_id, event_type, event_name, event_data, page) VALUES (?,?,?,?,?,?)')
+      .run(uid(), session_id, 'custom', name, typeof data === 'object' ? JSON.stringify(data) : String(data), page || '');
+  } catch (e) { console.error('Error tracking event:', e.message); }
+});
+
+// ── GET /api/monitor/events/:session_id — list events for a session ──────────
+app.get('/api/monitor/events/:session_id', require('./middleware/auth'), async (req, res) => {
+  try {
+    const events = await db.prepare('SELECT * FROM visitor_events WHERE session_id=? ORDER BY created_at ASC').all(req.params.session_id);
+    res.json({ events });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/track', widgetCors, async (req, res) => {
+  const { session_id, event, page } = req.body;
+  console.log(`📡 Track [${event}]: session=${session_id} page=${page}`);
+  res.json({ ok: true }); 
+  try {
+    const { session_id, event, page, referrer, source, screen_width, screen_height, language, duration, utm = {}, identify = {} } = req.body;
     if (!session_id) return;
+    const utm_source = utm.utm_source || req.body.utm_source;
 
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
     const ua = req.headers['user-agent'] || '';
@@ -248,7 +292,7 @@ app.post('/api/track', widgetCors, async (req, res) => {
     if (event === 'leave') {
       const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (existing) {
-        await db.prepare('UPDATE visitor_sessions SET last_seen=DATE_SUB(NOW(), INTERVAL 10 MINUTE) WHERE session_id=?').run(session_id);
+        await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=?, last_seen=DATE_SUB(NOW(), INTERVAL 5 MINUTE), status="offline" WHERE session_id=?').run(page || '', duration || 0, session_id);
         broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
       }
       return;
@@ -264,11 +308,21 @@ app.post('/api/track', widgetCors, async (req, res) => {
       let history = [];
       try { history = JSON.parse(existing.page_history || '[]'); } catch {}
       if (history[history.length - 1] !== page) history.push(page);
-      if (history.length > 20) history.shift();
+      if (history.length > 50) history.shift();
       const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
+      
+      const vName = identify.name || existing.visitor_name;
+      const vEmail = identify.email || existing.visitor_email;
+      const vPhone = identify.phone || existing.visitor_phone;
+      const vAvatar = identify.avatar || existing.visitor_avatar;
+      const vGoogle = identify.google_id || existing.visitor_google_id;
+
       await db.prepare(
-        'UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, last_seen=? WHERE session_id=?'
-      ).run(page, JSON.stringify(history), newCount, now, session_id);
+        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=?, exit_page=?, last_seen=?, status="browsing", 
+         visitor_name=?, visitor_email=?, visitor_phone=?, visitor_avatar=?, visitor_google_id=?, utm_source=?
+         WHERE session_id=?`
+      ).run(page, JSON.stringify(history), newCount, duration || 0, page, now, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
+      
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
     } else {
@@ -276,8 +330,9 @@ app.post('/api/track', widgetCors, async (req, res) => {
       await db.prepare(`INSERT INTO visitor_sessions
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
-         screen_width, screen_height, language, user_agent, status, last_seen)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',?)`
+         screen_width, screen_height, language, user_agent, status, last_seen,
+         entry_page, exit_page, utm_source, duration, visitor_name, visitor_email, visitor_phone, visitor_avatar, visitor_google_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',?,?,?,?,?,?,?,?,?,?)`
       ).run(
         id, session_id, ip, flag,
         geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
@@ -286,13 +341,15 @@ app.post('/api/track', widgetCors, async (req, res) => {
         referrer || '', source || 'Direct',
         browser, os, device,
         screen_width || null, screen_height || null,
-        language || 'en', ua, now
+        language || 'en', ua, now,
+        page, page, utm_source || '', duration || 0,
+        identify.name || null, identify.email || null, identify.phone || null, identify.avatar || null, identify.google_id || null
       );
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(id);
       if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
     }
   } catch (e) {
-    console.error('Track error:', e.message);
+    console.error('❌ Tracking Error:', e);
   }
 });
 app.options('/api/track', widgetCors, (req, res) => res.sendStatus(204));
@@ -1544,7 +1601,6 @@ server.listen(PORT, async () => {
 
           // Match contacts based on trigger type
           if (trigger === 'Contact Created') {
-            // Contacts created in the last 60 seconds
             const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
             matchedContacts = await db.prepare(
               "SELECT * FROM contacts WHERE agent_id=? AND created_at >= ?"
@@ -1555,7 +1611,6 @@ server.listen(PORT, async () => {
               "SELECT DISTINCT ct.* FROM contacts ct JOIN conversations c ON c.contact_id=ct.id WHERE c.agent_id=? AND c.status='resolved' AND c.updated_at >= ?"
             ).all(aid, cutoff);
           } else if (trigger === 'Tag Added') {
-            // Contacts updated in the last 60 seconds (tag changes)
             const cutoff = new Date(Date.now() - 65000).toISOString().slice(0, 19).replace('T', ' ');
             matchedContacts = await db.prepare(
               "SELECT * FROM contacts WHERE agent_id=? AND updated_at >= ? AND tags IS NOT NULL AND tags != '[]'"
@@ -1563,11 +1618,9 @@ server.listen(PORT, async () => {
           }
 
           if (matchedContacts.length > 0) {
-            // Process first action (send step) for each matched contact
             const firstSendStep = actions.find(a => typeof a === 'string' && !a.toLowerCase().includes('wait'));
             if (firstSendStep) {
               console.log(`⚡ Automation "${auto.name}" triggered for ${matchedContacts.length} contact(s)`);
-              // Increment run_count and completed_count
               await db.prepare(
                 'UPDATE automations SET run_count=run_count+?, completed_count=completed_count+? WHERE id=?'
               ).run(matchedContacts.length, matchedContacts.length, auto.id);
@@ -1584,10 +1637,13 @@ server.listen(PORT, async () => {
   setInterval(async () => {
     try {
       const { broadcastToAll } = require('./ws');
-      const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
-      const stale = await db.prepare('SELECT id FROM visitor_sessions WHERE last_seen < ?').all(cutoff);
+      // Cutoff for "Active" is 3 mins, but we don't delete them anymore
+      // We just ensure the dashboard knows they are gone if they haven't sent a 'leave' event
+      const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+      const stale = await db.prepare('SELECT id FROM visitor_sessions WHERE last_seen < ? AND status != "offline"').all(cutoff);
       for (const v of stale) {
-        await db.prepare('DELETE FROM visitor_sessions WHERE id=?').run(v.id);
+        // Mark as offline in DB instead of deleting
+        await db.prepare('UPDATE visitor_sessions SET status="offline" WHERE id=?').run(v.id);
         broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: v.id });
       }
     } catch {}

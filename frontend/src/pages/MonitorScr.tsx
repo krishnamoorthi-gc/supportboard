@@ -7,7 +7,13 @@ const VEmpty=({icon="👁",title="",desc=""}:{icon?:string,title?:string,desc?:s
 
 // ─── MONITOR SCREEN ───────────────────────────────────────────────────────
 
-function fmtTime(s:number){if(s<60)return s+"s";if(s<3600)return Math.floor(s/60)+"m "+((s%60))+"s";return Math.floor(s/3600)+"h "+Math.floor((s%3600)/60)+"m";}
+function fmtTime(s: any) {
+  const n = parseInt(s);
+  if (isNaN(n) || n < 0) return "0s";
+  if (n < 60) return n + "s";
+  if (n < 3600) return Math.floor(n / 60) + "m " + (n % 60) + "s";
+  return Math.floor(n / 3600) + "h " + Math.floor((n % 3600) / 60) + "m";
+}
 
 const VISITOR_COLORS=["#4c82fb","#1fd07a","#9b6dff","#f5a623","#22d4e8","#e91e63","#ff6b35"];
 function visitorColor(id:string){return VISITOR_COLORS[id.split('').reduce((s,c)=>s+c.charCodeAt(0),0)%VISITOR_COLORS.length];}
@@ -21,6 +27,10 @@ function mapApiVisitor(v:any){
   return {
     id: v.id,
     name: v.visitor_name||null,
+    email: v.visitor_email||null,
+    phone: v.visitor_phone||null,
+    avatar: v.visitor_avatar||null,
+    googleId: v.visitor_google_id||null,
     country: v.country||'Unknown',
     flag: v.flag||'🌍',
     lat: parseFloat(v.lat)||0,
@@ -28,9 +38,15 @@ function mapApiVisitor(v:any){
     page: v.page||'/',
     pageHost: (() => { try { return new URL(v.page||'').hostname.replace(/^www\./,''); } catch { return ''; } })(),
     prevPages: v.pages_visited||1,
-    pageHistory: (() => { try { return JSON.parse(v.page_history||'[]'); } catch { return [v.page||'/']; } })(),
-    timeOnSite: Math.floor((Date.now() - new Date(v.created_at||Date.now()).getTime())/1000),
-    joined: new Date(v.created_at||Date.now()).getTime(),
+    pageHistory: (() => { try { return JSON.parse(v.page_history || '[]'); } catch { return [v.page || '/']; } })(),
+    timeOnSite: (() => {
+      if (v.duration && !isNaN(parseInt(v.duration))) return parseInt(v.duration);
+      const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now();
+      const diff = Math.floor((Date.now() - joined) / 1000);
+      return isNaN(diff) ? 0 : diff;
+    })(),
+    visitedAt: v.created_at || '',
+    joined: v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now(),
     browser: v.browser||'Unknown',
     os: v.os||'Unknown',
     device: v.device||'Desktop',
@@ -46,6 +62,10 @@ function mapApiVisitor(v:any){
     region: v.region||'',
     language: v.language||'en',
     screenSize: v.screen_width&&v.screen_height?`${v.screen_width}×${v.screen_height}`:'',
+    isActive: !!v.is_active,
+    entryPage: v.entry_page||'',
+    exitPage: v.exit_page||'',
+    utmSource: v.utm_source||'',
   };
 }
 
@@ -67,6 +87,13 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
   // AI Visitor Intent
   const [monAi,setMonAi]=useState<string|null>(null);
   const [monAiLoad,setMonAiLoad]=useState(false);
+  // Sites tab state
+  const [sites,setSites]=useState<any[]>([]);
+  const [sitesLoading,setSitesLoading]=useState(false);
+  const [siteForm,setSiteForm]=useState<{id?:string,name:string,url:string}|null>(null);
+  const [siteSaving,setSiteSaving]=useState(false);
+  const [siteDeleting,setSiteDeleting]=useState<string|null>(null);
+  const [selectedSite,setSelectedSite]=useState("all");
 
   // ── Fetch real visitors from API ─────────────────────────────────────────
   const fetchVisitors=useCallback(async()=>{
@@ -81,6 +108,16 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
     }catch{}
     setLoading(false);
   },[setLiveVisitors]);
+  const [events, setEvents] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (sel) {
+      const sid = sel.sessionId || sel.id;
+      api.get(`/monitor/events/${sid}`).then(r => setEvents(r.events || [])).catch(() => setEvents([]));
+    } else {
+      setEvents([]);
+    }
+  }, [sel]);
 
   // Initial fetch + 5-second polling
   useEffect(()=>{
@@ -88,6 +125,9 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
     const poll=setInterval(fetchVisitors,5000);
     return ()=>clearInterval(poll);
   },[fetchVisitors]);
+
+  // Fetch sites on mount for the site selector
+  useEffect(()=>{api.get('/monitor/sites').then((d:any)=>{if(d?.sites)setSites(d.sites);}).catch(()=>{});},[]);
 
   // Sync when App.tsx pushes WS updates (liveVisitors changes)
   useEffect(()=>{
@@ -114,6 +154,45 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
       setMonAi("Click Refresh to predict visitor intent: likely buyers, support seekers, and proactive chat triggers.");
     }
     setMonAiLoad(false);
+  };
+
+  // ── Sites CRUD ───────────────────────────────────────────────────────────
+  const fetchSites=useCallback(async()=>{
+    setSitesLoading(true);
+    try{const d=await api.get('/monitor/sites');if(d?.sites)setSites(d.sites);}catch{}
+    setSitesLoading(false);
+  },[]);
+
+  useEffect(()=>{if(tab==="sites"){fetchSites();}},[tab,fetchSites]);
+
+  const saveSite=async()=>{
+    if(!siteForm)return;
+    const {id,name,url}=siteForm;
+    if(!name.trim()||!url.trim()){showT("Name and URL are required","error");return;}
+    setSiteSaving(true);
+    try{
+      if(id){
+        await api.patch('/monitor/sites/'+id,{name:name.trim(),url:url.trim()});
+        showT("Site updated","success");
+      }else{
+        await api.post('/monitor/sites',{name:name.trim(),url:url.trim()});
+        showT("Site added","success");
+      }
+      setSiteForm(null);fetchSites();
+    }catch(e:any){showT(e?.message||"Failed to save site","error");}
+    setSiteSaving(false);
+  };
+
+  const deleteSite=async(id:string)=>{
+    if(!window.confirm('Delete this site? This cannot be undone.'))return;
+    setSiteDeleting(id);
+    try{await api.del('/monitor/sites/'+id);showT("Site removed","success");fetchSites();}catch(e:any){showT(e?.message||"Failed to delete","error");}
+    setSiteDeleting(null);
+  };
+
+  const toggleSiteStatus=async(site:any)=>{
+    const newStatus=site.status==='active'?'paused':'active';
+    try{await api.patch('/monitor/sites/'+site.id,{status:newStatus});fetchSites();}catch{}
   };
 
   // ── Snippet — fetch from backend so it uses PUBLIC_URL (ngrok/domain) not localhost ───
@@ -170,19 +249,22 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
   };
 
   // ── Derived state ─────────────────────────────────────────────────────────
-  const filtered=visitors.filter((vis:any)=>{
+  const siteFiltered=selectedSite==="all"?visitors:visitors.filter((vis:any)=>{
+    try{return new URL(vis.page).hostname.replace(/^www\./,'').includes(selectedSite);}catch{return vis.page.includes(selectedSite);}
+  });
+  const filtered=siteFiltered.filter((vis:any)=>{
     if(filter==="chatting")return vis.chatStatus==="chatting";
     if(filter==="invited")return vis.chatStatus==="invited";
     if(search)return (vis.name||"").toLowerCase().includes(search.toLowerCase())||vis.country.toLowerCase().includes(search.toLowerCase())||vis.page.toLowerCase().includes(search.toLowerCase())||vis.ip.toLowerCase().includes(search.toLowerCase());
     return true;
   });
 
-  const ctrMap:any={};visitors.forEach((v:any)=>{ctrMap[v.country]=(ctrMap[v.country]||0)+1;});
+  const ctrMap:any={};siteFiltered.forEach((v:any)=>{ctrMap[v.country]=(ctrMap[v.country]||0)+1;});
   const topCountries=Object.entries(ctrMap).sort((a:any,b:any)=>b[1]-a[1]).slice(0,6);
-  const pageMap:any={};visitors.forEach((v:any)=>{pageMap[v.page]=(pageMap[v.page]||0)+1;});
+  const pageMap:any={};siteFiltered.forEach((v:any)=>{pageMap[v.page]=(pageMap[v.page]||0)+1;});
   const topPages=Object.entries(pageMap).sort((a:any,b:any)=>b[1]-a[1]).slice(0,5);
-  const chatting=visitors.filter((v:any)=>v.chatStatus==="chatting").length;
-  const invited=visitors.filter((v:any)=>v.chatStatus==="invited").length;
+  const chatting=siteFiltered.filter((v:any)=>v.chatStatus==="chatting").length;
+  const invited=siteFiltered.filter((v:any)=>v.chatStatus==="invited").length;
   const secAgo=lastRefresh?Math.floor((Date.now()-lastRefresh)/1000):0;
 
   return <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,background:C.bg}}>
@@ -198,7 +280,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
         <div style={{fontSize:11.5,color:C.t3}}>Real-time visitors on your website right now</div>
       </div>
       <div style={{display:"flex",gap:10,marginLeft:"auto",flexWrap:"wrap",alignItems:"center"}}>
-        {[{l:"Online Now",v:visitors.length,c:C.g},{l:"Chatting",v:chatting,c:C.a},{l:"Invited",v:invited,c:C.y},{l:"Avg Time",v:fmtTime(Math.round(visitors.reduce((s:number,v:any)=>s+v.timeOnSite,0)/Math.max(visitors.length,1))),c:C.p}].map((stat:any)=>(
+        {[{l:"Total Visitors",v:siteFiltered.length,c:C.a},{l:"Online Now",v:siteFiltered.filter((v:any)=>v.isActive).length,c:C.g},{l:"Chatting",v:chatting,c:C.p},{l:"Invited",v:invited,c:C.y},{l:"Avg Time",v:fmtTime(Math.round(siteFiltered.reduce((s:number,v:any)=>s+v.timeOnSite,0)/Math.max(siteFiltered.length,1))),c:C.t2}].map((stat:any)=>(
           <div key={stat.l} style={{background:C.s2,border:"1px solid "+C.b1,borderRadius:10,padding:"8px 14px",textAlign:"center",minWidth:80}}>
             <div style={{fontSize:20,fontWeight:800,fontFamily:FD,color:stat.c}}>{stat.v}</div>
             <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:1}}>{stat.l}</div>
@@ -215,11 +297,16 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
 
     {/* Tabs */}
     <div style={{display:"flex",gap:0,padding:"0 24px",borderBottom:"1px solid "+C.b1,background:C.s1}}>
-      {[["list","Visitor List"],["map","World Map"],["analytics","Analytics"]].map(([id,lbl])=>(
+      {[["list","Visitor List"],["map","World Map"],["analytics","Analytics"],["sites","Sites"]].map(([id,lbl])=>(
         <button key={id} onClick={()=>setTab(id)} style={{padding:"11px 18px",fontSize:11.5,fontWeight:700,fontFamily:FM,letterSpacing:"0.4px",textTransform:"uppercase",color:tab===id?C.a:C.t3,borderTop:"none",borderLeft:"none",borderRight:"none",borderBottom:"2px solid "+(tab===id?C.a:"transparent"),background:"transparent",cursor:"pointer"}}>{lbl}</button>
       ))}
       <div style={{flex:1}}/>
       <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0"}}>
+        {/* Site Selector */}
+        <select value={selectedSite} onChange={e=>setSelectedSite(e.target.value)} style={{background:C.bg,border:"1px solid "+C.b1,borderRadius:7,padding:"5px 10px",fontSize:11.5,color:C.t1,fontFamily:FM,outline:"none",cursor:"pointer"}}>
+          <option value="all">All Sites</option>
+          {sites.map((s:any)=>{let host='';try{host=new URL(s.url).hostname.replace(/^www\./,'');}catch{host=s.url;}return <option key={s.id} value={host}>{s.name}</option>;})}
+        </select>
         <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,border:"1px solid "+C.b1,borderRadius:7,padding:"5px 10px"}}>
           <span style={{color:C.t3,fontSize:12}}>⌕</span>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search visitors, IP, country..." style={{background:"none",border:"none",fontSize:12,color:C.t1,fontFamily:FB,outline:"none",width:180}}/>
@@ -237,10 +324,10 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
 
       {/* VISITOR LIST TAB */}
       {tab==="list"&&<div style={{flex:1,display:"flex",minWidth:0}}>
-        <div style={{flex:1,overflowY:"auto"}}>
+        <div style={{flex:1,overflow:"auto"}}>
           {/* Header row */}
-          <div style={{display:"grid",gridTemplateColumns:"2fr 1.8fr 1.4fr 1fr 1fr 0.9fr 100px",padding:"8px 20px",borderBottom:"1px solid "+C.b1,position:"sticky",top:0,background:C.s1,zIndex:5}}>
-            {["Visitor","Current Page","Location","Device","Time on Site","Status","Actions"].map((h,i)=>(
+          <div style={{display:"grid",gridTemplateColumns:"220px 1.5fr 1.2fr 130px 1.2fr 130px 110px 100px 100px 120px",padding:"8px 20px",borderBottom:"1px solid "+C.b1,position:"sticky",top:0,background:C.s1,zIndex:5,minWidth:1400}}>
+            {["Visitor", "Current Page", "Source", "Location", "Device/OS", "Browser", "IP Address", "Time on Site", "Status", "Actions"].map((h, i) => (
               <span key={i} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase"}}>{h}</span>
             ))}
           </div>
@@ -250,48 +337,58 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
 
           {filtered.map((vis:any)=>(
             <div key={vis.id} className="hov" onClick={()=>setSel(sel?.id===vis.id?null:vis)}
-              style={{display:"grid",gridTemplateColumns:"2fr 1.8fr 1.4fr 1fr 1fr 0.9fr 100px",padding:"10px 20px",borderBottom:"1px solid "+C.b1,cursor:"pointer",background:sel?.id===vis.id?C.ad:"transparent",transition:"background .12s",borderLeft:"2.5px solid "+(sel?.id===vis.id?C.a:"transparent"),animation:"fadeUp .2s ease"}}>
+              style={{display:"grid",gridTemplateColumns:"220px 1.5fr 1.2fr 130px 1.2fr 130px 110px 100px 100px 120px",padding:"10px 20px",borderBottom:"1px solid "+C.b1,cursor:"pointer",background:sel?.id===vis.id?C.ad:"transparent",transition:"background .12s",borderLeft:"2.5px solid "+(sel?.id===vis.id?C.a:"transparent"),animation:"fadeUp .2s ease",minWidth:1400,alignItems:"center"}}>
               {/* Visitor */}
-              <div style={{display:"flex",alignItems:"center",gap:9}}>
+              <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
                 <div style={{width:32,height:32,borderRadius:"50%",background:vis.color+"22",border:"2px solid "+vis.color+"55",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontFamily:FM,color:vis.color,fontWeight:700,flexShrink:0}}>
                   {vis.name?vis.name.split(" ").map((n:string)=>n[0]).join(""):vis.id.slice(-2).toUpperCase()}
                 </div>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.name||<span style={{color:C.t3,fontStyle:"italic"}}>Anonymous</span>}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2,flexWrap:"wrap"}}>
-                    <span style={{fontSize:9,fontWeight:700,fontFamily:FM,padding:"1px 6px",borderRadius:3,background:vis.source==="Direct"?C.s3:C.ad,color:vis.source==="Direct"?C.t3:C.a,border:"1px solid "+(vis.source==="Direct"?C.b1:C.a+"44"),whiteSpace:"nowrap",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis"}}>
-                      {vis.source==="Direct"?"⊕ Direct":"↩ "+vis.source}
-                    </span>
-                  </div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>{vis.id.slice(-8)}</div>
                 </div>
               </div>
               {/* Page */}
-              <div style={{display:"flex",flexDirection:"column",justifyContent:"center",minWidth:0}}>
+              <div style={{display:"flex",flexDirection:"column",justifyContent:"center",minWidth:0,paddingRight:10}}>
                 {vis.pageHost&&<div style={{fontSize:9.5,color:C.t3,fontFamily:FM,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🌐 {vis.pageHost}</div>}
                 <div style={{fontSize:12,color:C.a,fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(() => { try { return new URL(vis.page).pathname||'/'; } catch { return vis.page; } })()}</div>
                 <div style={{fontSize:10,color:C.t3,marginTop:1}}>{vis.prevPages} page{vis.prevPages!==1?"s":""} visited</div>
               </div>
+              {/* Source */}
+              <div style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
+                <span style={{fontSize:10,fontWeight:700,fontFamily:FM,padding:"2px 8px",borderRadius:4,background:vis.source==="Direct"?C.s3:C.ad,color:vis.source==="Direct"?C.t3:C.a,border:"1px solid "+(vis.source==="Direct"?C.b1:C.a+"44"),whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {vis.source==="Direct"?"⊕ Direct":"↩ "+vis.source}
+                </span>
+              </div>
               {/* Location */}
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                 <span style={{fontSize:16}}>{vis.flag}</span>
-                <div>
-                  <div style={{fontSize:12,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:100}}>{vis.country}</div>
-                  <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{vis.ip}</div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:11.5,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.country}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.city || vis.region || '—'}</div>
                 </div>
               </div>
-              {/* Device */}
-              <div style={{display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                <div style={{fontSize:12,color:C.t2}}>{vis.device}</div>
-                <div style={{fontSize:10,color:C.t3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.browser}</div>
+              {/* Device/OS */}
+              <div style={{display:"flex",flexDirection:"column",justifyContent:"center",minWidth:0}}>
+                <div style={{fontSize:12,color:C.t1}}>{vis.device}</div>
+                <div style={{fontSize:10,color:C.t3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.os}</div>
+              </div>
+              {/* Browser */}
+              <div style={{display:"flex",alignItems:"center",minWidth:0}}>
+                <div style={{fontSize:11.5,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vis.browser}</div>
+              </div>
+              {/* IP Address */}
+              <div style={{display:"flex",alignItems:"center",minWidth:0}}>
+                <div style={{fontSize:11,color:C.t3,fontFamily:FM}}>{vis.ip}</div>
               </div>
               {/* Time */}
-              <div style={{display:"flex",flexDirection:"column",justifyContent:"center"}}>
+              <div style={{display:"flex",flexDirection:"column",justifyContent:"center",minWidth:0}}>
                 <div style={{fontSize:13,fontWeight:700,color:C.t1,fontFamily:FM}}>{fmtTime(vis.timeOnSite)}</div>
-                <div style={{fontSize:10,color:C.t3,marginTop:1}}>{vis.os}</div>
               </div>
               {/* Status */}
-              <div style={{display:"flex",alignItems:"center",gap:3}}>
-                {vis.chatStatus==="chatting"?<VTag text={vis.typing?"Typing…":"Chatting"} color={vis.typing?C.p:C.g}/>:vis.chatStatus==="invited"?<VTag text="Invited" color={C.y}/>:<VTag text="Browsing" color={C.t3}/>}
+              <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",minWidth:0}}>
+                {vis.isActive?<VTag text="● Online" color={C.g}/>:<VTag text="Offline" color={C.t3}/>}
+                {vis.chatStatus==="chatting"?<VTag text={vis.typing?"Typing…":"Chatting"} color={vis.typing?C.p:C.g}/>:vis.chatStatus==="invited"?<VTag text="Invited" color={C.y}/>:null}
               </div>
               {/* Actions */}
               <div style={{display:"flex",alignItems:"center",gap:5}} onClick={(e:any)=>e.stopPropagation()}>
@@ -327,29 +424,43 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
           </div>
           <div style={{padding:"14px 18px"}}>
             {[
-              ["Session",null],
-              ["Current Page",sel.page],
-              ["Pages Visited",String(sel.prevPages)],
-              ["Time on Site",fmtTime(sel.timeOnSite)],
-              ["Source",sel.source+(sel.referrerDomain&&sel.referrerDomain!==sel.source?" ("+sel.referrerDomain+")":"")],
+              ["Status",null],
+              ["Status",sel.isActive?"● Online":"Ended"],
+              ["Visited At",sel.visitedAt?new Date(sel.visitedAt).toLocaleString():"—"],
+              ["Time Spent",fmtTime(sel.timeOnSite)],
+              ["",""],
+              ["Visitor Info",null],
+              ["Name",sel.name||"Anonymous"],
+              sel.email?["Email",sel.email]:null,
+              sel.phone?["Phone",sel.phone]:null,
+              sel.googleId?["Google ID",sel.googleId]:null,
               ["",""],
               ["Location",null],
+              ["Geo IP",sel.ip],
               ["Country",sel.flag+" "+sel.country],
               [sel.city?"City":"","",sel.city?sel.city+(sel.region?", "+sel.region:""):""],
-              ["IP Address",sel.ip],
+              sel.region?["State",sel.region]:null,
               ["",""],
-              ["Device",null],
-              ["Browser",sel.browser],
+              ["Device & Browser",null],
               ["OS",sel.os],
-              ["Device Type",sel.device],
-              sel.screenSize?["Screen",sel.screenSize]:null,
+              ["Device",sel.device],
+              ["Browser",sel.browser],
+              sel.screenSize?["Resolution",sel.screenSize]:null,
               sel.language?["Language",sel.language]:null,
+              ["",""],
+              ["Pages & Traffic",null],
+              ["Entry Page",sel.entryPage||sel.page],
+              ["Exit Page",sel.exitPage||sel.page],
+              ["Pages",String(sel.prevPages)],
+              ["Source",sel.source+(sel.referrerDomain&&sel.referrerDomain!==sel.source?" ("+sel.referrerDomain+")":"")],
+              sel.referrer?["Referrer",sel.referrerDomain||sel.referrer]:null,
+              sel.utmSource?["UTM Source",sel.utmSource]:null,
             ].filter(Boolean).map(([l,v]:any,i:number)=>{
               if(!l&&!v)return <div key={i} style={{height:8}}/>;
               if(!v)return <div key={i} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:6,marginTop:6,paddingBottom:5,borderBottom:"1px solid "+C.b1+"55"}}>{l}</div>;
               return <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+C.b1+"22"}}>
                 <span style={{fontSize:11,color:C.t3,fontFamily:FM}}>{l}</span>
-                <span style={{fontSize:12,color:C.t1,maxWidth:160,textAlign:"right",wordBreak:"break-all"}}>{v}</span>
+                <span style={{fontSize:12,color:l==="Status"&&sel.isActive?C.g:C.t1,maxWidth:160,textAlign:"right",wordBreak:"break-all"}}>{v}</span>
               </div>;
             })}
             <div style={{marginTop:14}}>
@@ -362,6 +473,27 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
                 </div>
               ))}
             </div>
+
+            {events.length > 0 && (
+              <div style={{marginTop:20}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:10,paddingBottom:5,borderBottom:"1px solid "+C.b1+"55"}}>Events Captured</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {events.slice(-10).reverse().map((e:any, i:number) => (
+                    <div key={i} style={{fontSize:11,color:C.t1,padding:8,background:C.s3,borderRadius:6,border:"1px solid "+C.b1+"55"}}>
+                      <div style={{fontWeight:700,color:C.a,display:"flex",justifyContent:"space-between"}}>
+                        <span>{e.event_name}</span>
+                        <span style={{fontSize:9,color:C.t3}}>{new Date(e.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+                      </div>
+                      {e.event_data && e.event_data !== '""' && (
+                        <div style={{fontSize:10,color:C.t3,marginTop:3,wordBreak:"break-all"}}>
+                          {e.event_data.startsWith('{') ? 'Data: ' + e.event_data : e.event_data}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </aside>}
       </div>}
@@ -534,6 +666,84 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
             })}
           </div>
         </div>
+      </div>}
+
+      {/* SITES TAB */}
+      {tab==="sites"&&<div style={{flex:1,overflowY:"auto",padding:"22px 28px"}}>
+        {/* Add / Edit Site Form */}
+        <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:12,padding:"20px",marginBottom:20}}>
+          <div style={{fontSize:14,fontWeight:700,fontFamily:FD,marginBottom:14}}>{siteForm?.id?"Edit Site":"Add New Site"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr auto",gap:12,alignItems:"end"}}>
+            <Fld label="Site Name">
+              <input value={siteForm?.name||""} onChange={e=>setSiteForm(f=>({...f||{name:"",url:""},name:e.target.value}))} placeholder="My Website" style={{width:"100%",background:C.bg,border:"1px solid "+C.b1,borderRadius:8,padding:"9px 12px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            </Fld>
+            <Fld label="Site URL">
+              <input value={siteForm?.url||""} onChange={e=>setSiteForm(f=>({...f||{name:"",url:""},url:e.target.value}))} placeholder="https://example.com" style={{width:"100%",background:C.bg,border:"1px solid "+C.b1,borderRadius:8,padding:"9px 12px",fontSize:13,color:C.t1,fontFamily:FB,outline:"none"}}/>
+            </Fld>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveSite} disabled={siteSaving} style={{padding:"9px 18px",borderRadius:8,fontSize:12,fontWeight:700,fontFamily:FM,background:C.a,color:"#fff",border:"none",cursor:siteSaving?"not-allowed":"pointer",opacity:siteSaving?0.6:1,whiteSpace:"nowrap"}}>
+                {siteSaving?<Spin/>:siteForm?.id?"Update":"Add Site"}
+              </button>
+              {siteForm?.id&&<button onClick={()=>setSiteForm(null)} style={{padding:"9px 14px",borderRadius:8,fontSize:12,fontWeight:600,color:C.t3,background:"transparent",border:"1px solid "+C.b1,cursor:"pointer"}}>Cancel</button>}
+            </div>
+          </div>
+        </div>
+
+        {/* Sites List */}
+        <div style={{background:C.s1,border:"1px solid "+C.b1,borderRadius:12,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 3fr 1fr 1fr 120px",padding:"10px 20px",borderBottom:"1px solid "+C.b1,background:C.s2}}>
+            {["Site Name","URL","Status","Visitors","Actions"].map(h=>(
+              <span key={h} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase"}}>{h}</span>
+            ))}
+          </div>
+
+          {sitesLoading&&<div style={{padding:"40px",textAlign:"center"}}><Spin/></div>}
+          {!sitesLoading&&sites.length===0&&<VEmpty icon="🌐" title="No sites added yet" desc="Add your website to start tracking visitors. You'll get the tracking snippet to embed on each site."/>}
+
+          {sites.map((site:any)=>{
+            const siteVisitors=visitors.filter(v=>{try{return new URL(v.page).hostname.replace(/^www\./,'')===new URL(site.url).hostname.replace(/^www\./,'');}catch{return false;}});
+            return <div key={site.id} style={{display:"grid",gridTemplateColumns:"2fr 3fr 1fr 1fr 120px",padding:"12px 20px",borderBottom:"1px solid "+C.b1,alignItems:"center",animation:"fadeUp .2s ease"}}>
+              {/* Name */}
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:8,background:C.ad,border:"1px solid "+C.a+"33",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🌐</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.t1}}>{site.name}</div>
+                  <div style={{fontSize:10,color:C.t3,fontFamily:FM,marginTop:2}}>Added {new Date(site.created_at).toLocaleDateString()}</div>
+                </div>
+              </div>
+              {/* URL */}
+              <div style={{fontSize:12,color:C.a,fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                <a href={site.url} target="_blank" rel="noreferrer" style={{color:C.a,textDecoration:"none"}}>{site.url}</a>
+              </div>
+              {/* Status */}
+              <div>
+                <button onClick={()=>toggleSiteStatus(site)} style={{background:"none",border:"none",cursor:"pointer",padding:0}}>
+                  <VTag text={site.status==='active'?"Active":"Paused"} color={site.status==='active'?C.g:C.t3}/>
+                </button>
+              </div>
+              {/* Visitors count */}
+              <div style={{fontSize:14,fontWeight:700,color:siteVisitors.length>0?C.g:C.t3,fontFamily:FM}}>
+                {siteVisitors.length} <span style={{fontSize:10,fontWeight:400,color:C.t3}}>live</span>
+              </div>
+              {/* Actions */}
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setSiteForm({id:site.id,name:site.name,url:site.url})} style={{padding:"5px 10px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,background:C.ad,color:C.a,border:"1px solid "+C.a+"44",cursor:"pointer"}}>Edit</button>
+                <button onClick={()=>deleteSite(site.id)} disabled={siteDeleting===site.id} style={{padding:"5px 10px",borderRadius:6,fontSize:10,fontWeight:700,fontFamily:FM,background:"#ff444416",color:"#ff4444",border:"1px solid #ff444444",cursor:siteDeleting===site.id?"not-allowed":"pointer",opacity:siteDeleting===site.id?0.6:1}}>
+                  {siteDeleting===site.id?"...":"Delete"}
+                </button>
+              </div>
+            </div>;
+          })}
+        </div>
+
+        {/* Snippet info card */}
+        {sites.length>0&&<div style={{background:C.ad,border:"1px solid "+C.a+"33",borderRadius:12,padding:"16px 20px",marginTop:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.a,marginBottom:6}}>Tracking Setup</div>
+          <div style={{fontSize:12,color:C.t3,lineHeight:1.7}}>
+            For each site above, embed the tracking snippet in your website's <code style={{background:C.bg,padding:"1px 5px",borderRadius:4,fontSize:11}}>&lt;head&gt;</code> tag.
+            <button onClick={loadSnippet} style={{marginLeft:8,padding:"3px 10px",borderRadius:5,fontSize:11,fontWeight:700,fontFamily:FM,background:C.pd,color:C.p,border:"1px solid "+C.p+"44",cursor:"pointer"}}>{"</>"} Get Snippet</button>
+          </div>
+        </div>}
       </div>}
     </div>
 
