@@ -222,7 +222,7 @@ app.post('/api/event', widgetCors, async (req, res) => {
 });
 
 // ── GET /api/monitor/events/:session_id — list events for a session ──────────
-app.get('/api/monitor/events/:session_id', auth, async (req, res) => {
+app.get('/api/monitor/events/:session_id', require('./middleware/auth'), async (req, res) => {
   try {
     const events = await db.prepare('SELECT * FROM visitor_events WHERE session_id=? ORDER BY created_at ASC').all(req.params.session_id);
     res.json({ events });
