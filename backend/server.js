@@ -53,22 +53,31 @@ app.use(helmet({
 }));
 
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
-// Auto-include PUBLIC_URL so the live frontend always works
-if (process.env.PUBLIC_URL && !ALLOWED_ORIGINS.includes(process.env.PUBLIC_URL)) ALLOWED_ORIGINS.push(process.env.PUBLIC_URL);
+// Auto-include PUBLIC_URL and its www/non-www variant so the live frontend always works
+if (process.env.PUBLIC_URL) {
+  const pu = process.env.PUBLIC_URL.trim();
+  if (!ALLOWED_ORIGINS.includes(pu)) ALLOWED_ORIGINS.push(pu);
+  // Also add without www or with www
+  const noWww = pu.replace('://www.', '://');
+  const withWww = pu.includes('://www.') ? pu : pu.replace('://', '://www.');
+  if (!ALLOWED_ORIGINS.includes(noWww)) ALLOWED_ORIGINS.push(noWww);
+  if (!ALLOWED_ORIGINS.includes(withWww)) ALLOWED_ORIGINS.push(withWww);
+}
+console.log('🌐 CORS allowed origins:', ALLOWED_ORIGINS.join(', '));
 // Public endpoints (tracker, widget) — allow ANY origin, handle preflight
 const publicPaths = ['/api/track', '/api/event', '/tracker.js', '/api/monitor/snippet', '/widget'];
 app.use((req, res, next) => {
   if (publicPaths.some(p => req.path.startsWith(p))) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     return next();
   }
   cors({
     origin: (origin, cb) => {
       if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
-      else cb(null, ALLOWED_ORIGINS[0]);
+      else { console.warn('⚠️ CORS blocked origin:', origin); cb(null, false); }
     },
     credentials: true,
   })(req, res, next);
