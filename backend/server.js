@@ -338,8 +338,10 @@ app.post('/api/track', async (req, res) => {
   console.log(`📡 Track [${event}]: session=${session_id} page=${page}`);
   res.json({ ok: true }); 
   try {
-    const { session_id, event, page, referrer, source, screen_width, screen_height, language, duration, utm = {}, identify = {} } = req.body;
+    const { session_id, event, page, referrer, source, screen_width, screen_height, language, duration, utm: rawUtm, identify: rawIdentify } = req.body;
     if (!session_id) return;
+    const utm = rawUtm || {};
+    const identify = rawIdentify || {};
     const utm_source = utm.utm_source || req.body.utm_source;
 
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
