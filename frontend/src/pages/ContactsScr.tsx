@@ -6,6 +6,37 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
   const [search,setSearch]=useState("");
   const [sel,setSel]=useState(null);
   const [dtab,setDtab]=useState("overview");
+  const [timeline,setTimeline]=useState<any[]>([]);
+  const [timelineLoad,setTimelineLoad]=useState(false);
+  // Fetch real-time timeline whenever selected contact or timeline tab changes
+  useEffect(()=>{
+    if(!sel?.id){setTimeline([]);return;}
+    let alive=true;
+    const load=async()=>{
+      if(!api.isConnected())return;
+      setTimelineLoad(true);
+      try{
+        const r=await api.get(`/contacts/${sel.id}/timeline`);
+        if(alive&&r?.events)setTimeline(r.events);
+      }catch{ /* ignore */ }
+      finally{ if(alive)setTimelineLoad(false); }
+    };
+    load();
+    // Poll every 10s while timeline tab is open
+    const iv=dtab==="timeline"?setInterval(load,10000):null;
+    return()=>{alive=false;if(iv)clearInterval(iv);};
+  },[sel?.id,dtab]);
+  const _timeAgo=(iso:string)=>{
+    if(!iso)return"";
+    const t=new Date(iso).getTime();
+    if(isNaN(t))return iso;
+    const s=Math.floor((Date.now()-t)/1000);
+    if(s<60)return s+"s ago";
+    if(s<3600)return Math.floor(s/60)+"m ago";
+    if(s<86400)return Math.floor(s/3600)+"h ago";
+    if(s<604800)return Math.floor(s/86400)+"d ago";
+    return new Date(iso).toLocaleDateString();
+  };
   const [showForm,setShowForm]=useState(false);
   const [editC,setEditC]=useState(null);
   const [bulkSel,setBulkSel]=useState([]);const [bulkMode,setBulkMode]=useState(false);
@@ -177,11 +208,11 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
         {search&&<span onClick={()=>setSearch("")} style={{color:C.t3,cursor:"pointer"}}>×</span>}
       </div>
       <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"2fr 1.8fr 1.4fr 1fr 0.8fr 0.8fr 0.7fr 60px",padding:"9px 16px",borderBottom:`1px solid ${C.b1}`}}>
-          {["Name","Email","Company","Location","Plan","Convs","CSAT",""].map((h,i)=><span key={i} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase"}}>{h}</span>)}
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1.8fr 1.3fr 1.4fr 1fr 0.7fr 60px",padding:"9px 16px",borderBottom:`1px solid ${C.b1}`}}>
+          {["Name","Email","Phone","Company","Location","Convs",""].map((h,i)=><span key={i} style={{fontSize:9,fontWeight:700,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",textTransform:"uppercase"}}>{h}</span>)}
         </div>
         {(activeList?listFiltered:filtered).map(ct=>(
-          <div key={ct.id} className="hov" onClick={()=>{setSel(ct);setDtab("overview");}} style={{display:"grid",gridTemplateColumns:"2fr 1.8fr 1.4fr 1fr 0.8fr 0.8fr 0.7fr 60px",padding:"11px 16px",borderBottom:`1px solid ${C.b1}`,cursor:"pointer",background:sel?.id===ct.id?C.ad:"transparent",transition:"background .12s",borderLeft:`2.5px solid ${sel?.id===ct.id?C.a:"transparent"}`}}>
+          <div key={ct.id} className="hov" onClick={()=>{setSel(ct);setDtab("overview");}} style={{display:"grid",gridTemplateColumns:"2fr 1.8fr 1.3fr 1.4fr 1fr 0.7fr 60px",padding:"11px 16px",borderBottom:`1px solid ${C.b1}`,cursor:"pointer",background:sel?.id===ct.id?C.ad:"transparent",transition:"background .12s",borderLeft:`2.5px solid ${sel?.id===ct.id?C.a:"transparent"}`}}>
             <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
               <Av i={ct.av} c={ct.color} s={30}/>
               <div style={{minWidth:0}}>
@@ -189,15 +220,14 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
                 <div style={{fontSize:10,color:C.t3,fontFamily:FM}}>{ct.uid}</div>
               </div>
             </div>
-            <span style={{fontSize:12,color:C.t2,display:"flex",alignItems:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.email}</span>
+            <span style={{fontSize:12,color:C.t2,display:"flex",alignItems:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.email||"—"}</span>
+            <span style={{fontSize:12,color:C.t2,display:"flex",alignItems:"center",fontFamily:FM,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.phone||"—"}</span>
             <div style={{display:"flex",flexDirection:"column",justifyContent:"center"}}>
-              <span style={{fontSize:12,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.company}</span>
+              <span style={{fontSize:12,color:C.t2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ct.company||"—"}</span>
               <span style={{fontSize:10,color:C.t3}}>{ct.language} · {ct.currency}</span>
             </div>
             <span style={{fontSize:11,color:C.t3,display:"flex",alignItems:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(ct.location||"").split(",")[0]||"—"}</span>
-            <span style={{display:"flex",alignItems:"center"}}><Tag text={ct.plan} color={ct.plan==="Enterprise"?C.p:ct.plan==="Pro"?C.a:C.t3}/></span>
             <span style={{fontSize:13,color:C.a,display:"flex",alignItems:"center",fontFamily:FM,fontWeight:700}}>{ct.convs}</span>
-            <span style={{fontSize:12,color:csatColor(ct.csat),display:"flex",alignItems:"center",fontFamily:FM,fontWeight:700}}>{ct.csat?ct.csat+"★":"—"}</span>
             <div style={{display:"flex",alignItems:"center",gap:5}}>
               <button onClick={e=>{e.stopPropagation();openEdit(ct);}} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:14}}>✎</button>
               <button onClick={e=>{e.stopPropagation();if(window.confirm("Delete this contact?"))del(ct.id);}} style={{background:"none",border:"none",color:C.r,cursor:"pointer",fontSize:13}}>🗑</button>
@@ -324,15 +354,28 @@ export default function ContactsScr({contacts,setContacts,convs,labels,comps,set
 
         {/* NOTES TAB */}
         {dtab==="timeline"&&<div style={{animation:"fadeUp .15s ease"}}>
-          <div style={{fontSize:9.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px",marginBottom:10}}>ACTIVITY TIMELINE</div>
-          {[{t:"2m ago",icon:"💬",text:"Sent a message",sub:"Payment stuck · WhatsApp",c:C.a},{t:"1h ago",icon:"📧",text:"Email reply received",sub:"Re: Invoice query",c:C.a},{t:"3h ago",icon:"🏷",text:"Tag added: vip",sub:"By Priya Sharma",c:C.y},{t:"1d ago",icon:"✅",text:"Conversation resolved",sub:"API auth issue — fixed",c:C.g},{t:"2d ago",icon:"👤",text:"Assigned to Dev Kumar",sub:"Payment escalation",c:C.p},{t:"3d ago",icon:"📞",text:"Phone call — 4m 32s",sub:"Billing inquiry",c:C.cy},{t:"5d ago",icon:"🤖",text:"AI auto-replied",sub:"FAQ: How to reset password",c:C.p},{t:"1w ago",icon:"📋",text:"CSAT survey: 4.5★",sub:"Post-resolution feedback",c:C.g},{t:"2w ago",icon:"🆕",text:"Contact created",sub:"Via website signup form",c:C.a}].map((ev,i)=>(
-            <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.b1}22`,position:"relative"}}>
-              {i<8&&<div style={{position:"absolute",left:14,top:32,width:1,height:"calc(100% - 16px)",background:C.b1}}/>}
-              <div style={{width:28,height:28,borderRadius:"50%",background:ev.c+"18",border:`1px solid ${ev.c}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,zIndex:1}}>{ev.icon}</div>
-              <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600,color:C.t1}}>{ev.text}</div><div style={{fontSize:10,color:C.t3}}>{ev.sub}</div></div>
-              <span style={{fontSize:9,color:C.t3,fontFamily:FM,flexShrink:0}}>{ev.t}</span>
-            </div>
-          ))}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{fontSize:9.5,color:C.t3,fontFamily:FM,letterSpacing:"0.5px"}}>ACTIVITY TIMELINE {timelineLoad&&<Spin/>}</span>
+            <span style={{fontSize:9,color:C.g,fontFamily:FM,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:C.g,display:"inline-block",animation:"pulse 1.6s infinite"}}/>
+              Live
+            </span>
+          </div>
+          {timeline.length===0&&!timelineLoad&&<div style={{fontSize:11,color:C.t3,fontFamily:FM,textAlign:"center",padding:"20px 0"}}>No activity yet</div>}
+          {timeline.map((ev,i)=>{
+            const col=ev.color==="g"?C.g:ev.color==="p"?C.p:ev.color==="y"?C.y:ev.color==="r"?C.r:ev.color==="cy"?C.cy:C.a;
+            return(
+              <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.b1}22`,position:"relative"}}>
+                {i<timeline.length-1&&<div style={{position:"absolute",left:14,top:32,width:1,height:"calc(100% - 16px)",background:C.b1}}/>}
+                <div style={{width:28,height:28,borderRadius:"50%",background:col+"18",border:`1px solid ${col}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,zIndex:1}}>{ev.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:C.t1}}>{ev.text}</div>
+                  <div style={{fontSize:10,color:C.t3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.sub}</div>
+                </div>
+                <span style={{fontSize:9,color:C.t3,fontFamily:FM,flexShrink:0}} title={ev.ts}>{_timeAgo(ev.ts)}</span>
+              </div>
+            );
+          })}
         </div>}
         {dtab==="notes"&&<NotesPad contact={sel} setContacts={setContacts}/>}
       </div>

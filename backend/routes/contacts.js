@@ -32,6 +32,103 @@ router.get('/:id', auth, async (req, res) => {
   res.json({ contact: c, conversations: convs });
 });
 
+// GET /api/contacts/:id/timeline — real-time activity feed for a contact
+router.get('/:id/timeline', auth, async (req, res) => {
+  try {
+    const contact = await db.prepare('SELECT * FROM contacts WHERE id=? AND agent_id=?').get(req.params.id, req.agent.id);
+    if (!contact) return res.status(404).json({ error: 'Not found' });
+
+    const events = [];
+
+    // 1. Contact created
+    if (contact.created_at) {
+      events.push({
+        type: 'contact_created',
+        icon: '🆕',
+        text: 'Contact created',
+        sub: contact.email || contact.phone || '',
+        color: 'a',
+        ts: contact.created_at,
+      });
+    }
+
+    // 2. Conversations (created + resolved)
+    const convs = await db.prepare(
+      'SELECT id, subject, status, channel, created_at, resolved_at, csat_score FROM conversations WHERE contact_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 50'
+    ).all(req.params.id, req.agent.id);
+
+    for (const cv of convs) {
+      events.push({
+        type: 'conversation_created',
+        icon: '💬',
+        text: 'Conversation started',
+        sub: (cv.subject || 'No subject') + (cv.channel ? ' · ' + cv.channel : ''),
+        color: 'a',
+        ts: cv.created_at,
+        conversation_id: cv.id,
+      });
+
+      if (cv.resolved_at) {
+        events.push({
+          type: 'conversation_resolved',
+          icon: '✅',
+          text: 'Conversation resolved',
+          sub: cv.subject || '',
+          color: 'g',
+          ts: cv.resolved_at,
+          conversation_id: cv.id,
+        });
+      }
+
+      if (cv.csat_score) {
+        events.push({
+          type: 'csat_received',
+          icon: '📋',
+          text: `CSAT: ${cv.csat_score}★`,
+          sub: cv.subject || 'Post-resolution feedback',
+          color: 'g',
+          ts: cv.resolved_at || cv.created_at,
+        });
+      }
+    }
+
+    // 3. Messages (last 50 across all conversations)
+    if (convs.length > 0) {
+      const convIds = convs.map(c => c.id);
+      const placeholders = convIds.map(() => '?').join(',');
+      const msgs = await db.prepare(
+        `SELECT id, conversation_id, role, text, created_at FROM messages WHERE conversation_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 50`
+      ).all(...convIds);
+
+      for (const m of msgs) {
+        const isCustomer = m.role === 'customer' || m.role === 'user';
+        const preview = (m.text || '').slice(0, 80);
+        events.push({
+          type: isCustomer ? 'message_received' : 'message_sent',
+          icon: isCustomer ? '📨' : '📤',
+          text: isCustomer ? 'Message received' : 'Message sent',
+          sub: preview || '(attachment)',
+          color: isCustomer ? 'a' : 'p',
+          ts: m.created_at,
+          conversation_id: m.conversation_id,
+        });
+      }
+    }
+
+    // 4. Sort events by timestamp (most recent first) + cap to 80
+    events.sort((a, b) => {
+      const ta = new Date(a.ts).getTime();
+      const tb = new Date(b.ts).getTime();
+      return tb - ta;
+    });
+
+    res.json({ events: events.slice(0, 80) });
+  } catch (e) {
+    console.error('❌ GET /api/contacts/:id/timeline error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/', auth, async (req, res) => {
   const { name, email, phone, company, avatar, color, tags=[], notes, location } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
