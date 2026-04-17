@@ -65,7 +65,7 @@ if (process.env.PUBLIC_URL) {
 }
 console.log('🌐 CORS allowed origins:', ALLOWED_ORIGINS.join(', '));
 // Public endpoints (tracker, widget) — allow ANY origin, handle preflight
-const publicPaths = ['/api/track', '/api/event', '/tracker.js', '/api/monitor/snippet', '/widget'];
+const publicPaths = ['/api/track', '/api/event', '/api/px', '/tracker.js', '/api/monitor/snippet', '/widget'];
 app.use((req, res, next) => {
   if (publicPaths.some(p => req.path.startsWith(p))) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -231,10 +231,10 @@ async function geoLookup(ip) {
 
 // ── GET /tracker.js — embeddable tracking script ────────────────────────────
 app.get('/tracker.js', (req, res) => {
-  // PUBLIC_URL takes priority — it's the externally reachable URL (ngrok, domain, etc.)
   const BACKEND = process.env.PUBLIC_URL || process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(`(function(){
   'use strict';
   var B='${BACKEND}';
@@ -260,25 +260,38 @@ app.get('/tracker.js', (req, res) => {
     ['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].forEach(function(k){var v=p.get(k);if(v)d[k]=v;});
     }catch{}return d;
   }
-  var iden=null; try{iden=JSON.parse(localStorage.getItem('_sd_iden')||'null');}catch{}
+  var iden=null;try{iden=JSON.parse(localStorage.getItem('_sd_iden')||'null');}catch{}
   function send(evt){
     var now=Date.now();
     if(evt==='heartbeat'&&now-lastHb<25000)return;
     lastHb=now;
     var duration=Math.floor((Date.now()-startTime)/1000);
+    var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch{}
+    var payload={session_id:sid,event:evt,page:window.location.href,
+      referrer:document.referrer,source:src(),title:document.title,
+      screen_width:screen.width,screen_height:screen.height,
+      language:navigator.language||'en',tz:tz,
+      duration:duration,utm:utm(),identify:iden};
+    var json=JSON.stringify(payload);
+    // Method 1: sendBeacon (most reliable for analytics, works on page close)
+    if(navigator.sendBeacon){
+      try{
+        var sent=navigator.sendBeacon(B+'/api/track',new Blob([json],{type:'application/json'}));
+        if(sent)return;
+      }catch{}
+    }
+    // Method 2: fetch
     try{
-      var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch{}
-      fetch(B+'/api/track',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        keepalive:evt==='leave',
-        mode:'cors',
-        body:JSON.stringify({session_id:sid,event:evt,page:window.location.href,
-          referrer:document.referrer,source:src(),title:document.title,
-          screen_width:screen.width,screen_height:screen.height,
-          language:navigator.language||'en',tz:tz,
-          duration:duration,utm:utm(),identify:iden})
-      }).catch(function(){});
+      fetch(B+'/api/track',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,mode:'cors',body:json}).catch(function(){
+        // Method 3: image pixel fallback (GET request, works everywhere)
+        pixelFallback(payload);
+      });
+    }catch{pixelFallback(payload);}
+  }
+  function pixelFallback(p){
+    try{
+      var img=new Image();
+      img.src=B+'/api/px?sid='+encodeURIComponent(p.session_id)+'&e='+encodeURIComponent(p.event)+'&p='+encodeURIComponent(p.page)+'&r='+encodeURIComponent(p.referrer||'')+'&s='+encodeURIComponent(p.source||'')+'&sw='+p.screen_width+'&sh='+p.screen_height+'&l='+encodeURIComponent(p.language||'')+'&d='+p.duration+'&t='+Date.now();
     }catch{}
   }
   send('pageview');
@@ -289,7 +302,9 @@ app.get('/tracker.js', (req, res) => {
   setInterval(function(){if(window.location.href!==lastUrl){lastUrl=window.location.href;send('pageview');}},1000);
   window.SD={
     event:function(name,data){
-      try{fetch(B+'/api/event',{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:JSON.stringify({session_id:sid,name:name,data:data,page:window.location.href})}).catch(function(){});}catch{}
+      var json=JSON.stringify({session_id:sid,name:name,data:data,page:window.location.href});
+      if(navigator.sendBeacon){try{navigator.sendBeacon(B+'/api/event',new Blob([json],{type:'application/json'}));return;}catch{}}
+      try{fetch(B+'/api/event',{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:json}).catch(function(){});}catch{}
     },
     identify:function(data){
       iden=data;try{localStorage.setItem('_sd_iden',JSON.stringify(data));}catch{}
@@ -396,6 +411,79 @@ app.post('/api/track', async (req, res) => {
   }
 });
 // OPTIONS for /api/track handled by global public paths middleware above
+
+// ── GET /api/px — image pixel fallback for browsers blocking POST/sendBeacon ──
+app.get('/api/px', async (req, res) => {
+  // Return a 1x1 transparent GIF immediately
+  const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+  res.setHeader('Content-Type', 'image/gif');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.end(pixel);
+
+  try {
+    const { sid: session_id, e: event, p: page, r: referrer, s: source, sw: screen_width, sh: screen_height, l: language, d: duration } = req.query;
+    if (!session_id) return;
+    console.log(`📡 Pixel Track [${event}]: session=${session_id} page=${page}`);
+
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
+    const ua = req.headers['user-agent'] || '';
+    const { browser, os, device } = parseUA(ua);
+    const { uid } = require('./utils/helpers');
+    const { broadcastToAll } = require('./ws');
+
+    if (event === 'leave') {
+      const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
+      if (existing) {
+        await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), last_seen=NOW(), status="offline" WHERE session_id=?').run(page || '', session_id);
+        broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
+      }
+      return;
+    }
+
+    const geo = await geoLookup(ip);
+    const flag = FLAG_MAP[geo.country_code] || '🌍';
+    const existing = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
+
+    if (existing) {
+      let history = [];
+      try { history = JSON.parse(existing.page_history || '[]'); } catch {}
+      if (history[history.length - 1] !== page) history.push(page);
+      if (history.length > 50) history.shift();
+      const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
+
+      await db.prepare(
+        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), exit_page=?, last_seen=NOW(), status="browsing", utm_source=? WHERE session_id=?`
+      ).run(page, JSON.stringify(history), newCount, page, existing.utm_source || '', session_id);
+
+      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
+      if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
+    } else {
+      const id = uid();
+      await db.prepare(`INSERT INTO visitor_sessions
+        (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
+         page, page_history, pages_visited, referrer, source, browser, os, device,
+         screen_width, screen_height, language, user_agent, status, last_seen,
+         entry_page, exit_page, utm_source, duration)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0)`
+      ).run(
+        id, session_id, ip, flag,
+        geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
+        geo.latitude || null, geo.longitude || null,
+        page || '', JSON.stringify([page || '']),
+        referrer || '', source || 'Direct',
+        browser, os, device,
+        parseInt(screen_width) || null, parseInt(screen_height) || null,
+        language || 'en', ua,
+        page || '', page || '', ''
+      );
+      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(id);
+      if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
+    }
+  } catch (e) {
+    console.error('❌ Pixel Tracking Error:', e);
+  }
+});
 
 app.get('/api/bot-public/:token', widgetCors, async (req, res) => {
   try {
