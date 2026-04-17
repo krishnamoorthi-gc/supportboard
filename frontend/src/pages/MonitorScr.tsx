@@ -40,14 +40,15 @@ function mapApiVisitor(v:any){
     prevPages: v.pages_visited||1,
     pageHistory: (() => { try { return JSON.parse(v.page_history || '[]'); } catch { return [v.page || '/']; } })(),
     timeOnSite: (() => {
-      const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now();
+      const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now();
       const isOnline = !!v.is_active;
       if (isOnline) return Math.max(0, Math.floor((Date.now() - joined) / 1000));
       if (v.duration && !isNaN(parseInt(v.duration))) return parseInt(v.duration);
       return Math.max(0, Math.floor((Date.now() - joined) / 1000));
     })(),
     visitedAt: v.created_at || '',
-    joined: v.created_at ? new Date(v.created_at.replace(' ', 'T') + (v.created_at.includes('Z') ? '' : 'Z')).getTime() : Date.now(),
+    joined: v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now(),
+    ipVersion: v.ip ? (v.ip.includes(':') ? 'IPv6' : 'IPv4') : '',
     browser: v.browser||'Unknown',
     os: v.os||'Unknown',
     device: v.device||'Desktop',
@@ -399,7 +400,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
               </div>
               {/* Status */}
               <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",minWidth:0}}>
-                {vis.isActive?<VTag text="● Online" color={C.g}/>:<VTag text="Offline" color={C.t3}/>}
+                {vis.isActive?<VTag text="● Online" color={C.g}/>:<VTag text="Ended" color={C.t3}/>}
                 {vis.chatStatus==="chatting"?<VTag text={vis.typing?"Typing…":"Chatting"} color={vis.typing?C.p:C.g}/>:vis.chatStatus==="invited"?<VTag text="Invited" color={C.y}/>:null}
               </div>
               {/* Actions */}
@@ -448,7 +449,7 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
               sel.googleId?["Google ID",sel.googleId]:null,
               ["",""],
               ["Location",null],
-              ["Geo IP",sel.ip],
+              ["Geo IP",sel.ip+(sel.ipVersion?" ("+sel.ipVersion+")":"")],
               ["Country",sel.flag+" "+sel.country],
               [sel.city?"City":"","",sel.city?sel.city+(sel.region?", "+sel.region:""):""],
               sel.region?["State",sel.region]:null,
