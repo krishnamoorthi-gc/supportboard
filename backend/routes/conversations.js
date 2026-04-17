@@ -368,7 +368,11 @@ router.post('/:id/messages', auth, async (req, res) => {
       });
     } catch (waErr) {
       console.error('[conversations] WhatsApp send failed:', waErr.message);
-      return res.status(502).json({ error: `WhatsApp delivery failed: ${waErr.message}` });
+      const msg = waErr.message || '';
+      // WhatsApp also has a 24-hour session window + template requirement
+      const isPolicy = /24-hour|re-?engagement|template|recipient|not registered|#131|#132|#133|#470|#471/i.test(msg);
+      const status = isPolicy ? 422 : 502;
+      return res.status(status).json({ error: `WhatsApp delivery failed: ${msg}`, code: status });
     }
   }
 
@@ -388,11 +392,21 @@ router.post('/:id/messages', auth, async (req, res) => {
       });
     } catch (fbErr) {
       console.error('[conversations] Facebook send failed:', fbErr.message);
-      const isNoUser = fbErr.message.includes('No matching user') || fbErr.message.includes('#100');
+      const msg = fbErr.message || '';
+      const isNoUser      = /No matching user|#100/.test(msg);
+      const isWindowClose = /#551|2534022|24-hour/.test(msg);
+      const isStdAccess   = /#200|Standard Access|Advanced Access/.test(msg);
+      const isPermMissing = /#10|permission/i.test(msg);
       const hint = isNoUser
         ? 'This contact has not messaged your Page yet. Facebook only allows replies to users who message your page first.'
-        : fbErr.message;
-      return res.status(502).json({ error: `Facebook not sent: ${hint}` });
+        : isWindowClose
+          ? 'The 24-hour Messenger reply window has expired. The customer must send you a new message to re-open it.'
+          : isStdAccess
+            ? 'Your Meta App is in Standard Access mode — Messenger replies can only go to Admins/Developers/Testers of the App until Advanced Access is approved.'
+            : msg;
+      // 422 = upstream (Meta) rejected for policy/input reasons; not a gateway failure
+      const status = (isNoUser || isWindowClose || isStdAccess || isPermMissing) ? 422 : 502;
+      return res.status(status).json({ error: `Facebook not sent: ${hint}`, code: status });
     }
   }
 
@@ -413,7 +427,10 @@ router.post('/:id/messages', auth, async (req, res) => {
       });
     } catch (igErr) {
       console.error('[conversations] Instagram send failed:', igErr.message);
-      return res.status(502).json({ error: `Instagram delivery failed: ${igErr.message}` });
+      const msg = igErr.message || '';
+      const isPolicy = /#100|#551|2534022|24-hour|#200|Standard Access|Advanced Access|#10|permission/i.test(msg);
+      const status = isPolicy ? 422 : 502;
+      return res.status(status).json({ error: `Instagram delivery failed: ${msg}`, code: status });
     }
   }
 
@@ -437,7 +454,11 @@ router.post('/:id/messages', auth, async (req, res) => {
       });
     } catch (smsErr) {
       console.error('[conversations] SMS send failed:', smsErr.message);
-      return res.status(502).json({ error: `SMS delivery failed: ${smsErr.message}` });
+      const msg = smsErr.message || '';
+      // Twilio policy/user errors vs real infra failures
+      const isPolicy = /invalid|not a valid|blacklist|unsubscribe|21211|21408|21610|21612|21614|30003|30004|30005|30006|30007|30008/i.test(msg);
+      const status = isPolicy ? 422 : 502;
+      return res.status(status).json({ error: `SMS delivery failed: ${msg}`, code: status });
     }
   }
 
