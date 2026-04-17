@@ -203,6 +203,36 @@ CREATE TABLE IF NOT EXISTS automations (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Visual Workflows (n8n-style node graph)
+CREATE TABLE IF NOT EXISTS workflows (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  trigger_type VARCHAR(100),
+  trigger_config MEDIUMTEXT,
+  nodes MEDIUMTEXT,
+  edges MEDIUMTEXT,
+  active TINYINT DEFAULT 1,
+  stats MEDIUMTEXT,
+  agent_id VARCHAR(255),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Workflow execution runs
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id VARCHAR(255) PRIMARY KEY,
+  workflow_id VARCHAR(255) NOT NULL,
+  status VARCHAR(50) DEFAULT 'running',
+  trigger_data MEDIUMTEXT,
+  execution_log MEDIUMTEXT,
+  error_message TEXT,
+  started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME,
+  agent_id VARCHAR(255),
+  INDEX idx_wfrun_wf (workflow_id, started_at)
+);
+
 -- CRM - Deals
 CREATE TABLE IF NOT EXISTS deals (
   id VARCHAR(255) PRIMARY KEY,

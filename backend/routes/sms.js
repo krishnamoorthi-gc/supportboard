@@ -293,6 +293,16 @@ router.post('/webhook', async (req, res) => {
     if (inbox.agent_id) sendToAgent(inbox.agent_id, _smsNewMsg);
     else broadcastToAll(_smsNewMsg);
 
+    // Fire workflow triggers: new_message + (if new conv) new_conversation
+    try {
+      const wfEngine = require('../services/workflowEngine');
+      wfEngine.dispatchTrigger('new_message', {
+        conversation: fullConv, message: savedMsg,
+        contact: { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone },
+      });
+      if (campaignId) wfEngine.dispatchTrigger('campaign_reply', { conversation: fullConv, campaign: { id: campaignId, name: campaignName }, contact });
+    } catch (e) { console.error('[workflow] sms trigger error:', e.message); }
+
     console.log(`[sms] ✓ Inbound SMS saved — conv=${conv.id}, msg=${msgId}, campaign=${campaignId || 'none'}`);
 
   } catch (err) {

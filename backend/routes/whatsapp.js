@@ -389,6 +389,14 @@ async function processIncomingMessage(wMsg, waContacts, inbox, accessToken) {
   if (inbox.agent_id) sendToAgent(inbox.agent_id, _newMsgPayload);
   else broadcastToAll(_newMsgPayload);
 
+  // Fire workflow trigger: new_message
+  try {
+    require('../services/workflowEngine').dispatchTrigger('new_message', {
+      conversation: fullConv, message: savedMsg,
+      contact: fullConv ? { id: fullConv.contact_id, name: fullConv.contact_name, phone: fullConv.contact_phone, email: fullConv.contact_email } : null,
+    });
+  } catch (e) { console.error('[workflow] whatsapp trigger error:', e.message); }
+
   console.log(`[whatsapp] ✓ Received ${msgType} from ${fromPhone} → conv ${conv.id}`);
 }
 
