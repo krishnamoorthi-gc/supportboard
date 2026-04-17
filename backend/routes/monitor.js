@@ -10,7 +10,12 @@ router.get('/visitors', auth, async (req, res) => {
     const visitors = await db.prepare(
       `SELECT *, (last_seen >= DATE_SUB(NOW(), INTERVAL 3 MINUTE)) AS is_active
        FROM visitor_sessions
-       WHERE session_id IS NOT NULL AND session_id != '' AND ip IS NOT NULL AND ip != ''
+       WHERE session_id IS NOT NULL AND session_id != ''
+         AND ip IS NOT NULL AND ip != ''
+         AND ip NOT IN ('::1', '127.0.0.1', '::ffff:127.0.0.1')
+         AND session_id NOT LIKE 'test_%' AND session_id NOT LIKE 'debug_%'
+         AND session_id NOT LIKE 'manual_%' AND session_id NOT LIKE 'live_verify%'
+         AND session_id NOT LIKE 'px_test_%'
        ORDER BY last_seen DESC`
     ).all();
     res.json({ visitors, total: visitors.length });

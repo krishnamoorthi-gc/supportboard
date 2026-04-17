@@ -144,15 +144,6 @@ app.get('/health', async (req, res) => {
   } catch (e) { dbStatus = 'error: ' + e.message; }
   res.json({ status: 'ok', timestamp: new Date().toISOString(), db: dbStatus, visitors_in_db: visitorCount });
 });
-// Temporary debug endpoint — remove after fixing
-app.get('/debug/visitors', async (req, res) => {
-  try {
-    const total = await db.query('SELECT COUNT(*) as c FROM visitor_sessions');
-    const recent = await db.query('SELECT session_id, ip, page, status, created_at, last_seen FROM visitor_sessions ORDER BY created_at DESC LIMIT 10');
-    const nullCheck = await db.query("SELECT COUNT(*) as c FROM visitor_sessions WHERE ip IS NULL OR ip = ''");
-    res.json({ total: total?.c || total?.[0]?.c || 0, null_ip_count: nullCheck?.c || nullCheck?.[0]?.c || 0, recent });
-  } catch (e) { res.json({ error: e.message }); }
-});
 
 // ── Public bot API (no auth — uses embed_token) ──
 const widgetCors = cors({ origin: '*' });

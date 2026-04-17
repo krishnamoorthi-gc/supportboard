@@ -1439,6 +1439,7 @@ async function ensureSchemaColumns() {
       // - ip NULL or empty = no real visitor data
       // - last_seen NULL   = pre-tracker row that never got a heartbeat
       await run("DELETE FROM visitor_sessions WHERE session_id IS NULL OR session_id = '' OR ip IS NULL OR ip = '' OR last_seen IS NULL");
+      await run("DELETE FROM visitor_sessions WHERE ip IN ('::1', '127.0.0.1', '::ffff:127.0.0.1') OR session_id LIKE 'test_%' OR session_id LIKE 'debug_%' OR session_id LIKE 'manual_%' OR session_id LIKE 'live_verify%' OR session_id LIKE 'px_test_%'");
       console.log('🧹 Removed non-real visitor sessions on startup');
 
       // ── Ensure visitor_events table exists ──────────────────────────────

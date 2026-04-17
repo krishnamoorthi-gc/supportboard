@@ -59,7 +59,6 @@ function mapApiVisitor(v:any){
     ip: v.ip||'—',
     color: visitorColor(v.id),
     typing: false,
-    scroll: 50,
     city: v.city||'',
     region: v.region||'',
     language: v.language||'en',
