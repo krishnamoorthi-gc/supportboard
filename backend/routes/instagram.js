@@ -103,8 +103,13 @@ router.post('/subscribe', auth, async (req, res) => {
 
     // 3. Check for required Instagram permissions (only if token debug succeeded)
     const scopes = tokenInfo?.scopes || [];
+    // Accept either the old or new Instagram messaging permission name
+    const hasMessagingPerm = scopes.includes('instagram_manage_messages') || scopes.includes('instagram_business_manage_messages');
     const missingPermissions = tokenInfo
-      ? ['instagram_manage_messages', 'pages_manage_metadata'].filter(scope => !scopes.includes(scope))
+      ? [
+          ...(!hasMessagingPerm ? ['instagram_business_manage_messages'] : []),
+          ...(!scopes.includes('pages_manage_metadata') ? ['pages_manage_metadata'] : []),
+        ]
       : [];
     if (missingPermissions.length) {
       return res.status(400).json({
