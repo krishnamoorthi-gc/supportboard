@@ -817,6 +817,45 @@ router.get('/debug', async (req, res) => {
   }
 });
 
+// ── Webhook diagnostic log (in-memory, last 100 events) ─────────────────────
+// Use this via GET /api/facebook/webhook-log to see what Meta is actually
+// sending to this server. Helpful when messages don't arrive in the inbox.
+const webhookLog = [];
+const WEBHOOK_LOG_MAX = 100;
+function pushWebhookLog(rec) {
+  webhookLog.unshift({ ...rec, at: new Date().toISOString() });
+  if (webhookLog.length > WEBHOOK_LOG_MAX) webhookLog.length = WEBHOOK_LOG_MAX;
+}
+
+// GET /api/facebook/webhook-log — diagnostic (auth-protected)
+router.get('/webhook-log', auth, async (req, res) => {
+  // Also include a snapshot of what's in the DB for matching
+  const inboxes = await db.prepare(
+    "SELECT id, name, active, agent_id, config FROM inboxes WHERE type='facebook'"
+  ).all();
+  const inboxSummary = inboxes.map(ib => {
+    const cfg = safeJson(ib.config, {});
+    return {
+      id: ib.id,
+      name: ib.name,
+      active: ib.active,
+      agent_id: ib.agent_id,
+      pageId: cfg.pageId || '',
+      pageName: cfg.pageName || '',
+      hasToken: !!cfg.accessToken,
+      hasVerifyToken: !!cfg.verifyToken,
+      verifyTokenPreview: cfg.verifyToken ? cfg.verifyToken.slice(0, 6) + '…' : '',
+      connStatus: cfg.connStatus || '',
+    };
+  });
+  res.json({
+    events: webhookLog,
+    inboxes: inboxSummary,
+    publicUrl: (process.env.PUBLIC_URL || process.env.API_BASE_URL || '').replace(/\/$/, ''),
+    totalLogged: webhookLog.length,
+  });
+});
+
 // ── GET /api/facebook/webhook  (Meta verification) ───────────────────────────
 router.get('/webhook', async (req, res) => {
   const mode      = req.query['hub.mode'];
@@ -881,35 +920,86 @@ router.get('/webhook', async (req, res) => {
 router.post('/webhook', async (req, res) => {
   res.status(200).send('EVENT_RECEIVED');
 
+  const body = req.body || {};
+  const diagnostic = {
+    kind:       'POST',
+    object:     body.object || '(missing)',
+    entryCount: (body.entry || []).length,
+    pages:      [],
+    note:       '',
+  };
+
   try {
-    const body = req.body;
-    if (body?.object !== 'page') return;
+    if (body?.object !== 'page') {
+      diagnostic.note = `Ignored — object is '${body?.object}', expected 'page' (Instagram webhooks route to /api/instagram/webhook).`;
+      pushWebhookLog(diagnostic);
+      return;
+    }
 
     for (const entry of body.entry || []) {
-      const pageId = entry.id;
+      const pageId = String(entry.id || '');
+      const pageDiag = {
+        pageId,
+        matchedInboxId:   null,
+        matchedInboxName: null,
+        events: [],
+      };
 
       const inbox = await findInboxByPageId(pageId);
       if (!inbox) {
         console.warn('[facebook] No inbox for page:', pageId);
+        pageDiag.note = `No Facebook inbox has pageId='${pageId}' configured (and active=1). Open Settings → Inboxes → your Facebook inbox and verify the Page ID matches.`;
+        diagnostic.pages.push(pageDiag);
         continue;
       }
+      pageDiag.matchedInboxId   = inbox.id;
+      pageDiag.matchedInboxName = inbox.name;
 
       const cfg = safeJson(inbox.config, {});
       const pageToken = cfg.accessToken || '';
 
       for (const event of entry.messaging || []) {
+        const evDiag = {
+          senderId:  event.sender?.id || '',
+          recipId:   event.recipient?.id || '',
+          mid:       event.message?.mid || '',
+          textPrev:  (event.message?.text || '').slice(0, 60),
+          isEcho:    !!event.message?.is_echo,
+          delivery:  !!event.delivery,
+          read:      !!event.read,
+          result:    '',
+        };
+
         if (event.message?.is_echo) {
+          evDiag.result = 'ignored-echo';
+          pageDiag.events.push(evDiag);
           console.log('[facebook] Ignoring echo message:', event.message?.mid || '(unknown)');
           continue;
         }
         if (event.message) {
-          await processIncomingMessage(event, inbox, pageToken);
+          try {
+            await processIncomingMessage(event, inbox, pageToken);
+            evDiag.result = 'processed';
+          } catch (e) {
+            evDiag.result = 'error: ' + (e.message || String(e));
+            console.error('[facebook] processIncomingMessage failed:', e.message);
+          }
+        } else if (event.delivery || event.read) {
+          evDiag.result = 'receipt';
+        } else {
+          evDiag.result = 'no-message-payload';
         }
+        pageDiag.events.push(evDiag);
       }
+
+      diagnostic.pages.push(pageDiag);
     }
   } catch (err) {
+    diagnostic.note = 'Handler threw: ' + err.message;
     console.error('[facebook] Webhook error:', err.message);
   }
+
+  pushWebhookLog(diagnostic);
 });
 
 // ── Process incoming FB message ──────────────────────────────────────────────
