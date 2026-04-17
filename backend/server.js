@@ -53,6 +53,8 @@ app.use(helmet({
 }));
 
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
+// Auto-include PUBLIC_URL so the live frontend always works
+if (process.env.PUBLIC_URL && !ALLOWED_ORIGINS.includes(process.env.PUBLIC_URL)) ALLOWED_ORIGINS.push(process.env.PUBLIC_URL);
 // Public endpoints (tracker, widget) — allow ANY origin, handle preflight
 const publicPaths = ['/api/track', '/api/event', '/tracker.js', '/api/monitor/snippet', '/widget'];
 app.use((req, res, next) => {
