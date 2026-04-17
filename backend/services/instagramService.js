@@ -92,7 +92,39 @@ async function graphPost(url, headers, body) {
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok || data?.error) {
-    const msg = data?.error?.message || JSON.stringify(data);
+    const err  = data?.error || {};
+    const code = err.code;
+    const sub  = err.error_subcode;
+    const msg  = err.message || JSON.stringify(data);
+
+    // (#200) app is in Standard Access — can only message users with a role on the app
+    if (code === 200 && /instagram_manage_messages/i.test(msg) && /Advanced Access|role on app/i.test(msg)) {
+      throw new Error(
+        'Meta app is in Standard Access mode — Instagram DMs can only be sent to people who have a role on your Facebook App ' +
+        '(Admin / Developer / Tester). Either add this Instagram user as a Tester on your App (developers.facebook.com → Roles), ' +
+        'or submit your App for Advanced Access review to message any user. [Graph API 403 (#200)]'
+      );
+    }
+    // (#551) or subcode 2534022 — outside 24-hour messaging window (check BEFORE generic #10)
+    if (code === 551 || sub === 2534022) {
+      throw new Error(
+        'Cannot send — the 24-hour Instagram messaging window has expired. The user must send a new DM to re-open the window. [Graph API (#551)]'
+      );
+    }
+    // (#10) app does not have permission — permission missing on token
+    if (code === 10) {
+      throw new Error(
+        `Meta token is missing a required permission: ${msg} — re-generate the Page Access Token with instagram_manage_messages and pages_messaging. [Graph API ${res.status} (#10)]`
+      );
+    }
+    // (#100) no matching user — the user has never DM'd the business
+    if (code === 100) {
+      throw new Error(
+        'Meta cannot deliver this message — the Instagram user has not messaged your business account yet, so there is no open 24-hour ' +
+        'messaging window. They must send a DM first. [Graph API 400 (#100)]'
+      );
+    }
+
     throw new Error(`Meta Graph API ${res.status}: ${msg}`);
   }
   return data;
