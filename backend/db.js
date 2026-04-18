@@ -1442,6 +1442,20 @@ async function ensureSchemaColumns() {
       await run("DELETE FROM visitor_sessions WHERE ip IN ('::1', '127.0.0.1', '::ffff:127.0.0.1') OR session_id LIKE 'test_%' OR session_id LIKE 'debug_%' OR session_id LIKE 'manual_%' OR session_id LIKE 'live_verify%' OR session_id LIKE 'px_test_%'");
       console.log('🧹 Removed non-real visitor sessions on startup');
 
+      // ── Deduplicate and enforce UNIQUE on session_id ────────────────────
+      try {
+        // Remove duplicate session_id rows keeping only the latest per session_id
+        await run(`DELETE vs1 FROM visitor_sessions vs1
+          INNER JOIN visitor_sessions vs2
+          ON vs1.session_id = vs2.session_id AND vs1.last_seen < vs2.last_seen`);
+        // Add unique constraint if not already present
+        const [idxRows] = await db.query(`SHOW INDEX FROM visitor_sessions WHERE Key_name='uq_session_id'`);
+        if (idxRows.length === 0) {
+          await run(`ALTER TABLE visitor_sessions ADD UNIQUE KEY uq_session_id (session_id)`);
+          console.log('✅ Added UNIQUE constraint on visitor_sessions.session_id');
+        }
+      } catch (e) { console.error('visitor_sessions dedup/unique:', e.message); }
+
       // ── Ensure visitor_events table exists ──────────────────────────────
       const [veTables] = await db.query("SHOW TABLES LIKE 'visitor_events'");
       if (veTables.length === 0) {

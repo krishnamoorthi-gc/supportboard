@@ -248,6 +248,8 @@ app.get('/tracker.js', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(`(function(){
   'use strict';
+  if(window.__sd_loaded)return;
+  window.__sd_loaded=true;
   var B='${BACKEND}';
   var SK='_sd_vsid';
   var sid=null;
@@ -398,7 +400,7 @@ app.post('/api/track', async (req, res) => {
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
     } else {
       const id = uid();
-      await db.prepare(`INSERT INTO visitor_sessions
+      await db.prepare(`INSERT IGNORE INTO visitor_sessions
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
@@ -416,7 +418,7 @@ app.post('/api/track', async (req, res) => {
         page, page, utm_source || '',
         identify.name || null, identify.email || null, identify.phone || null, identify.avatar || null, identify.google_id || null
       );
-      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(id);
+      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
     }
   } catch (e) {
@@ -473,7 +475,7 @@ app.get('/api/px', async (req, res) => {
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
     } else {
       const id = uid();
-      await db.prepare(`INSERT INTO visitor_sessions
+      await db.prepare(`INSERT IGNORE INTO visitor_sessions
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
@@ -490,7 +492,7 @@ app.get('/api/px', async (req, res) => {
         language || 'en', ua,
         page || '', page || '', ''
       );
-      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(id);
+      const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
     }
   } catch (e) {
