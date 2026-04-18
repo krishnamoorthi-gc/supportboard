@@ -248,7 +248,6 @@ app.get('/tracker.js', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(`(function(){
   'use strict';
-  if(window._sdT)return; window._sdT=1;
   var B='${BACKEND}';
   var SK='_sd_vsid';
   var sid=null;

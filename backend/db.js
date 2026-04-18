@@ -1444,15 +1444,21 @@ async function ensureSchemaColumns() {
 
       // ── Deduplicate and enforce UNIQUE on session_id ────────────────────
       try {
-        // Remove duplicate session_id rows keeping only the latest per session_id
-        await run(`DELETE vs1 FROM visitor_sessions vs1
+        // Remove duplicate session_id rows keeping only the latest (use query not execute — execute lacks multi-table DELETE support)
+        await db.query(`DELETE vs1 FROM visitor_sessions vs1
           INNER JOIN visitor_sessions vs2
           ON vs1.session_id = vs2.session_id AND vs1.last_seen < vs2.last_seen`);
+        // Also remove exact-same last_seen duplicates (keep lowest id)
+        await db.query(`DELETE vs1 FROM visitor_sessions vs1
+          INNER JOIN visitor_sessions vs2
+          ON vs1.session_id = vs2.session_id AND vs1.id > vs2.id`);
         // Add unique constraint if not already present
         const [idxRows] = await db.query(`SHOW INDEX FROM visitor_sessions WHERE Key_name='uq_session_id'`);
         if (idxRows.length === 0) {
-          await run(`ALTER TABLE visitor_sessions ADD UNIQUE KEY uq_session_id (session_id)`);
+          await db.query(`ALTER TABLE visitor_sessions ADD UNIQUE KEY uq_session_id (session_id)`);
           console.log('✅ Added UNIQUE constraint on visitor_sessions.session_id');
+        } else {
+          console.log('✅ UNIQUE constraint on session_id already exists');
         }
       } catch (e) { console.error('visitor_sessions dedup/unique:', e.message); }
 
