@@ -248,8 +248,7 @@ app.get('/tracker.js', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(`(function(){
   'use strict';
-  if(window.__sd_loaded)return;
-  window.__sd_loaded=true;
+  if(window._sdT)return; window._sdT=1;
   var B='${BACKEND}';
   var SK='_sd_vsid';
   var sid=null;
@@ -400,12 +399,13 @@ app.post('/api/track', async (req, res) => {
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
     } else {
       const id = uid();
-      await db.prepare(`INSERT IGNORE INTO visitor_sessions
+      await db.prepare(`INSERT INTO visitor_sessions
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
          entry_page, exit_page, utm_source, duration, visitor_name, visitor_email, visitor_phone, visitor_avatar, visitor_google_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0,?,?,?,?,?)`
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE page=VALUES(page), last_seen=NOW(), status='browsing'`
       ).run(
         id, session_id, ip, flag,
         geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
@@ -475,12 +475,13 @@ app.get('/api/px', async (req, res) => {
       if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
     } else {
       const id = uid();
-      await db.prepare(`INSERT IGNORE INTO visitor_sessions
+      await db.prepare(`INSERT INTO visitor_sessions
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
          entry_page, exit_page, utm_source, duration)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0)`
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0)
+        ON DUPLICATE KEY UPDATE page=VALUES(page), last_seen=NOW(), status='browsing'`
       ).run(
         id, session_id, ip, flag,
         geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
