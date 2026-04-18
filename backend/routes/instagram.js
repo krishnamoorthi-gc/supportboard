@@ -45,19 +45,34 @@ router.post('/subscribe', auth, async (req, res) => {
 
   try {
     // 1. Validate the access token by fetching account info first
+    //    Use only name,username — always available for any valid IG Business token.
+    //    profile_picture_url requires instagram_basic and is fetched separately (non-fatal).
     let pageName = '', pageCategory = '', pagePicture = '';
+    let linkedFbPageId = cfg.facebookPageId || ''; // may be set by admin
     try {
       const infoRes = await fetch(
-        `${GRAPH_BASE}/${cfg.pageId}?fields=name,category,picture&access_token=${cfg.accessToken}`
+        `${GRAPH_BASE}/${cfg.pageId}?fields=name,username,page&access_token=${cfg.accessToken}`
       );
       const infoData = await infoRes.json();
       if (!infoRes.ok || infoData?.error) {
         const msg = infoData?.error?.message || JSON.stringify(infoData);
         throw new Error(`Invalid access token or account ID: ${msg}`);
       }
-      pageName = infoData.name || '';
-      pageCategory = infoData.category || '';
-      pagePicture = infoData.picture?.data?.url || '';
+      pageName     = infoData.name     || infoData.username || '';
+      pageCategory = infoData.username ? `@${infoData.username}` : '';
+      // Capture linked Facebook Page ID for use in subscribed_apps
+      if (infoData.page?.id) linkedFbPageId = infoData.page.id;
+
+      // Try to fetch profile picture — requires instagram_basic, non-fatal
+      try {
+        const picRes = await fetch(
+          `${GRAPH_BASE}/${cfg.pageId}?fields=profile_picture_url&access_token=${cfg.accessToken}`
+        );
+        const picData = await picRes.json();
+        if (!picData.error && picData.profile_picture_url) {
+          pagePicture = picData.profile_picture_url;
+        }
+      } catch {}
     } catch (infoErr) {
       throw new Error(`Access token validation failed: ${infoErr.message}`);
     }
@@ -88,8 +103,13 @@ router.post('/subscribe', auth, async (req, res) => {
 
     // 3. Check for required Instagram permissions (only if token debug succeeded)
     const scopes = tokenInfo?.scopes || [];
+    // Accept either the old or new Instagram messaging permission name
+    const hasMessagingPerm = scopes.includes('instagram_manage_messages') || scopes.includes('instagram_business_manage_messages');
     const missingPermissions = tokenInfo
-      ? ['instagram_manage_messages', 'pages_manage_metadata'].filter(scope => !scopes.includes(scope))
+      ? [
+          ...(!hasMessagingPerm ? ['instagram_business_manage_messages'] : []),
+          ...(!scopes.includes('pages_manage_metadata') ? ['pages_manage_metadata'] : []),
+        ]
       : [];
     if (missingPermissions.length) {
       return res.status(400).json({
@@ -99,8 +119,12 @@ router.post('/subscribe', auth, async (req, res) => {
       });
     }
 
-    // 3. Subscribe the linked Facebook page to webhooks (Instagram DMs route via page)
-    const subUrl = new URL(`${GRAPH_BASE}/${cfg.pageId}/subscribed_apps`);
+    // 3. Subscribe the linked Facebook page to webhooks
+    //    subscribed_apps requires a FACEBOOK PAGE ID (not the IG account ID).
+    //    Use the linked FB Page ID resolved above; fall back to cfg.pageId so we at
+    //    least attempt it (won't throw either way — kept non-fatal).
+    const subTarget = linkedFbPageId || cfg.pageId;
+    const subUrl = new URL(`${GRAPH_BASE}/${subTarget}/subscribed_apps`);
     subUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,message_deliveries,message_reads');
     const subRes = await fetch(subUrl, {
       method: 'POST',
@@ -113,6 +137,8 @@ router.post('/subscribe', auth, async (req, res) => {
     if (!subRes.ok || subData?.error) {
       console.warn('[instagram] Page subscription warning:', subData?.error?.message || JSON.stringify(subData));
       // Don't fail — Instagram may not need page-level subscription for all setups
+    } else {
+      console.log(`[instagram] ✓ FB Page ${subTarget} subscribed to webhook events`);
     }
 
     // 4. App-level webhook subscription for Instagram object
@@ -149,6 +175,8 @@ router.post('/subscribe', auth, async (req, res) => {
       pageCategory: pageCategory || cfg.pageCategory || '',
       pagePicture: pagePicture || cfg.pagePicture || '',
       connectedAt: now(),
+      // Persist the linked Facebook Page ID if we resolved it
+      ...(linkedFbPageId ? { facebookPageId: linkedFbPageId } : {}),
     };
     await db.prepare('UPDATE inboxes SET config=? WHERE id=?').run(JSON.stringify(newCfg), inboxId);
 
@@ -317,16 +345,49 @@ async function processIncomingMessage(event, inbox, pageToken) {
   if (existing) return;
 
   // ── resolve sender profile ────────────────────────────────────────────────
-  let senderName = senderId;
+  // For Instagram Scoped User IDs (IGSIDs) the reliable way to get a human name
+  // is via the conversations endpoint which returns participant data.
+  // We also try a direct node lookup as a fast path first.
+  let senderName   = '';
+  let senderAvatar = '';
+  const inboxCfg    = safeJson(inbox.config, {});
+  const igAccountId = String(inboxCfg.pageId || inboxCfg.igAccountId || '');
+
   if (pageToken) {
+    // Fast path: direct IGSID node lookup
     try {
       const profileRes = await fetch(
-        `${GRAPH_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
+        `${GRAPH_BASE}/${senderId}?fields=name,username,profile_picture_url&access_token=${pageToken}`
       );
       const profile = await profileRes.json();
-      if (profile?.name) senderName = profile.name;
+      if (!profile.error) {
+        if (profile.name)                  senderName   = profile.name;
+        else if (profile.username)         senderName   = profile.username;
+        if (profile.profile_picture_url)   senderAvatar = profile.profile_picture_url;
+      }
     } catch {}
+
+    // Fallback: conversations API — returns participant name reliably
+    if (!senderName && igAccountId) {
+      try {
+        const convUrl = `${GRAPH_BASE}/${igAccountId}/conversations` +
+          `?user_id=${senderId}&fields=participants{id,name,username,profile_pic}` +
+          `&platform=instagram&access_token=${pageToken}`;
+        const convRes  = await fetch(convUrl);
+        const convData = await convRes.json();
+        const participants = convData?.data?.[0]?.participants?.data || [];
+        const participant  = participants.find(p => String(p.id) === String(senderId));
+        if (participant) {
+          if (participant.name)        senderName   = participant.name;
+          else if (participant.username) senderName = participant.username;
+          if (participant.profile_pic) senderAvatar = participant.profile_pic;
+        }
+      } catch {}
+    }
   }
+
+  // Last resort: use the IGSID shortened as a placeholder name
+  if (!senderName) senderName = 'IG User ' + String(senderId).slice(-6);
 
   // ── find or create contact ────────────────────────────────────────────────
   const agentId = inbox.agent_id || null;
@@ -342,13 +403,24 @@ async function processIncomingMessage(event, inbox, pageToken) {
   if (!contact) {
     const ctId = 'ct' + uid();
     await db.prepare(
-      'INSERT INTO contacts (id,name,phone,color,tags,agent_id) VALUES (?,?,?,?,?,?)'
-    ).run(ctId, senderName, 'ig:' + senderId, '#e1306c', '["instagram"]', agentId);
+      'INSERT INTO contacts (id,name,phone,color,tags,agent_id,avatar) VALUES (?,?,?,?,?,?,?)'
+    ).run(ctId, senderName, 'ig:' + senderId, '#e1306c', '["instagram"]', agentId, senderAvatar || null);
     contact = await db.prepare('SELECT * FROM contacts WHERE id=?').get(ctId);
-  } else if (contact.name === contact.phone || contact.name === 'ig:' + senderId) {
-    if (senderName && senderName !== senderId) {
+  } else {
+    // Update name if it's still the raw IGSID, the phone value, or a placeholder
+    const isPlaceholder = !contact.name
+      || contact.name === contact.phone
+      || contact.name === 'ig:' + senderId
+      || /^IG User \d+$/.test(contact.name)
+      || contact.name === senderId;
+    if (isPlaceholder && senderName && senderName !== senderId) {
       await db.prepare('UPDATE contacts SET name=? WHERE id=?').run(senderName, contact.id);
       contact.name = senderName;
+    }
+    // Store avatar if we have one and the contact doesn't yet
+    if (senderAvatar && !contact.avatar) {
+      await db.prepare('UPDATE contacts SET avatar=? WHERE id=?').run(senderAvatar, contact.id);
+      contact.avatar = senderAvatar;
     }
   }
 

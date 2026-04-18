@@ -65,7 +65,7 @@ if (process.env.PUBLIC_URL) {
 }
 console.log('🌐 CORS allowed origins:', ALLOWED_ORIGINS.join(', '));
 // Public endpoints (tracker, widget) — allow ANY origin, handle preflight
-const publicPaths = ['/api/track', '/api/event', '/api/px', '/tracker.js', '/api/monitor/snippet', '/widget'];
+const publicPaths = ['/api/track', '/api/event', '/api/px', '/tracker.js', '/api/monitor/snippet', '/widget', '/api/bot-public', '/chat'];
 app.use((req, res, next) => {
   if (publicPaths.some(p => req.path.startsWith(p))) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -94,17 +94,17 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const UPLOAD_ALLOWED_TYPES = [
-  'image/jpeg','image/png','image/gif','image/webp','image/svg+xml',
-  'application/pdf','text/csv','text/plain',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+  'application/pdf', 'text/csv', 'text/plain',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/msword','application/vnd.ms-excel','application/zip',
-  'application/x-zip-compressed','application/octet-stream',
+  'application/msword', 'application/vnd.ms-excel', 'application/zip',
+  'application/x-zip-compressed', 'application/octet-stream',
   // Audio — voice messages & media
-  'audio/mpeg','audio/mp3','audio/wav','audio/ogg','audio/webm',
-  'audio/aac','audio/mp4','audio/x-m4a',
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm',
+  'audio/aac', 'audio/mp4', 'audio/x-m4a',
   // Video
-  'video/mp4','video/webm','video/ogg','video/quicktime',
+  'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime',
 ];
 const storage = multer.diskStorage({
   destination: uploadDir,
@@ -144,15 +144,6 @@ app.get('/health', async (req, res) => {
   } catch (e) { dbStatus = 'error: ' + e.message; }
   res.json({ status: 'ok', timestamp: new Date().toISOString(), db: dbStatus, visitors_in_db: visitorCount });
 });
-// Temporary debug endpoint — remove after fixing
-app.get('/debug/visitors', async (req, res) => {
-  try {
-    const total = await db.query('SELECT COUNT(*) as c FROM visitor_sessions');
-    const recent = await db.query('SELECT session_id, ip, page, status, created_at, last_seen FROM visitor_sessions ORDER BY created_at DESC LIMIT 10');
-    const nullCheck = await db.query("SELECT COUNT(*) as c FROM visitor_sessions WHERE ip IS NULL OR ip = ''");
-    res.json({ total: total?.c || total?.[0]?.c || 0, null_ip_count: nullCheck?.c || nullCheck?.[0]?.c || 0, recent });
-  } catch (e) { res.json({ error: e.message }); }
-});
 
 // ── Public bot API (no auth — uses embed_token) ──
 const widgetCors = cors({ origin: '*' });
@@ -164,68 +155,88 @@ function parseUA(ua = '') {
   let browser = 'Unknown', os = 'Unknown', device = 'Desktop';
   if (!ua) return { browser, os, device };
   // Browser (order matters: Edge before Chrome, OPR before Chrome)
-  if (/Edg\/(\d+)/.test(ua))          browser = 'Edge '    + (ua.match(/Edg\/(\d+)/)    || ['',''])[1];
-  else if (/OPR\/(\d+)/.test(ua))     browser = 'Opera '   + (ua.match(/OPR\/(\d+)/)    || ['',''])[1];
-  else if (/Chrome\/(\d+)/.test(ua))  browser = 'Chrome '  + (ua.match(/Chrome\/(\d+)/) || ['',''])[1];
-  else if (/Firefox\/(\d+)/.test(ua)) browser = 'Firefox ' + (ua.match(/Firefox\/(\d+)/)|| ['',''])[1];
-  else if (/Version\/(\d+).*Safari/.test(ua)) browser = 'Safari ' + (ua.match(/Version\/(\d+)/) || ['',''])[1];
-  else if (/Safari\//.test(ua))       browser = 'Safari';
+  if (/Edg\/(\d+)/.test(ua)) browser = 'Edge ' + (ua.match(/Edg\/(\d+)/) || ['', ''])[1];
+  else if (/OPR\/(\d+)/.test(ua)) browser = 'Opera ' + (ua.match(/OPR\/(\d+)/) || ['', ''])[1];
+  else if (/Chrome\/(\d+)/.test(ua)) browser = 'Chrome ' + (ua.match(/Chrome\/(\d+)/) || ['', ''])[1];
+  else if (/Firefox\/(\d+)/.test(ua)) browser = 'Firefox ' + (ua.match(/Firefox\/(\d+)/) || ['', ''])[1];
+  else if (/Version\/(\d+).*Safari/.test(ua)) browser = 'Safari ' + (ua.match(/Version\/(\d+)/) || ['', ''])[1];
+  else if (/Safari\//.test(ua)) browser = 'Safari';
   // OS
-  if      (/Windows NT 10/.test(ua))  os = 'Windows 11';
+  if (/Windows NT 10/.test(ua)) os = 'Windows 11';
   else if (/Windows NT 6\.3/.test(ua)) os = 'Windows 8.1';
   else if (/Windows NT 6\.1/.test(ua)) os = 'Windows 7';
-  else if (/Windows/.test(ua))        os = 'Windows';
-  else if (/Mac OS X ([\d_]+)/.test(ua)) os = 'macOS ' + (ua.match(/Mac OS X ([\d_]+)/) || ['',''])[1].replace(/_/g, '.');
-  else if (/Android ([\d.]+)/.test(ua))  os = 'Android ' + (ua.match(/Android ([\d.]+)/) || ['',''])[1];
-  else if (/iPhone OS ([\d_]+)/.test(ua)) os = 'iOS '   + (ua.match(/iPhone OS ([\d_]+)/) || ['',''])[1].replace(/_/g, '.');
-  else if (/iPad.*OS ([\d_]+)/.test(ua))  os = 'iPadOS '+ (ua.match(/OS ([\d_]+)/)       || ['',''])[1].replace(/_/g, '.');
-  else if (/Linux/.test(ua))          os = 'Linux';
+  else if (/Windows/.test(ua)) os = 'Windows';
+  else if (/Mac OS X ([\d_]+)/.test(ua)) os = 'macOS ' + (ua.match(/Mac OS X ([\d_]+)/) || ['', ''])[1].replace(/_/g, '.');
+  else if (/Android ([\d.]+)/.test(ua)) os = 'Android ' + (ua.match(/Android ([\d.]+)/) || ['', ''])[1];
+  else if (/iPhone OS ([\d_]+)/.test(ua)) os = 'iOS ' + (ua.match(/iPhone OS ([\d_]+)/) || ['', ''])[1].replace(/_/g, '.');
+  else if (/iPad.*OS ([\d_]+)/.test(ua)) os = 'iPadOS ' + (ua.match(/OS ([\d_]+)/) || ['', ''])[1].replace(/_/g, '.');
+  else if (/Linux/.test(ua)) os = 'Linux';
   // Device
   if (/Mobi|Android.*Mobile/.test(ua)) device = 'Mobile';
-  else if (/iPad|Tablet/.test(ua))     device = 'Tablet';
+  else if (/iPad|Tablet/.test(ua)) device = 'Tablet';
   return { browser, os, device };
 }
 
 const FLAG_MAP = {
-  AF:'🇦🇫',AL:'🇦🇱',DZ:'🇩🇿',AD:'🇦🇩',AO:'🇦🇴',AG:'🇦🇬',AR:'🇦🇷',AM:'🇦🇲',AU:'🇦🇺',AT:'🇦🇹',
-  AZ:'🇦🇿',BS:'🇧🇸',BH:'🇧🇭',BD:'🇧🇩',BB:'🇧🇧',BY:'🇧🇾',BE:'🇧🇪',BZ:'🇧🇿',BJ:'🇧🇯',BT:'🇧🇹',
-  BO:'🇧🇴',BA:'🇧🇦',BW:'🇧🇼',BR:'🇧🇷',BN:'🇧🇳',BG:'🇧🇬',BF:'🇧🇫',BI:'🇧🇮',CV:'🇨🇻',KH:'🇰🇭',
-  CM:'🇨🇲',CA:'🇨🇦',CF:'🇨🇫',TD:'🇹🇩',CL:'🇨🇱',CN:'🇨🇳',CO:'🇨🇴',KM:'🇰🇲',CG:'🇨🇬',CD:'🇨🇩',
-  CR:'🇨🇷',HR:'🇭🇷',CU:'🇨🇺',CY:'🇨🇾',CZ:'🇨🇿',DK:'🇩🇰',DJ:'🇩🇯',DM:'🇩🇲',DO:'🇩🇴',EC:'🇪🇨',
-  EG:'🇪🇬',SV:'🇸🇻',GQ:'🇬🇶',ER:'🇪🇷',EE:'🇪🇪',SZ:'🇸🇿',ET:'🇪🇹',FJ:'🇫🇯',FI:'🇫🇮',FR:'🇫🇷',
-  GA:'🇬🇦',GM:'🇬🇲',GE:'🇬🇪',DE:'🇩🇪',GH:'🇬🇭',GR:'🇬🇷',GD:'🇬🇩',GT:'🇬🇹',GN:'🇬🇳',GW:'🇬🇼',
-  GY:'🇬🇾',HT:'🇭🇹',HN:'🇭🇳',HU:'🇭🇺',IS:'🇮🇸',IN:'🇮🇳',ID:'🇮🇩',IR:'🇮🇷',IQ:'🇮🇶',IE:'🇮🇪',
-  IL:'🇮🇱',IT:'🇮🇹',JM:'🇯🇲',JP:'🇯🇵',JO:'🇯🇴',KZ:'🇰🇿',KE:'🇰🇪',KI:'🇰🇮',KP:'🇰🇵',KR:'🇰🇷',
-  KW:'🇰🇼',KG:'🇰🇬',LA:'🇱🇦',LV:'🇱🇻',LB:'🇱🇧',LS:'🇱🇸',LR:'🇱🇷',LY:'🇱🇾',LI:'🇱🇮',LT:'🇱🇹',
-  LU:'🇱🇺',MG:'🇲🇬',MW:'🇲🇼',MY:'🇲🇾',MV:'🇲🇻',ML:'🇲🇱',MT:'🇲🇹',MH:'🇲🇭',MR:'🇲🇷',MU:'🇲🇺',
-  MX:'🇲🇽',FM:'🇫🇲',MD:'🇲🇩',MC:'🇲🇨',MN:'🇲🇳',ME:'🇲🇪',MA:'🇲🇦',MZ:'🇲🇿',MM:'🇲🇲',NA:'🇳🇦',
-  NR:'🇳🇷',NP:'🇳🇵',NL:'🇳🇱',NZ:'🇳🇿',NI:'🇳🇮',NE:'🇳🇪',NG:'🇳🇬',NO:'🇳🇴',OM:'🇴🇲',PK:'🇵🇰',
-  PW:'🇵🇼',PA:'🇵🇦',PG:'🇵🇬',PY:'🇵🇾',PE:'🇵🇪',PH:'🇵🇭',PL:'🇵🇱',PT:'🇵🇹',QA:'🇶🇦',RO:'🇷🇴',
-  RU:'🇷🇺',RW:'🇷🇼',KN:'🇰🇳',LC:'🇱🇨',VC:'🇻🇨',WS:'🇼🇸',SM:'🇸🇲',ST:'🇸🇹',SA:'🇸🇦',SN:'🇸🇳',
-  RS:'🇷🇸',SC:'🇸🇨',SL:'🇸🇱',SG:'🇸🇬',SK:'🇸🇰',SI:'🇸🇮',SB:'🇸🇧',SO:'🇸🇴',ZA:'🇿🇦',SS:'🇸🇸',
-  ES:'🇪🇸',LK:'🇱🇰',SD:'🇸🇩',SR:'🇸🇷',SE:'🇸🇪',CH:'🇨🇭',SY:'🇸🇾',TW:'🇹🇼',TJ:'🇹🇯',TZ:'🇹🇿',
-  TH:'🇹🇭',TL:'🇹🇱',TG:'🇹🇬',TO:'🇹🇴',TT:'🇹🇹',TN:'🇹🇳',TR:'🇹🇷',TM:'🇹🇲',TV:'🇹🇻',UG:'🇺🇬',
-  UA:'🇺🇦',AE:'🇦🇪',GB:'🇬🇧',US:'🇺🇸',UY:'🇺🇾',UZ:'🇺🇿',VU:'🇻🇺',VE:'🇻🇪',VN:'🇻🇳',YE:'🇾🇪',
-  ZM:'🇿🇲',ZW:'🇿🇼',HK:'🇭🇰',MO:'🇲🇴',SG:'🇸🇬',
+  AF: '🇦🇫', AL: '🇦🇱', DZ: '🇩🇿', AD: '🇦🇩', AO: '🇦🇴', AG: '🇦🇬', AR: '🇦🇷', AM: '🇦🇲', AU: '🇦🇺', AT: '🇦🇹',
+  AZ: '🇦🇿', BS: '🇧🇸', BH: '🇧🇭', BD: '🇧🇩', BB: '🇧🇧', BY: '🇧🇾', BE: '🇧🇪', BZ: '🇧🇿', BJ: '🇧🇯', BT: '🇧🇹',
+  BO: '🇧🇴', BA: '🇧🇦', BW: '🇧🇼', BR: '🇧🇷', BN: '🇧🇳', BG: '🇧🇬', BF: '🇧🇫', BI: '🇧🇮', CV: '🇨🇻', KH: '🇰🇭',
+  CM: '🇨🇲', CA: '🇨🇦', CF: '🇨🇫', TD: '🇹🇩', CL: '🇨🇱', CN: '🇨🇳', CO: '🇨🇴', KM: '🇰🇲', CG: '🇨🇬', CD: '🇨🇩',
+  CR: '🇨🇷', HR: '🇭🇷', CU: '🇨🇺', CY: '🇨🇾', CZ: '🇨🇿', DK: '🇩🇰', DJ: '🇩🇯', DM: '🇩🇲', DO: '🇩🇴', EC: '🇪🇨',
+  EG: '🇪🇬', SV: '🇸🇻', GQ: '🇬🇶', ER: '🇪🇷', EE: '🇪🇪', SZ: '🇸🇿', ET: '🇪🇹', FJ: '🇫🇯', FI: '🇫🇮', FR: '🇫🇷',
+  GA: '🇬🇦', GM: '🇬🇲', GE: '🇬🇪', DE: '🇩🇪', GH: '🇬🇭', GR: '🇬🇷', GD: '🇬🇩', GT: '🇬🇹', GN: '🇬🇳', GW: '🇬🇼',
+  GY: '🇬🇾', HT: '🇭🇹', HN: '🇭🇳', HU: '🇭🇺', IS: '🇮🇸', IN: '🇮🇳', ID: '🇮🇩', IR: '🇮🇷', IQ: '🇮🇶', IE: '🇮🇪',
+  IL: '🇮🇱', IT: '🇮🇹', JM: '🇯🇲', JP: '🇯🇵', JO: '🇯🇴', KZ: '🇰🇿', KE: '🇰🇪', KI: '🇰🇮', KP: '🇰🇵', KR: '🇰🇷',
+  KW: '🇰🇼', KG: '🇰🇬', LA: '🇱🇦', LV: '🇱🇻', LB: '🇱🇧', LS: '🇱🇸', LR: '🇱🇷', LY: '🇱🇾', LI: '🇱🇮', LT: '🇱🇹',
+  LU: '🇱🇺', MG: '🇲🇬', MW: '🇲🇼', MY: '🇲🇾', MV: '🇲🇻', ML: '🇲🇱', MT: '🇲🇹', MH: '🇲🇭', MR: '🇲🇷', MU: '🇲🇺',
+  MX: '🇲🇽', FM: '🇫🇲', MD: '🇲🇩', MC: '🇲🇨', MN: '🇲🇳', ME: '🇲🇪', MA: '🇲🇦', MZ: '🇲🇿', MM: '🇲🇲', NA: '🇳🇦',
+  NR: '🇳🇷', NP: '🇳🇵', NL: '🇳🇱', NZ: '🇳🇿', NI: '🇳🇮', NE: '🇳🇪', NG: '🇳🇬', NO: '🇳🇴', OM: '🇴🇲', PK: '🇵🇰',
+  PW: '🇵🇼', PA: '🇵🇦', PG: '🇵🇬', PY: '🇵🇾', PE: '🇵🇪', PH: '🇵🇭', PL: '🇵🇱', PT: '🇵🇹', QA: '🇶🇦', RO: '🇷🇴',
+  RU: '🇷🇺', RW: '🇷🇼', KN: '🇰🇳', LC: '🇱🇨', VC: '🇻🇨', WS: '🇼🇸', SM: '🇸🇲', ST: '🇸🇹', SA: '🇸🇦', SN: '🇸🇳',
+  RS: '🇷🇸', SC: '🇸🇨', SL: '🇸🇱', SG: '🇸🇬', SK: '🇸🇰', SI: '🇸🇮', SB: '🇸🇧', SO: '🇸🇴', ZA: '🇿🇦', SS: '🇸🇸',
+  ES: '🇪🇸', LK: '🇱🇰', SD: '🇸🇩', SR: '🇸🇷', SE: '🇸🇪', CH: '🇨🇭', SY: '🇸🇾', TW: '🇹🇼', TJ: '🇹🇯', TZ: '🇹🇿',
+  TH: '🇹🇭', TL: '🇹🇱', TG: '🇹🇬', TO: '🇹🇴', TT: '🇹🇹', TN: '🇹🇳', TR: '🇹🇷', TM: '🇹🇲', TV: '🇹🇻', UG: '🇺🇬',
+  UA: '🇺🇦', AE: '🇦🇪', GB: '🇬🇧', US: '🇺🇸', UY: '🇺🇾', UZ: '🇺🇿', VU: '🇻🇺', VE: '🇻🇪', VN: '🇻🇳', YE: '🇾🇪',
+  ZM: '🇿🇲', ZW: '🇿🇼', HK: '🇭🇰', MO: '🇲🇴', SG: '🇸🇬',
 };
 
 async function geoLookup(ip) {
   if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.')) {
     return { country_name: 'Local', city: 'localhost', region: '', country_code: '', latitude: null, longitude: null };
   }
-  if (geoCache.has(ip)) return geoCache.get(ip);
+  // Strip IPv6-mapped prefix (::ffff:1.2.3.4 → 1.2.3.4) for cleaner lookups
+  const cleanIp = ip.replace(/^::ffff:/, '');
+  if (geoCache.has(cleanIp)) return geoCache.get(cleanIp);
+
+  // Provider 1: ip-api.com (free, 45 req/min, no key needed)
   try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 3000); // 3s timeout
-    const res = await fetch(`https://ipapi.co/${ip}/json/`, { signal: controller.signal });
-    clearTimeout(id);
-    const data = await res.json();
-    if (data && !data.error) {
-      geoCache.set(ip, data);
-      setTimeout(() => geoCache.delete(ip), 3600000);
-      return data;
+    const ctrl1 = new AbortController();
+    const t1 = setTimeout(() => ctrl1.abort(), 4000);
+    const r1 = await fetch(`http://ip-api.com/json/${cleanIp}?fields=status,country,city,regionName,countryCode,lat,lon`, { signal: ctrl1.signal });
+    clearTimeout(t1);
+    const d1 = await r1.json();
+    if (d1 && d1.status === 'success') {
+      const geo = { country_name: d1.country || '', city: d1.city || '', region: d1.regionName || '', country_code: d1.countryCode || '', latitude: d1.lat, longitude: d1.lon };
+      geoCache.set(cleanIp, geo);
+      setTimeout(() => geoCache.delete(cleanIp), 3600000);
+      return geo;
     }
-  } catch (e) { console.warn(`Geo lookup failed for ${ip}:`, e.message); }
+  } catch (e) { console.warn(`Geo provider 1 (ip-api) failed for ${cleanIp}:`, e.message); }
+
+  // Provider 2: ipapi.co (fallback, stricter rate limits)
+  try {
+    const ctrl2 = new AbortController();
+    const t2 = setTimeout(() => ctrl2.abort(), 4000);
+    const r2 = await fetch(`https://ipapi.co/${cleanIp}/json/`, { signal: ctrl2.signal });
+    clearTimeout(t2);
+    const d2 = await r2.json();
+    if (d2 && !d2.error) {
+      geoCache.set(cleanIp, d2);
+      setTimeout(() => geoCache.delete(cleanIp), 3600000);
+      return d2;
+    }
+  } catch (e) { console.warn(`Geo provider 2 (ipapi.co) failed for ${cleanIp}:`, e.message); }
+
   return {};
 }
 
@@ -336,10 +347,12 @@ app.get('/api/monitor/events/:session_id', require('./middleware/auth'), async (
 app.post('/api/track', async (req, res) => {
   const { session_id, event, page } = req.body;
   console.log(`📡 Track [${event}]: session=${session_id} page=${page}`);
-  res.json({ ok: true }); 
+  res.json({ ok: true });
   try {
-    const { session_id, event, page, referrer, source, screen_width, screen_height, language, duration, utm = {}, identify = {} } = req.body;
+    const { session_id, event, page, referrer, source, screen_width, screen_height, language, duration, utm: rawUtm, identify: rawIdentify } = req.body;
     if (!session_id) return;
+    const utm = rawUtm || {};
+    const identify = rawIdentify || {};
     const utm_source = utm.utm_source || req.body.utm_source;
 
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
@@ -364,7 +377,7 @@ app.post('/api/track', async (req, res) => {
 
     if (existing) {
       let history = [];
-      try { history = JSON.parse(existing.page_history || '[]'); } catch {}
+      try { history = JSON.parse(existing.page_history || '[]'); } catch { }
       if (history[history.length - 1] !== page) history.push(page);
       if (history.length > 50) history.shift();
       const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
@@ -447,7 +460,7 @@ app.get('/api/px', async (req, res) => {
 
     if (existing) {
       let history = [];
-      try { history = JSON.parse(existing.page_history || '[]'); } catch {}
+      try { history = JSON.parse(existing.page_history || '[]'); } catch { }
       if (history[history.length - 1] !== page) history.push(page);
       if (history.length > 50) history.shift();
       const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
@@ -516,7 +529,7 @@ app.post('/api/bot-public/:token/ask', widgetCors, async (req, res) => {
             const txt = fs.readFileSync(filePath, 'utf8');
             if (txt.length < 50000) kbContext += txt + '\n';
           }
-        } catch {}
+        } catch { }
       }
     }
 
@@ -621,17 +634,17 @@ app.patch('/api/bot-public/:token/chat-session/:chatId', widgetCors, async (req,
                 for (const m of toAdd) {
                   triggerAutoReply({
                     conversationId: chat.conversation_id,
-                    inboxId:        conv.inbox_id,
-                    agentId:        conv.agent_id,
-                    channel:        'live',
+                    inboxId: conv.inbox_id,
+                    agentId: conv.agent_id,
+                    channel: 'live',
                     customerMessage: m.t || '',
-                  }).catch(() => {});
+                  }).catch(() => { });
                 }
               }
-            } catch {}
+            } catch { }
           }
         }
-      } catch {}
+      } catch { }
     }
 
     res.json({ success: true });
@@ -775,7 +788,7 @@ app.post('/api/bot-public/:token/handoff', widgetCors, async (req, res) => {
         type: 'notification',
         payload: { title: '🤖 Bot Handoff', body: (chat.visitor_name || 'Visitor') + ' needs a live agent', conversationId: convId }
       });
-    } catch {}
+    } catch { }
 
     res.json({ conversation_id: convId, success: true });
   } catch (e) { console.error('Handoff error:', e); res.status(500).json({ error: e.message }); }
@@ -792,23 +805,23 @@ app.post('/api/bot-public/:token/pre-chat', widgetCors, async (req, res) => {
     const email = fields.email || null;
     const phone = fields.phone || null;
     const company = fields.company || null;
-    const location = geo ? `${geo.city||''}, ${geo.region||''}, ${geo.country||''}`.replace(/^[, ]+|[, ]+$/g, '') : (fields.location || null);
+    const location = geo ? `${geo.city || ''}, ${geo.region || ''}, ${geo.country || ''}`.replace(/^[, ]+|[, ]+$/g, '') : (fields.location || null);
     // Check for existing contact by email
     let contact = null;
     if (email) contact = await db.prepare('SELECT * FROM contacts WHERE email=?').get(email);
     const { uid } = require('./utils/helpers');
     // Build custom_fields from non-mapped form fields
-    const MAPPED = ['name','email','phone','company','location','notes'];
+    const MAPPED = ['name', 'email', 'phone', 'company', 'location', 'notes'];
     const custom = {};
-    for (const [k,v] of Object.entries(fields)) { if (!MAPPED.includes(k) && v) custom[k] = v; }
+    for (const [k, v] of Object.entries(fields)) { if (!MAPPED.includes(k) && v) custom[k] = v; }
     if (ip) custom.ip_address = ip;
     if (geo) custom.geo = geo;
     custom.source = 'bot:' + (bot.name || bot.id);
     custom.bot_token = req.params.token;
     if (contact && contact.id) {
       // Update existing
-      const now = new Date().toISOString().slice(0,19).replace('T',' ');
-      const oldCf = (() => { try { return JSON.parse(contact.custom_fields||'{}'); } catch { return {}; } })();
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const oldCf = (() => { try { return JSON.parse(contact.custom_fields || '{}'); } catch { return {}; } })();
       const merged = { ...oldCf, ...custom };
       await db.prepare('UPDATE contacts SET name=?,phone=?,company=?,location=?,custom_fields=?,updated_at=? WHERE id=?').run(
         name, phone || contact.phone, company || contact.company, location || contact.location, JSON.stringify(merged), now, contact.id
@@ -832,7 +845,7 @@ app.options('/api/bot-public/:token/pre-chat', widgetCors, (req, res) => res.sen
 // ── Widget script ──
 app.get('/widget/bot.js', widgetCors, (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
-  const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001';
+  const BACKEND = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.send(`(function(){
   'use strict';
   var scripts=document.querySelectorAll('script[data-bot-id]');
@@ -1148,7 +1161,7 @@ loadForm();
 // ── Standalone bot chat page ──
 app.get('/chat', widgetCors, (req, res) => {
   const token = req.query.bot || '';
-  const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001';
+  const BACKEND = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -1657,9 +1670,14 @@ if (fs.existsSync(frontendDist)) {
     }
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
-  app.use(express.static(frontendDist));
+  app.use(express.static(frontendDist, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    }
+  }));
   app.get('/{*path}', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/ws')) return next();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }
@@ -1784,6 +1802,25 @@ server.listen(PORT, async () => {
         await db.prepare('UPDATE visitor_sessions SET status="offline" WHERE id=?').run(v.id);
         broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: v.id });
       }
-    } catch {}
+    } catch { }
   }, 90000);
+
+  // ── Backfill missing geo data every 60 seconds ──────────────────────────
+  setInterval(async () => {
+    try {
+      const missing = await db.prepare(
+        "SELECT id, ip FROM visitor_sessions WHERE (country IS NULL OR country = '') AND ip IS NOT NULL AND ip != '' AND ip NOT IN ('::1','127.0.0.1','::ffff:127.0.0.1') ORDER BY created_at DESC LIMIT 5"
+      ).all();
+      for (const row of missing) {
+        const geo = await geoLookup(row.ip);
+        if (geo.country_name || geo.city) {
+          const flag = FLAG_MAP[geo.country_code] || '🌍';
+          await db.prepare(
+            'UPDATE visitor_sessions SET country=?, city=?, region=?, country_code=?, flag=?, lat=?, lng=? WHERE id=?'
+          ).run(geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '', flag, geo.latitude || null, geo.longitude || null, row.id);
+          console.log(`🌍 Backfilled geo for ${row.ip}: ${geo.city}, ${geo.country_name}`);
+        }
+      }
+    } catch { }
+  }, 60000);
 });

@@ -160,8 +160,27 @@ async function graphPost(url, headers, body) {
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok || data?.error) {
-    const msg = data?.error?.message || JSON.stringify(data);
-    throw new Error(`Meta Graph API ${res.status}: ${msg}`);
+    const err  = data?.error || {};
+    const code = err.code;
+    const sub  = err.error_subcode;
+    const msg  = err.message || JSON.stringify(data);
+
+    // (#200) Standard Access — app has no Advanced Access on pages_messaging
+    if (code === 200 && /pages_messaging|Advanced Access|role on app/i.test(msg)) {
+      throw new Error(
+        'Meta app is in Standard Access mode — Messenger replies can only be sent to people who have a role on your Facebook App ' +
+        '(Admin / Developer / Tester). Either add this user as a Tester on your App, or submit your App for Advanced Access review. ' +
+        '[Graph API 403 (#200)]'
+      );
+    }
+    // 24-hour messaging window expired
+    if (code === 551 || sub === 2534022) {
+      throw new Error(
+        'Cannot send — the 24-hour Messenger window has expired. The user must send a new message to re-open the window. [Graph API (#551)]'
+      );
+    }
+    // Keep #100 marker in the string so conversations.js "No matching user" hint still works
+    throw new Error(`Meta Graph API ${res.status}: ${msg}${code ? ' (#' + code + ')' : ''}`);
   }
   return data;
 }
