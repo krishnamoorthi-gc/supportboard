@@ -401,9 +401,13 @@ app.post('/api/track', async (req, res) => {
       const vAvatar = identify.avatar || existing.visitor_avatar;
       const vGoogle = identify.google_id || existing.visitor_google_id;
 
+      // Reset page_entered_at when the visitor lands on a different URL (or first pageview without one stored)
+      const pageChanged = existing.page !== page || !existing.page_entered_at;
+      const setPageEntered = (event === 'pageview' && pageChanged) ? ', page_entered_at=NOW()' : '';
+
       await db.prepare(
         `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), exit_page=?, last_seen=NOW(), status="browsing",
-         visitor_name=?, visitor_email=?, visitor_phone=?, visitor_avatar=?, visitor_google_id=?, utm_source=?
+         visitor_name=?, visitor_email=?, visitor_phone=?, visitor_avatar=?, visitor_google_id=?, utm_source=?${setPageEntered}
          WHERE session_id=?`
       ).run(page, JSON.stringify(history), newCount, page, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
 
@@ -415,9 +419,9 @@ app.post('/api/track', async (req, res) => {
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
-         entry_page, exit_page, utm_source, duration, visitor_name, visitor_email, visitor_phone, visitor_avatar, visitor_google_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0,?,?,?,?,?)
-        ON DUPLICATE KEY UPDATE page=VALUES(page), last_seen=NOW(), status='browsing'`
+         entry_page, exit_page, utm_source, duration, visitor_name, visitor_email, visitor_phone, visitor_avatar, visitor_google_id, page_entered_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0,?,?,?,?,?,NOW())
+        ON DUPLICATE KEY UPDATE page=VALUES(page), last_seen=NOW(), status='browsing', page_entered_at=NOW()`
       ).run(
         id, session_id, ip, flag,
         geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',
@@ -479,8 +483,11 @@ app.get('/api/px', async (req, res) => {
       if (history.length > 50) history.shift();
       const newCount = (existing.pages_visited || 1) + (event === 'pageview' ? 1 : 0);
 
+      const pageChanged = existing.page !== page || !existing.page_entered_at;
+      const setPageEntered = (event === 'pageview' && pageChanged) ? ', page_entered_at=NOW()' : '';
+
       await db.prepare(
-        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), exit_page=?, last_seen=NOW(), status="browsing", utm_source=? WHERE session_id=?`
+        `UPDATE visitor_sessions SET page=?, page_history=?, pages_visited=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), exit_page=?, last_seen=NOW(), status="browsing", utm_source=?${setPageEntered} WHERE session_id=?`
       ).run(page, JSON.stringify(history), newCount, page, existing.utm_source || '', session_id);
 
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
@@ -491,9 +498,9 @@ app.get('/api/px', async (req, res) => {
         (id, session_id, ip, flag, country, city, region, country_code, lat, lng,
          page, page_history, pages_visited, referrer, source, browser, os, device,
          screen_width, screen_height, language, user_agent, status, last_seen,
-         entry_page, exit_page, utm_source, duration)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0)
-        ON DUPLICATE KEY UPDATE page=VALUES(page), last_seen=NOW(), status='browsing'`
+         entry_page, exit_page, utm_source, duration, page_entered_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,'browsing',NOW(),?,?,?,0,NOW())
+        ON DUPLICATE KEY UPDATE page=VALUES(page), last_seen=NOW(), status='browsing', page_entered_at=NOW()`
       ).run(
         id, session_id, ip, flag,
         geo.country_name || '', geo.city || '', geo.region || '', geo.country_code || '',

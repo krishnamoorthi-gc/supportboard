@@ -1427,6 +1427,7 @@ async function ensureSchemaColumns() {
         ['entry_page',   "ALTER TABLE visitor_sessions ADD COLUMN entry_page VARCHAR(1000)"],
         ['exit_page',    "ALTER TABLE visitor_sessions ADD COLUMN exit_page VARCHAR(1000)"],
         ['utm_source',   "ALTER TABLE visitor_sessions ADD COLUMN utm_source VARCHAR(255)"],
+        ['page_entered_at',"ALTER TABLE visitor_sessions ADD COLUMN page_entered_at DATETIME"],
       ];
       for (const [col, sql] of vsAdds) {
         if (!vsCols.has(col)) {

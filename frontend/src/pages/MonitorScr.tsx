@@ -40,14 +40,20 @@ function mapApiVisitor(v:any){
     prevPages: v.pages_visited||1,
     pageHistory: (() => { try { return JSON.parse(v.page_history || '[]'); } catch { return [v.page || '/']; } })(),
     timeOnSite: (() => {
-      const joined = v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now();
-      // Online: live tick from first arrival to now
-      if (!!v.is_active) return Math.max(0, Math.floor((Date.now() - joined) / 1000));
-      // Ended: use stored duration (total time they spent on site), never grow past that
-      return parseInt(v.duration) || 0;
+      // Time on the CURRENT page only — anchored on page_entered_at (reset every navigation).
+      const enteredRaw = v.page_entered_at || v.last_seen || v.created_at;
+      const enteredAt = enteredRaw ? new Date(String(enteredRaw).replace(' ', 'T')).getTime() : Date.now();
+      // Online: live tick from page entry to now
+      if (!!v.is_active) return Math.max(0, Math.floor((Date.now() - enteredAt) / 1000));
+      // Ended: time on last page = last_seen - page_entered_at (frozen)
+      const lastSeen = v.last_seen ? new Date(String(v.last_seen).replace(' ', 'T')).getTime() : enteredAt;
+      return Math.max(0, Math.floor((lastSeen - enteredAt) / 1000));
     })(),
     visitedAt: v.created_at || '',
-    joined: v.created_at ? new Date(v.created_at.replace(' ', 'T')).getTime() : Date.now(),
+    joined: (() => {
+      const enteredRaw = v.page_entered_at || v.created_at;
+      return enteredRaw ? new Date(String(enteredRaw).replace(' ', 'T')).getTime() : Date.now();
+    })(),
     ipVersion: v.ip ? (v.ip.includes(':') ? 'IPv6' : 'IPv4') : '',
     browser: v.browser||'Unknown',
     os: v.os||'Unknown',
@@ -108,8 +114,8 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
           const prevMap=new Map(prev.map(v=>[v.id,v]));
           return mapped.map(v=>{
             const old=prevMap.get(v.id);
-            if(old&&v.isActive&&old.isActive){
-              // Keep the stable joined timestamp and recompute timeOnSite from it
+            // Preserve the stable joined anchor only when the visitor is still on the same page
+            if(old&&v.isActive&&old.isActive&&old.page===v.page){
               return {...v,joined:old.joined,timeOnSite:Math.max(0,Math.floor((Date.now()-old.joined)/1000))};
             }
             return v;
