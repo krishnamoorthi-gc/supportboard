@@ -84,6 +84,14 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '2mb' }));
+// Tracker uses text/plain to avoid CORS preflight (sendBeacon can't preflight). Parse it as JSON for tracking endpoints.
+app.use(express.text({ type: 'text/plain', limit: '2mb' }));
+app.use((req, res, next) => {
+  if (typeof req.body === 'string' && (req.path === '/api/track' || req.path === '/api/event')) {
+    try { req.body = JSON.parse(req.body); } catch { req.body = {}; }
+  }
+  next();
+});
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // API-wide rate limiting (100 req/min per IP)
@@ -243,8 +251,12 @@ async function geoLookup(ip) {
 // ── GET /tracker.js — embeddable tracking script ────────────────────────────
 app.get('/tracker.js', (req, res) => {
   const BACKEND = process.env.PUBLIC_URL || process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
+  console.log(`📥 tracker.js fetched — ip=${ip} ref=${req.headers.referer || 'none'} ua=${(req.headers['user-agent'] || '').slice(0, 60)}`);
   res.setHeader('Content-Type', 'application/javascript');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(`(function(){
   'use strict';
@@ -285,15 +297,16 @@ app.get('/tracker.js', (req, res) => {
       duration:duration,utm:utm(),identify:iden};
     var json=JSON.stringify(payload);
     // Method 1: sendBeacon (most reliable for analytics, works on page close)
+    // Use text/plain Blob — CORS-safelisted, no preflight needed (application/json triggers preflight which sendBeacon can't handle in some browsers)
     if(navigator.sendBeacon){
       try{
-        var sent=navigator.sendBeacon(B+'/api/track',new Blob([json],{type:'application/json'}));
+        var sent=navigator.sendBeacon(B+'/api/track',new Blob([json],{type:'text/plain;charset=UTF-8'}));
         if(sent)return;
       }catch{}
     }
-    // Method 2: fetch
+    // Method 2: fetch with text/plain (avoids CORS preflight too)
     try{
-      fetch(B+'/api/track',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,mode:'cors',body:json}).catch(function(){
+      fetch(B+'/api/track',{method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},keepalive:true,mode:'cors',body:json}).catch(function(){
         // Method 3: image pixel fallback (GET request, works everywhere)
         pixelFallback(payload);
       });
