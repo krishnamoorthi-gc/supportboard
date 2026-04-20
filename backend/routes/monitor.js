@@ -8,7 +8,7 @@ const { broadcastToAll } = require('../ws');
 router.get('/visitors', auth, async (req, res) => {
   try {
     const visitors = await db.prepare(
-      `SELECT *, (last_seen >= DATE_SUB(NOW(), INTERVAL 3 MINUTE)) AS is_active
+      `SELECT *, (status != 'offline' AND last_seen >= DATE_SUB(NOW(), INTERVAL 3 MINUTE)) AS is_active
        FROM visitor_sessions
        WHERE session_id IS NOT NULL AND session_id != ''
          AND ip IS NOT NULL AND ip != ''

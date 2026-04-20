@@ -378,7 +378,9 @@ app.post('/api/track', async (req, res) => {
       const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (existing) {
         await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), last_seen=NOW(), status="offline" WHERE session_id=?').run(page || '', session_id);
-        broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
+        // Broadcast the updated row with is_active=0 so the UI flips to Ended without removing the entry
+        const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(existing.id);
+        if (v) { v.is_active = 0; broadcastToAll({ type: 'visitor_update', action: 'leave', visitor: v, visitorId: existing.id }); }
       }
       return;
     }
@@ -467,7 +469,9 @@ app.get('/api/px', async (req, res) => {
       const existing = await db.prepare('SELECT id FROM visitor_sessions WHERE session_id=?').get(session_id);
       if (existing) {
         await db.prepare('UPDATE visitor_sessions SET exit_page=?, duration=TIMESTAMPDIFF(SECOND, created_at, NOW()), last_seen=NOW(), status="offline" WHERE session_id=?').run(page || '', session_id);
-        broadcastToAll({ type: 'visitor_update', action: 'leave', visitorId: existing.id });
+        // Broadcast the updated row with is_active=0 so the UI flips to Ended without removing the entry
+        const v = await db.prepare('SELECT * FROM visitor_sessions WHERE id=?').get(existing.id);
+        if (v) { v.is_active = 0; broadcastToAll({ type: 'visitor_update', action: 'leave', visitor: v, visitorId: existing.id }); }
       }
       return;
     }

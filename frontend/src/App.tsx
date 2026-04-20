@@ -638,7 +638,11 @@ export default function App(){
         if(m.type==="visitor_update"){
           if(m.action==="join"&&m.visitor)setLiveVisitors(p=>[...p.filter((v:any)=>v.id!==m.visitor.id),m.visitor]);
           else if((m.action==="pagechange"||m.action==="status")&&m.visitor)setLiveVisitors(p=>p.map((v:any)=>v.id===m.visitor.id?m.visitor:v));
-          else if(m.action==="leave"&&m.visitorId)setLiveVisitors(p=>p.filter((v:any)=>v.id!==m.visitorId));
+          else if(m.action==="leave"){
+            // Update the visitor with is_active=0 so it flips to "Ended" without disappearing from the list
+            if(m.visitor)setLiveVisitors(p=>p.map((v:any)=>v.id===m.visitor.id?m.visitor:v));
+            else if(m.visitorId)setLiveVisitors(p=>p.map((v:any)=>v.id===m.visitorId?{...v,is_active:0,status:'offline'}:v));
+          }
         }
       }catch{}};
       ws.onclose=()=>{wsRef.current=null;setTimeout(wsConnect,5000);}; // Auto-reconnect
