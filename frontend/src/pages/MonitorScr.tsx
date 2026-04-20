@@ -551,78 +551,113 @@ export default function MonitorScr({contacts,inboxes,setConvs,setMsgs,setScr,set
             <div style={{fontSize:10,color:"#6b7fa0",marginTop:4}}>{Object.keys(ctrMap).length} countries</div>
           </div>
         </div>
-        {/* SVG World Map — Equirectangular projection */}
-        <svg viewBox="0 0 1200 600" style={{width:"100%",height:"100%",display:"block"}} xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="mapBg" cx="50%" cy="50%" r="60%"><stop offset="0%" stopColor="#0d1220"/><stop offset="100%" stopColor="#060810"/></radialGradient>
-            <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-          </defs>
-          <rect width="1200" height="600" fill="url(#mapBg)"/>
-          {[-60,-30,0,30,60].map(lat=>{const y2=((90-lat)/180)*600;return <line key={"lat"+lat} x1="0" y1={y2} x2="1200" y2={y2} stroke="#141e35" strokeWidth="0.6"/>;})}
-          {[-150,-120,-90,-60,-30,0,30,60,90,120,150].map(lng=>{const x2=((lng+180)/360)*1200;return <line key={"lng"+lng} x1={x2} y1="0" x2={x2} y2="600" stroke="#141e35" strokeWidth="0.6"/>;})}
-          <line x1="0" y1="300" x2="1200" y2="300" stroke="#1a2540" strokeWidth="0.8" strokeDasharray="6,6"/>
-          {/* North America */}
-          <path d="M40,83L53,117L70,107L90,100L110,100L133,103L150,110L170,120L183,133L187,147L190,160L193,173L200,183L207,190L213,200L220,210L230,223L243,233L257,240L270,247L280,250L290,247L297,237L303,230L310,227L313,237L310,243L317,253L323,260L327,250L320,240L310,233L307,223L310,213L317,210L323,213L327,217L333,220L337,213L333,203L330,197L333,190L340,183L347,177L353,170L360,163L367,157L373,150L383,143L393,140L403,137L413,133L420,137L413,127L407,117L400,107L390,97L380,90L367,83L357,80L350,90L340,97L330,103L323,110L313,107L303,100L293,93L287,83L280,73L267,67L247,63L227,60L207,60L187,60L167,63L147,63L127,63L107,63L87,67L67,73L50,80Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.8"/>
-          <path d="M340,37L357,33L373,33L387,37L397,43L400,53L397,63L390,70L380,73L370,73L360,70L350,63L343,53L340,43Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.7"/>
-          <path d="M323,273L330,270L340,270L353,273L363,270L373,273L383,280L393,287L400,297L407,310L413,323L420,337L430,350L437,363L443,377L443,390L440,403L433,417L427,427L420,437L413,443L403,450L393,453L383,453L373,447L367,440L360,430L353,420L347,407L340,393L337,380L333,367L330,350L327,337L323,323L320,310L317,297L317,287L320,280Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.8"/>
-          {/* Europe */}
-          <path d="M530,60L540,57L550,60L557,67L563,73L570,77L580,80L590,83L597,87L603,93L607,100L610,107L613,117L617,127L617,137L613,147L607,153L600,160L593,163L587,167L580,170L573,167L567,163L560,160L553,157L547,153L543,147L540,143L537,137L533,130L530,123L527,117L520,110L517,103L513,97L510,90L510,83L513,77L517,73L523,67Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.8"/>
-          <path d="M510,147L517,143L523,143L530,147L537,150L540,157L540,163L537,170L530,173L523,173L517,170L510,167L507,160L507,153Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.6"/>
-          <path d="M547,147L550,153L553,160L557,167L560,173L557,177L553,177L550,173L547,167L543,160L543,153Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.5"/>
-          <path d="M487,97L493,90L500,90L503,93L503,100L500,107L497,113L493,117L487,117L483,113L480,107L480,100Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.6"/>
-          <path d="M547,47L553,43L560,40L567,40L573,43L577,47L580,53L580,60L577,67L573,73L567,77L560,80L553,77L547,73L543,67L540,60L540,53Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.6"/>
-          {/* Africa */}
-          <path d="M530,190L540,187L550,183L560,183L570,183L580,187L590,190L600,193L607,200L613,207L620,213L627,223L633,233L637,243L640,257L643,270L643,283L643,297L640,310L637,323L633,337L627,350L620,360L613,370L607,380L597,387L587,393L577,397L567,400L557,397L547,393L540,387L533,377L527,367L523,357L520,343L517,330L517,317L517,303L520,290L523,277L527,263L530,250L530,237L527,223L527,210L527,200Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.8"/>
-          {/* Middle East */}
-          <path d="M620,167L630,163L643,160L657,160L667,163L677,170L683,180L687,190L690,200L690,210L687,220L680,227L673,230L663,233L653,230L643,223L637,217L630,210L623,200L620,190L617,180Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.7"/>
-          {/* Russia */}
-          <path d="M620,53L640,47L660,43L683,40L707,37L730,37L753,37L777,40L800,40L823,43L847,43L867,47L887,50L903,53L917,57L927,63L933,70L937,80L933,87L927,93L917,97L903,100L887,100L867,97L847,97L830,93L813,90L797,90L780,87L763,87L747,87L730,87L713,90L697,90L683,93L670,93L657,93L643,93L633,87L627,80L623,73L620,63Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.7"/>
-          {/* India */}
-          <path d="M727,193L737,190L747,190L757,193L767,200L773,210L777,223L780,237L780,253L777,267L773,277L767,287L757,293L747,297L737,293L730,287L723,277L720,267L717,253L717,240L720,227L723,213L723,203Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.7"/>
-          {/* China + East Asia */}
-          <path d="M767,90L783,87L800,83L820,83L840,87L857,90L873,97L887,107L897,117L903,130L907,143L907,157L903,170L897,180L887,187L873,193L857,197L843,197L827,193L813,190L800,183L790,177L780,167L773,157L767,143L763,130L760,117L760,103Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.8"/>
-          <path d="M920,130L923,137L927,143L930,150L930,160L927,167L923,170L917,167L913,160L913,150L913,143L917,137Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.5"/>
-          <path d="M940,120L947,117L953,117L957,120L960,127L960,137L957,147L953,157L950,163L943,167L937,163L933,157L933,147L933,137L937,127Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.6"/>
-          {/* Southeast Asia */}
-          <path d="M817,220L830,217L843,217L857,220L867,227L877,237L883,247L887,260L887,273L883,283L877,290L867,293L853,293L840,290L830,283L823,277L817,267L813,253L813,240L813,230Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.7"/>
-          {/* Australia */}
-          <path d="M947,360L963,353L980,350L1000,350L1017,353L1033,360L1043,370L1050,380L1053,393L1053,407L1050,417L1043,427L1033,433L1020,437L1007,440L993,440L980,437L967,430L957,420L950,410L947,397L943,383L943,370Z" fill="#141e35" stroke="#1e2d50" strokeWidth="0.8"/>
-          {/* Connection lines */}
-          {visitors.filter((v:any)=>v.chatStatus==="chatting").map((vis:any,i:number,arr:any[])=>{
-            if(i===0||!vis.lat||!vis.lng)return null;const prev=arr[i-1];if(!prev.lat||!prev.lng)return null;
-            const x1=((prev.lng+180)/360)*1200,y1=((90-prev.lat)/180)*600;
-            const x2=((vis.lng+180)/360)*1200,y2=((90-vis.lat)/180)*600;
-            return <line key={"conn"+i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#4c82fb" strokeWidth="0.5" opacity="0.15" strokeDasharray="4,6"/>;
-          })}
-          {/* Visitor dots */}
-          {visitors.filter((v:any)=>v.lat&&v.lng).map((vis:any)=>{
-            const x=((vis.lng+180)/360)*1200;
-            const y=((90-vis.lat)/180)*600;
-            const isChatting=vis.chatStatus==="chatting";
-            return <g key={vis.id} style={{cursor:"pointer"}} onClick={()=>setMapSel(mapSel?.id===vis.id?null:vis)}>
-              <circle cx={x} cy={y} r={isChatting?14:8} fill={vis.color} opacity="0.08"/>
-              <circle cx={x} cy={y} r={isChatting?10:6} fill={vis.color} opacity="0.15" style={{animation:"pulse 2.5s infinite"}}/>
-              <circle cx={x} cy={y} r={isChatting?5:3.5} fill={vis.color} opacity="0.95"/>
-              {isChatting&&<circle cx={x} cy={y} r={8} fill="none" stroke={vis.color} strokeWidth="1.2" opacity="0.5" style={{animation:"pulse 1.5s infinite"}}/>}
-              {isChatting&&<text x={x} y={y-12} textAnchor="middle" fill={vis.color} fontSize="8" fontWeight="700" fontFamily="monospace" opacity="0.8">{vis.name?.split(" ")[0]||"Chat"}</text>}
-            </g>;
-          })}
-          {/* Selected tooltip */}
-          {mapSel&&mapSel.lat&&mapSel.lng&&(()=>{
-            const x=Math.min(Math.max(((mapSel.lng+180)/360)*1200,130),1070);
-            const y=Math.min(Math.max(((90-mapSel.lat)/180)*600,90),510);
-            const w=220,h=82;
-            return <g style={{animation:"fadeUp .15s ease"}}>
-              <rect x={x-w/2+2} y={y-h-6} width={w} height={h} rx="10" fill="#000" opacity="0.4"/>
-              <rect x={x-w/2} y={y-h-8} width={w} height={h} rx="10" fill="#111827" stroke={mapSel.color} strokeWidth="1.5"/>
-              <rect x={x-w/2} y={y-h-8} width={w} height="4" rx="10" fill={mapSel.color}/>
-              <text x={x} y={y-h+16} textAnchor="middle" fill="#f1f5f9" fontSize="13" fontWeight="700">{mapSel.flag} {mapSel.name||"Anonymous"}</text>
-              <text x={x} y={y-h+32} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">{mapSel.page}</text>
-              <text x={x} y={y-h+48} textAnchor="middle" fill="#64748b" fontSize="10">{mapSel.country} · {mapSel.device} · {fmtTime(mapSel.timeOnSite)}</text>
-              <text x={x} y={y-h+64} textAnchor="middle" fill={mapSel.chatStatus==="chatting"?"#4c82fb":"#22c55e"} fontSize="10" fontWeight="700">{mapSel.chatStatus==="chatting"?"💬 In Conversation":"👁 Browsing"}</text>
-            </g>;
-          })()}
-        </svg>
+        {/* Proper SVG World Map — Mercator projection */}
+        {(() => {
+          const MAP_W = 1200;
+          const MAP_H = 600;
+          
+          // Mercator Projection Helper
+          const getMapCoords = (lat: number, lng: number) => {
+            // Standard Mercator projection
+            const x = ((lng + 180) * (MAP_W / 360));
+            // Clamp lat to avoid Infinity at poles
+            const latClamped = Math.max(-85, Math.min(85, lat));
+            const latRad = (latClamped * Math.PI) / 180;
+            const mercN = Math.log(Math.tan((Math.PI / 4) + (latRad / 2)));
+            const y = (MAP_H / 2) - (MAP_W * mercN / (2 * Math.PI));
+            // Adjust for visual centering (standard map offset)
+            return { x, y: y + 40 }; 
+          };
+
+          return (
+            <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} style={{width:"100%",height:"100%",display:"block"}} xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <radialGradient id="mapBg" cx="50%" cy="50%" r="60%">
+                  <stop offset="0%" stopColor="#0d1220"/>
+                  <stop offset="100%" stopColor="#060810"/>
+                </radialGradient>
+                <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              </defs>
+              <rect width={MAP_W} height={MAP_H} fill="url(#mapBg)"/>
+              
+              {/* Grid Lines */}
+              {[-60,-30,0,30,60].map(lat => {
+                const { y } = getMapCoords(lat, 0);
+                return <line key={"lat"+lat} x1="0" y1={y} x2={MAP_W} y2={y} stroke="#141e35" strokeWidth="0.6"/>;
+              })}
+              {[-150,-120,-90,-60,-30,0,30,60,90,120,150].map(lng => {
+                const { x } = getMapCoords(0, lng);
+                return <line key={"lng"+lng} x1={x} y1="0" x2={x} y2={MAP_H} stroke="#141e35" strokeWidth="0.6"/>;
+              })}
+
+              {/* Detailed World Map Paths (Mercator Optimized) */}
+              <g fill="#141e35" stroke="#1e2d50" strokeWidth="0.5" style={{transition: 'all 0.3s'}}>
+                {/* North America */}
+                <path d="M196.4,122.9 L204.3,122.9 L213.1,130.4 L216.2,143.2 L223.7,144.1 L234.3,138.8 L238.2,140.1 L237.8,148.1 L244.4,155.6 L253.7,155.6 L259,161.7 L259.9,167.9 L253.7,174.5 L243.5,174.5 L233,182.9 L227.2,192.6 L224.6,206.3 L233,212 L242.3,213.8 L252,207.2 L260,208.5 L263.1,216.9 L269.7,220 L271.9,229.7 L276.7,235 L283.4,233.2 L289.1,224.4 L293.1,213.3 L298,206.3 L304.6,206.3 L312.1,213.8 L320.1,208.1 L320.5,199.2 L326.7,196.6 L332.9,201.9 L337.3,198.8 L334.6,189.9 L329.8,185.1 L332.9,179.3 L340,178.9 L345.3,174.9 L351,168.3 L359,163 L369.6,155.1 L377.1,155.1 L384.6,158.6 L388.5,165.7 L398.7,166.5 L405.3,161.3 L415,161.3 L423.8,154.6 L426.9,145.8 L422.5,135.2 L415,129 L410.6,117.1 L403.5,108.7 L394.7,100.3 L382.4,94.6 L370.4,89.7 L359.4,89.7 L349.3,95 L339.1,104.7 L328.5,110.5 L320.5,103.8 L309.5,101.2 L301.6,92.8 L293.2,85.3 L281.7,82.2 L268.5,80 L254,80 L239.9,80.4 L224.9,82.2 L211.7,85.3 L199.3,91 L189.6,98.5 L184.8,109.1 L187.9,118.8 Z" />
+                {/* South America */}
+                <path d="M312,285 L325,278 L345,275 L365,285 L385,305 L400,335 L415,375 L425,415 L425,465 L415,505 L395,535 L375,555 L355,565 L335,565 L315,555 L295,535 L285,505 L275,465 L275,415 L285,375 L295,335 L305,305 Z" />
+                {/* Europe */}
+                <path d="M510,120 L525,110 L550,105 L575,110 L595,125 L610,150 L615,180 L610,210 L595,235 L575,250 L550,255 L525,250 L505,235 L495,210 L490,180 L495,150 Z" />
+                {/* Africa */}
+                <path d="M545,260 L575,255 L605,265 L635,285 L655,325 L665,375 L655,425 L635,475 L605,505 L575,525 L545,535 L515,525 L485,505 L465,475 L455,425 L465,375 L485,325 L515,285 Z" />
+                {/* Asia */}
+                <path d="M660,110 L700,95 L750,90 L810,95 L860,110 L910,140 L940,180 L960,230 L960,290 L940,350 L910,400 L860,440 L800,465 L730,475 L670,465 L630,440 L610,400 L600,350 L610,290 L630,230 L650,180 Z" />
+                {/* Australia */}
+                <path d="M960,430 L985,415 L1020,410 L1050,420 L1070,445 L1075,480 L1065,515 L1040,540 L1005,550 L975,540 L950,515 L940,480 L945,445 Z" />
+                
+                {/* Detailed island groups */}
+                <path d="M350,60 L370,55 L395,60 L410,75 L415,95 L405,115 L385,125 L360,120 L345,100 L340,80 Z" /> {/* Greenland */}
+                <path d="M920,170 L935,165 L950,175 L955,195 L945,215 L925,220 L910,205 L910,185 Z" /> {/* Japan */}
+                <path d="M830,285 L850,280 L870,290 L875,310 L865,330 L840,335 L825,320 L825,300 Z" /> {/* SE Asia Islands */}
+              </g>
+
+              {/* Connection lines */}
+              {visitors.filter((v:any)=>v.chatStatus==="chatting").map((vis:any,i:number,arr:any[])=>{
+                if(i===0||!vis.lat||!vis.lng)return null;
+                const prev=arr[i-1];
+                if(!prev.lat||!prev.lng)return null;
+                const p1 = getMapCoords(prev.lat, prev.lng);
+                const p2 = getMapCoords(vis.lat, vis.lng);
+                return <line key={"conn"+i} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4c82fb" strokeWidth="0.5" opacity="0.15" strokeDasharray="4,6"/>;
+              })}
+
+              {/* Visitor dots */}
+              {visitors.filter((v:any)=>v.lat&&v.lng).map((vis:any)=>{
+                const { x, y } = getMapCoords(vis.lat, vis.lng);
+                const isChatting = vis.chatStatus === "chatting";
+                return (
+                  <g key={vis.id} style={{cursor:"pointer"}} onClick={() => setMapSel(mapSel?.id === vis.id ? null : vis)}>
+                    <circle cx={x} cy={y} r={isChatting ? 14 : 8} fill={vis.color} opacity="0.08"/>
+                    <circle cx={x} cy={y} r={isChatting ? 10 : 6} fill={vis.color} opacity="0.15" style={{animation:"pulse 2.5s infinite"}}/>
+                    <circle cx={x} cy={y} r={isChatting ? 5 : 3.5} fill={vis.color} opacity="0.95"/>
+                    {isChatting && <circle cx={x} cy={y} r={8} fill="none" stroke={vis.color} strokeWidth="1.2" opacity="0.5" style={{animation:"pulse 1.5s infinite"}}/>}
+                    {isChatting && <text x={x} y={y-12} textAnchor="middle" fill={vis.color} fontSize="8" fontWeight="700" fontFamily="monospace" opacity="0.8">{vis.name?.split(" ")[0] || "Chat"}</text>}
+                  </g>
+                );
+              })}
+
+              {/* Selected tooltip */}
+              {mapSel && mapSel.lat && mapSel.lng && (() => {
+                const { x: rawX, y: rawY } = getMapCoords(mapSel.lat, mapSel.lng);
+                const x = Math.min(Math.max(rawX, 130), MAP_W - 130);
+                const y = Math.min(Math.max(rawY, 90), MAP_H - 90);
+                const w = 220, h = 82;
+                return (
+                  <g style={{animation:"fadeUp .15s ease"}}>
+                    <rect x={x-w/2+2} y={y-h-6} width={w} height={h} rx="10" fill="#000" opacity="0.4"/>
+                    <rect x={x-w/2} y={y-h-8} width={w} height={h} rx="10" fill="#111827" stroke={mapSel.color} strokeWidth="1.5"/>
+                    <rect x={x-w/2} y={y-h-8} width={w} height="4" rx="10" fill={mapSel.color}/>
+                    <text x={x} y={y-h+16} textAnchor="middle" fill="#f1f5f9" fontSize="13" fontWeight="700">{mapSel.flag} {mapSel.name || "Anonymous"}</text>
+                    <text x={x} y={y-h+32} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">{mapSel.page}</text>
+                    <text x={x} y={y-h+48} textAnchor="middle" fill="#64748b" fontSize="10">{mapSel.country} · {mapSel.device} · {fmtTime(mapSel.timeOnSite)}</text>
+                    <text x={x} y={y-h+64} textAnchor="middle" fill={mapSel.chatStatus === "chatting" ? "#4c82fb" : "#22c55e"} fontSize="10" fontWeight="700">{mapSel.chatStatus === "chatting" ? "💬 In Conversation" : "👁 Browsing"}</text>
+                  </g>
+                );
+              })()}
+            </svg>
+          );
+        })()}
+
         {/* Legend */}
         <div style={{position:"absolute",bottom:16,right:16,display:"flex",gap:8}}>
           {[{c:"#22c55e",l:"Browsing",n:visitors.filter((v:any)=>v.chatStatus==="browsing").length},{c:"#f5a623",l:"Invited",n:invited},{c:"#9b6dff",l:"Chatting",n:chatting}].map(x=>(
