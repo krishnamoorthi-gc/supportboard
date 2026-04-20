@@ -16,7 +16,7 @@ router.get('/visitors', auth, async (req, res) => {
          AND session_id NOT LIKE 'test_%' AND session_id NOT LIKE 'debug_%'
          AND session_id NOT LIKE 'manual_%' AND session_id NOT LIKE 'live_verify%'
          AND session_id NOT LIKE 'px_test_%'
-       ORDER BY last_seen DESC`
+       ORDER BY is_active DESC, created_at DESC`
     ).all();
     res.json({ visitors, total: visitors.length });
   } catch (e) {

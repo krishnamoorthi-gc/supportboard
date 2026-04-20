@@ -262,9 +262,17 @@ app.get('/tracker.js', (req, res) => {
   'use strict';
   var B='${BACKEND}';
   var SK='_sd_vsid';
-  var sid=null;
-  try{sid=localStorage.getItem(SK);}catch{}
-  if(!sid){sid='vs_'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);try{localStorage.setItem(SK,sid);}catch{}}
+  var TK='_sd_vlh';
+  var TIMEOUT=30*60*1000;
+  var sid=null,lastHit=0;
+  try{sid=localStorage.getItem(SK);lastHit=parseInt(localStorage.getItem(TK)||'0',10)||0;}catch{}
+  // Treat as a NEW visit if no session yet OR last activity was more than TIMEOUT ago
+  if(!sid||Date.now()-lastHit>TIMEOUT){
+    sid='vs_'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+    try{localStorage.setItem(SK,sid);}catch{}
+  }
+  function touch(){try{localStorage.setItem(TK,String(Date.now()));}catch{}}
+  touch();
   var lastHb=0;
   var startTime=Date.now();
   function src(){
@@ -288,6 +296,7 @@ app.get('/tracker.js', (req, res) => {
     var now=Date.now();
     if(evt==='heartbeat'&&now-lastHb<25000)return;
     lastHb=now;
+    touch();
     var duration=Math.floor((Date.now()-startTime)/1000);
     var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch{}
     var payload={session_id:sid,event:evt,page:window.location.href,
