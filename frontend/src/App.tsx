@@ -636,7 +636,8 @@ export default function App(){
           if(convId&&convSubject){(async()=>{try{const d=await api.post('/ai/chat',{max_tokens:60,system:"Classify this support ticket into ONE category: Bug, Billing, Feature Request, Onboarding, Urgent, General. Reply with just the category name.",messages:[{role:"user",content:convSubject}]});const tag=(d.content?.[0]?.text||"General").trim();setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,tag])]}:c));}catch{const autoTags:Record<string,string>={"payment":"Billing","invoice":"Billing","bug":"Bug","error":"Bug","crash":"Bug","feature":"Feature Request","integrate":"Feature Request","setup":"Onboarding","start":"Onboarding"};const sub=convSubject.toLowerCase();const matched=Object.entries(autoTags).find(([k])=>sub.includes(k));if(matched)setConvs((p:any)=>p.map((c:any)=>c.id===convId?{...c,labels:[...new Set([...c.labels,matched[1]])]}:c));}})();}
         }
         if(m.type==="visitor_update"){
-          if(m.action==="join"&&m.visitor)setLiveVisitors(p=>[...p.filter((v:any)=>v.id!==m.visitor.id),m.visitor]);
+          // Prepend new joins so they appear at the top of the list immediately
+          if(m.action==="join"&&m.visitor)setLiveVisitors(p=>[m.visitor,...p.filter((v:any)=>v.id!==m.visitor.id)]);
           else if((m.action==="pagechange"||m.action==="status")&&m.visitor)setLiveVisitors(p=>p.map((v:any)=>v.id===m.visitor.id?m.visitor:v));
           else if(m.action==="leave"){
             // Update the visitor with is_active=0 so it flips to "Ended" without disappearing from the list

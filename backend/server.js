@@ -423,7 +423,7 @@ app.post('/api/track', async (req, res) => {
       ).run(page, JSON.stringify(history), newCount, page, vName, vEmail, vPhone, vAvatar, vGoogle, utm_source || existing.utm_source, session_id);
 
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
-      if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
+      if (v) { v.is_active = 1; broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v }); }
     } else {
       const id = uid();
       await db.prepare(`INSERT INTO visitor_sessions
@@ -446,7 +446,7 @@ app.post('/api/track', async (req, res) => {
         identify.name || null, identify.email || null, identify.phone || null, identify.avatar || null, identify.google_id || null
       );
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
-      if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
+      if (v) { v.is_active = 1; broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v }); }
     }
   } catch (e) {
     console.error('❌ Tracking Error:', e);
@@ -504,7 +504,7 @@ app.get('/api/px', async (req, res) => {
       ).run(page, JSON.stringify(history), newCount, page, existing.utm_source || '', session_id);
 
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
-      if (v) broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v });
+      if (v) { v.is_active = 1; broadcastToAll({ type: 'visitor_update', action: 'pagechange', visitor: v }); }
     } else {
       const id = uid();
       await db.prepare(`INSERT INTO visitor_sessions
@@ -526,7 +526,7 @@ app.get('/api/px', async (req, res) => {
         page || '', page || '', ''
       );
       const v = await db.prepare('SELECT * FROM visitor_sessions WHERE session_id=?').get(session_id);
-      if (v) broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v });
+      if (v) { v.is_active = 1; broadcastToAll({ type: 'visitor_update', action: 'join', visitor: v }); }
     }
   } catch (e) {
     console.error('❌ Pixel Tracking Error:', e);
